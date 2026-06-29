@@ -1,5 +1,4 @@
 # module_harness/tests/test_events.py
-import time
 from module_harness.events import (
     EventBus,
     HarnessEvent, PromptRendered, LlmCallStarted, LlmToken,
