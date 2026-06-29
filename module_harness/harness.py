@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import time
 from typing import Any
 
@@ -90,20 +91,13 @@ class Harness:
             try:
                 from llm.client import LLMError
 
-                # 准备 system prompt（notdo）
-                system = None
-                if config.notdo:
-                    system = "不要做以下事项：\n" + "\n".join(
-                        f"- {n}" for n in config.notdo
-                    )
-
+                # notdo 由 LLM client 内部通过 _build_system() 拼入 system prompt
                 response = await llm.complete(
                     prompt=rendered,
-                    system=system,
                     model=config.model,
                     temperature=config.temperature,
                     think=config.think,
-                    output_format=config.output_format.__dict__ if config.output_format else None,
+                    output_format=dataclasses.asdict(config.output_format) if config.output_format else None,
                     notdo=config.notdo if config.notdo else None,
                     on_token=on_token,
                 )

@@ -180,7 +180,7 @@ class TestHarnessBuildBody:
         assert "额外指令" in call_prompt
 
     @pytest.mark.asyncio
-    async def test_notdo_passed_to_system(self, mock_llm, basic_config):
+    async def test_notdo_passed_to_llm(self, mock_llm, basic_config):
         from llm.client import LLMResponse
         mock_llm.complete.return_value = LLMResponse(
             content="ok",
@@ -197,6 +197,7 @@ class TestHarnessBuildBody:
 
         await body(_make_view())
 
-        sys = mock_llm.complete.call_args.kwargs.get("system") or ""
-        assert "不要废话" in sys
-        assert "不要重复" in sys
+        # notdo 通过 notdo= 参数传递，由 LLM client 内部 _build_system() 拼入 system
+        passed_notdo = mock_llm.complete.call_args.kwargs.get("notdo") or []
+        assert "不要废话" in passed_notdo
+        assert "不要重复" in passed_notdo
