@@ -33,7 +33,7 @@
 | 创建 | `module_harness/tests/test_outputfmt.py` | OutputValidator 测试 |
 | 创建 | `module_harness/tests/test_config.py` | HarnessConfig 测试 |
 | 创建 | `module_harness/tests/test_prompt.py` | PromptRenderer 测试 |
-| 创建 | `module_harness/tests/test_harness.py` | Harness body 集成测试 |
+| 创建 | `module_harness/tests/test_harne1ss.py` | Harness body 集成测试 |
 | 创建 | `module_harness/tests/test_registry.py` | HarnessRegistry 注册+事件测试 |
 
 ---
