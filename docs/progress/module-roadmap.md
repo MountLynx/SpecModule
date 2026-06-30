@@ -96,19 +96,78 @@
 
 ---
 
-### 4. submodule
+### 4. submodule（含模块打包/发布）
 
-**说明**：tasklist 固定、spec 强模板化的嵌入式 module——一个特定 I/O 的"箱子"。内部复用 Module 的完整流程，但关闭不必要的开销。
+**说明**：tasklist 固定、spec 强模板化的嵌入式 module——一个特定 I/O 的"箱子"。同时也是 module 作为一等公民的打包与发布单元。submodule 的定义结构天然包含打包清单所需的一切——一次设计覆盖"嵌入式运行"+"自描述"+"发布"三个需求。
 
-**实现方向**：
-- `SubModule(Module)` 或 `Module(inputs, outputs, tasklist, spec, embedded=True)`
-- 嵌入式模式默认关闭：
-  - `keep_records=False`（关 audit log）
-  - `EventBus.null()`（关事件总线）
-  - 不持久化快照、不回滚（除非显式开启）
-  - 固定 spec 和 tasklist，不可修改
-- 输入 → 内部 runner → 输出，对外表现为 `(dict) -> dict` 纯函数
-- 核查清单：tickflow 的 `keep_records` 开关 ✅ 已有、`EventBus.null()` ✅ 已有、`Backend` 可选 ✅ 已有。需核查 `runner.py` 的 hooks 注册是否有无开销模式
+**核心概念**：一个 submodule 是一个自包含目录，内含 `module.json` 清单文件：
+
+```
+my_translator/
+├── module.json          # 清单 = submodule 定义 + 打包单元
+├── harnesses/            # 自带 harness 配置（可选）
+├── scripts/              # 自带 script（可选）
+└── commands/             # 自带 command 配置（可选）
+```
+
+**module.json 结构**：
+
+```json
+{
+  "name": "my_translator",
+  "version": "1.0.0",
+  "description": "专业翻译模块",
+  "submodule": true,
+
+  "spec_schema": {
+    "input": ["source_text", "style"],
+    "output": ["translation"]
+  },
+
+  "requires": {
+    "harnesses": ["translate"],
+    "scripts": ["format_output"]
+  },
+
+  "provides": {
+    "harnesses": ["translate"],
+    "scripts": ["format_output"]
+  },
+
+  "tasklist": {
+    "Tasks": {
+      "A": { "type": "harness", "harness": "translate" },
+      "B": { "type": "script", "script": "format_output" }
+    },
+    "Flow": "A --> B"
+  }
+}
+```
+
+**四层含义**：
+
+| 层次 | 内容 | 用途 |
+|------|------|------|
+| **I/O 契约** | `spec_schema` | 声明输入/输出字段，外部调用者和前端可据此生成界面 |
+| **依赖声明** | `requires` | 依赖的外部 harness/script/command 名称，加载时可校验 |
+| **供给声明** | `provides` | 本 module 自带的实现，可被其他 module 引用 |
+| **执行定义** | `tasklist` | 内置 workflow，submodule 模式下固定不可修改 |
+
+**运行模式**：
+
+- 作为 submodule 嵌入运行时：默认关闭 audit、EventBus、持久化，对外为 `(input_dict) -> output_dict` 纯函数
+- 作为独立 module 运行时：完整 runner，audit + snapshot + 回滚全开
+
+**ModuleLoader**：
+
+```python
+loader = ModuleLoader()
+module = loader.load("path/to/my_translator/")
+# 自动：解析 module.json → 注册 provides → 校验 requires → 构建 SubModule 实例
+result = await module.run({"source_text": "Hello", "style": "formal"})
+```
+
+**发布/安装**：打包 = 目录压缩或 git repo；安装 = ModuleLoader 从本地目录或远程 URL 加载。后续可支持模块注册表。
 
 **依赖**：spec + tasklist 输入通道（#1）
 
@@ -177,7 +236,7 @@
 ├─────────────────────────┤
 │ 4. 一致性审核           │  ← 依赖 #1
 ├─────────────────────────┤
-│ 5. submodule            │  ← 依赖 #1
+│ 5. submodule + 打包/发布│  ← 依赖 #1，含 module.json + ModuleLoader
 ├─────────────────────────┤
 │ 6. 快照/回滚封装        │  ← 依赖 #1
 ├─────────────────────────┤
@@ -185,4 +244,4 @@
 └─────────────────────────┘
 ```
 
-`#1 → #4 → #5 → #6 & #2` 有依赖链，`#3` 和 `#7` 可独立进行。
+`#1 → #4 → #5 → #6 & #2` 有依赖链。`#5` 是最大的任务——submodule + 打包发布合并实现，一次设计覆盖"嵌入式运行 + 自描述清单 + 模块发布"。`#3` 和 `#7` 可独立进行。
