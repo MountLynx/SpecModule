@@ -66,6 +66,15 @@ class TasklistTranslator:
             isolated_name = self._isolated(key)
             graph.nodes[key].body = isolated_name
 
+        # 5.  Wire task inputs to graph node inputs.
+        #     Each (field_name -> producer_name) entry in task.inputs becomes
+        #     node.inputs[field_name] = InputPolicy.latest(), so the body can
+        #     access ``view.field_name.value`` and receive the producer's value.
+        for key, task in tasklist.tasks.items():
+            if task.inputs:
+                for field_name in task.inputs:
+                    graph.nodes[key].inputs[field_name] = InputPolicy.latest()
+
         return graph, self.reg
 
     # ------------------------------------------------------------------

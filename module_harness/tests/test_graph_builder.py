@@ -142,3 +142,19 @@ class TestTasklistTranslator:
 
         # mod_b's body does not appear under mod_a's prefix.
         assert out_reg1.has_body("mod_b:B") is False
+
+    def test_inputs_wired_to_graph_nodes(self, reg):
+        """Task inputs are propagated to graph node inputs."""
+        tl = Tasklist(
+            tasks={
+                "A": TaskDefinition(
+                    type="script", script="post_process", inputs={"text": "src"},
+                ),
+            },
+            flow="A",
+        )
+        builder = TasklistTranslator(reg, module_id="test_inputs")
+        graph, _ = builder.build(tl)
+
+        assert "A" in graph.nodes
+        assert graph.nodes["A"].inputs["text"].kind == "latest"
