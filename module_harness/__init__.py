@@ -20,6 +20,16 @@ from .events import (
 )
 from .harness import Harness
 from .registry import HarnessRegistry
+from .spec import (
+    Spec,
+    TaskDefinition,
+    Tasklist,
+    TranslationSpec,
+    TasklistTemplate,
+)
+from .translator import TasklistValidator, TemplateLoader, Translator
+from .graph_builder import TasklistTranslator
+from .module import Module
 
 __all__ = [
     # 配置
@@ -45,4 +55,18 @@ __all__ = [
     # 核心
     "Harness",
     "HarnessRegistry",
+    # 数据模型
+    "Spec",
+    "TaskDefinition",
+    "Tasklist",
+    "TranslationSpec",
+    "TasklistTemplate",
+    # 翻译
+    "TasklistValidator",
+    "TemplateLoader",
+    "Translator",
+    # Graph 构建
+    "TasklistTranslator",
+    # 编排
+    "Module",
 ]
