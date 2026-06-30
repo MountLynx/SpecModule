@@ -102,6 +102,7 @@ class TranslationSpec:
     harness: str | None = None
     script: str | None = None
     prompt: str | None = None
+    prompt_core: str | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "TranslationSpec":
@@ -110,6 +111,7 @@ class TranslationSpec:
             harness=d.get("harness"),
             script=d.get("script"),
             prompt=d.get("prompt"),
+            prompt_core=d.get("prompt_core"),
         )
 
 

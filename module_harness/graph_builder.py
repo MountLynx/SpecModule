@@ -8,7 +8,6 @@ so modules with overlapping task keys do not collide.
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from tickflow import Graph, parse as parse_graph
@@ -18,6 +17,7 @@ from .config import HarnessConfig
 from .outputfmt import OutputFormat
 from .registry import HarnessRegistry
 from .spec import TaskDefinition, Tasklist
+from .translator import prepare_flow
 
 
 class TasklistTranslator:
@@ -29,9 +29,6 @@ class TasklistTranslator:
         builder = TasklistTranslator(registry, module_id="my_mod")
         graph, out_reg = builder.build(tasklist)
     """
-
-    # Regex to find the first node name in a flow line.
-    _FIRST_NODE = re.compile(r"^[ \t]*\[?(?P<name>[A-Za-z_][A-Za-z0-9_]*)")
 
     def __init__(self, registry: HarnessRegistry, module_id: str) -> None:
         self.reg = registry
@@ -55,7 +52,7 @@ class TasklistTranslator:
         # 2.  Prepare the flow text for tickflow's parser (no body/input
         #     declarations -- those are attached programmatically below
         #     because tickflow's DSL does not support ``:`` in body names).
-        flow_text = self._prepare_flow(tasklist.flow)
+        flow_text = prepare_flow(tasklist.flow)
 
         # 3.  Parse into a Graph.  The parser validates that guard names
         #     and default placeholder bodies exist in the registry.
@@ -76,40 +73,6 @@ class TasklistTranslator:
                     graph.nodes[key].inputs[field_name] = InputPolicy.latest()
 
         return graph, self.reg
-
-    # ------------------------------------------------------------------
-    # Flow preparation
-    # ------------------------------------------------------------------
-
-    @classmethod
-    def _prepare_flow(cls, flow: str) -> str:
-        """Ensure the flow text is valid tickflow DSL.
-
-        The tasklist ``flow`` field uses a tickflow-like syntax but allows
-        bare task names as the whole flow (meaning that task is both the
-        start and the only node).  This method:
-          * wraps a bare name as ``[name]``, and
-          * wraps the first token in ``[...]`` when no start marker exists
-            (only one start is added for the simplest case).
-        """
-        stripped = flow.strip()
-
-        # Single bare name -> start node.
-        if "--> " not in stripped and "-->[" not in stripped and stripped.startswith("[") is False:
-            # Check if it looks like a single node name (no arrow).
-            if cls._FIRST_NODE.fullmatch(stripped):
-                return f"[{stripped}]"
-
-        # Multi-node flow with no ``[start]`` marker at all.
-        if "[" not in stripped:
-            m = cls._FIRST_NODE.match(stripped)
-            if m:
-                first = m.group("name")
-                # Replace the first occurrence of the bare name with [name].
-                idx = m.end("name")
-                return f"[{first}]{stripped[idx:]}"
-
-        return stripped
 
     # ------------------------------------------------------------------
     # Body registration

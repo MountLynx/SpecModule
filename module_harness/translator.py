@@ -11,8 +11,41 @@ from typing import Any
 from tickflow import Failure, parse as parse_graph
 from tickflow.views import DictView, Resolved
 
+from .config import HarnessConfig
+from .harness import Harness
 from .spec import Spec, Tasklist, TasklistTemplate, TaskDefinition
 from .registry import HarnessRegistry
+
+# Regex to find the first node name in a flow line.
+_FIRST_NODE = re.compile(r"^[ \t]*\[?(?P<name>[A-Za-z_][A-Za-z0-9_]*)")
+
+
+def prepare_flow(flow: str) -> str:
+    """Ensure the flow text is valid tickflow DSL.
+
+    The tasklist ``flow`` field uses a tickflow-like syntax but allows
+    bare task names as the whole flow (meaning that task is both the
+    start and the only node).  This function:
+      * wraps a bare name as ``[name]``, and
+      * wraps the first token in ``[...]`` when no start marker exists
+        (only one start is added for the simplest case).
+    """
+    stripped = flow.strip()
+
+    # Single bare name -> start node.
+    if "--> " not in stripped and "-->[" not in stripped and stripped.startswith("[") is False:
+        if _FIRST_NODE.fullmatch(stripped):
+            return f"[{stripped}]"
+
+    # Multi-node flow with no ``[start]`` marker at all.
+    if "[" not in stripped:
+        m = _FIRST_NODE.match(stripped)
+        if m:
+            first = m.group("name")
+            idx = m.end("name")
+            return f"[{first}]{stripped[idx:]}"
+
+    return stripped
 
 
 class TasklistValidator:
@@ -76,9 +109,9 @@ class TasklistValidator:
             if key not in node_names:
                 errors.append(f"Task '{key}' 在 Flow 中未被引用（孤立节点）")
 
-        # 尝试 tickflow parse 检测语法问题
+        # 尝试 tickflow parse 检测语法问题（与 graph_builder 使用相同的 prepare_flow 预处理）
         try:
-            parse_graph(flow)
+            parse_graph(prepare_flow(flow))
         except Exception as e:
             errors.append(f"Flow 解析失败: {e}")
 
@@ -134,15 +167,21 @@ class Translator:
         if ts.type == "script":
             tasks_dict = await self._call_script_translator(ts.script, spec)
         elif ts.type == "harness":
-            tasks_dict = await self._call_harness_translator(ts.harness, ts.prompt, spec)
+            tasks_dict = await self._call_harness_translator(ts.harness, ts.prompt, spec, prompt_core=ts.prompt_core)
         else:
             raise ValueError(f"不支持的 translation type: {ts.type}")
+
+        # 检测 LLM 返回的包装格式 {"Tasks": {...}, "Flow": "..."}
+        flow = template.tasklist.flow
+        if isinstance(tasks_dict, dict) and "Tasks" in tasks_dict:
+            flow = tasks_dict.get("Flow", flow)
+            tasks_dict = tasks_dict["Tasks"]
 
         # 构建 tasklist 并校验
         tasklist = Tasklist(tasks={
             key: TaskDefinition.from_dict(td) if isinstance(td, dict) else td
             for key, td in tasks_dict.items()
-        }, flow=template.tasklist.flow)
+        }, flow=flow)
 
         errors = TasklistValidator.validate(tasklist, self.reg)
         if errors:
@@ -162,13 +201,42 @@ class Translator:
             result = await result
         return result
 
-    async def _call_harness_translator(self, harness_name: str, prompt_extra: str, spec: Spec) -> dict:
-        """调用 harness body（异步 LLM），parse 返回的 JSON 为 task dict。"""
-        body = self.reg.get_body(harness_name)
-        view = DictView(
-            {"spec": Resolved(value=spec.to_dict(), k=None)},
-            node="__translator__",
-        )
+    async def _call_harness_translator(
+        self,
+        harness_name: str,
+        prompt_extra: str,
+        spec: Spec,
+        prompt_core: str | None = None,
+    ) -> dict:
+        """调用 harness body（异步 LLM），parse 返回的 JSON 为 task dict。
+
+        如果提供 *prompt_core*，则覆盖原 harness 配置的核心提示词模板。
+        """
+        if prompt_core is not None:
+            existing = self.reg.harness_config(harness_name)
+            if existing is not None:
+                overridden = HarnessConfig(
+                    prompt_core=prompt_core,
+                    prompt_modes=dict(existing.prompt_modes),
+                    output_format=existing.output_format,
+                    notdo=list(existing.notdo),
+                    model=existing.model,
+                    temperature=existing.temperature,
+                    think=existing.think,
+                )
+                h = Harness(overridden, self.reg._llm_client, self.reg._event_bus)
+                body = h.build_body()
+            else:
+                raise ValueError(
+                    f"Translation harness '{harness_name}' not found in registry"
+                )
+        else:
+            body = self.reg.get_body(harness_name)
+
+        view_data: dict[str, Resolved] = {"spec": Resolved(value=spec.to_dict(), k=None)}
+        if prompt_extra:
+            view_data["prompt_extra"] = Resolved(value=prompt_extra, k=None)
+        view = DictView(view_data, node="__translator__")
         result = await body(view)
 
         if isinstance(result, Failure):

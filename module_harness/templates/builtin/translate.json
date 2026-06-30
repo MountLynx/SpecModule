@@ -4,7 +4,8 @@
   "translation": {
     "type": "harness",
     "harness": "spec_to_tasklist",
-    "prompt": "你是一个流程设计器。根据以下 spec 生成合法的 tasklist JSON。spec 包含 task_type、source_text、target_lang、style 字段。生成的 tasklist 应包含两个节点：A 执行翻译（type=harness, harness=translate），B 执行后处理（type=script, script=format_output）。请输出完整的 tasklist JSON，Tasks 键与 Flow 字符串。"
+    "prompt": "你是一个流程设计器。根据以下 spec 生成合法的 tasklist JSON。spec 包含 task_type、source_text、target_lang、style 字段。生成的 tasklist 应包含两个节点：A 执行翻译（type=harness, harness=translate），B 执行后处理（type=script, script=format_output）。请输出完整的 tasklist JSON，Tasks 键与 Flow 字符串。",
+    "prompt_core": "你是一个 tasklist JSON 生成器。根据用户提供的 spec 和额外指令生成合法的 tasklist JSON。\n\n额外指令：\n{prompt_extra}\n\n请严格按照 tasklist JSON 格式输出，包含 Tasks 和 Flow 字段。"
   },
   "tasklist": {
     "Tasks": {
