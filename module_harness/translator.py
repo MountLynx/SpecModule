@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
 from pathlib import Path
 from typing import Any
 
-from tickflow import parse as parse_graph
+from tickflow import Failure, parse as parse_graph
+from tickflow.views import DictView, Resolved
 
 from .spec import Spec, Tasklist, TasklistTemplate, TaskDefinition
 from .registry import HarnessRegistry
@@ -117,3 +119,68 @@ class TemplateLoader:
         """加载内置模板（module_harness/templates/builtin/）。"""
         builtin_dir = Path(__file__).parent / "templates" / "builtin"
         return self.load_directory(builtin_dir)
+
+
+class Translator:
+    """spec -> tasklist 翻译器。直接调 body/script，不走 tickflow runner。"""
+
+    def __init__(self, registry: HarnessRegistry) -> None:
+        self.reg = registry
+
+    async def translate(self, spec: Spec, template: TasklistTemplate) -> Tasklist:
+        """执行翻译并返回校验通过的 Tasklist。"""
+        ts = template.translation
+
+        if ts.type == "script":
+            tasks_dict = await self._call_script_translator(ts.script, spec)
+        elif ts.type == "harness":
+            tasks_dict = await self._call_harness_translator(ts.harness, ts.prompt, spec)
+        else:
+            raise ValueError(f"不支持的 translation type: {ts.type}")
+
+        # 构建 tasklist 并校验
+        tasklist = Tasklist(tasks={
+            key: TaskDefinition.from_dict(td) if isinstance(td, dict) else td
+            for key, td in tasks_dict.items()
+        }, flow=template.tasklist.flow)
+
+        errors = TasklistValidator.validate(tasklist, self.reg)
+        if errors:
+            raise ValueError(f"翻译结果校验失败:\n" + "\n".join(f"  - {e}" for e in errors))
+
+        return tasklist
+
+    async def _call_script_translator(self, script_name: str, spec: Spec) -> dict:
+        """直接调用已注册的 script 函数。"""
+        body = self.reg.get_body(script_name)
+        view = DictView(
+            {"spec": Resolved(value=spec.to_dict(), k=None)},
+            node="__translator__",
+        )
+        result = body(view)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
+
+    async def _call_harness_translator(self, harness_name: str, prompt_extra: str, spec: Spec) -> dict:
+        """调用 harness body（异步 LLM），parse 返回的 JSON 为 task dict。"""
+        body = self.reg.get_body(harness_name)
+        view = DictView(
+            {"spec": Resolved(value=spec.to_dict(), k=None)},
+            node="__translator__",
+        )
+        result = await body(view)
+
+        if isinstance(result, Failure):
+            raise ValueError(f"翻译 harness 返回 Failure: {result.error}")
+
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"翻译结果不是合法 JSON: {e}") from e
+
+        if isinstance(result, dict):
+            return result
+
+        raise ValueError(f"翻译结果类型异常: {type(result).__name__}")
