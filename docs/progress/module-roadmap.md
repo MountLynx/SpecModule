@@ -65,7 +65,7 @@
 
 **实现方向**：
 - 提供一个内置 harness `align_check`，已注册在默认 registry 中
-- prompt 接受 spec + 所有前置节点输出，返回"对齐/偏离 + 建议"
+- prompt 接受 spec + tasklist + 当前位置 + 所有前置节点输出，返回"对齐/偏离 + 建议"
 - tasklist 模板中使用示例：
 
 ```json
@@ -80,7 +80,6 @@
 }
 ```
 
-- 后续可补充便捷语法：`Flow: "A --> B => C(align_check)"` 自动生成全前置入边
 - 最小开销：不插入即不执行
 
 ---
@@ -90,7 +89,7 @@
 **说明**：spec + tasklist 模式下检查二者是否逻辑一致（tasklist 是否能实现 spec 目标）。复用翻译 LLM——它既然能从 spec 生成 tasklist，自然能判断已有的 tasklist 是否合理。
 
 **实现方向**：
-- 复用 `spec_to_tasklist` 翻译 harness，传入 spec + 待审 tasklist
+- 复用 `spec_to_tasklist` 翻译 harness，加一个prompt_mode, 传入 spec + 待审 tasklist
 - 输出 `{"consistent": true/false, "suggestions": "..."}`
 - 在 `Module.build_runner()` 中，若同时传入了 spec + tasklist → 审核 → 通过才构建
 - 审核失败 → 阻塞，返回问题供修改
@@ -148,15 +147,9 @@
 
 ---
 
-### 7. 模板执行时键值替换
+### 7. 运行状态查询
 
-**说明**：当前 `{spec.xxx}` 替换只在翻译阶段。执行阶段需要从 tickflow 当前状态动态取值填入 prompt。文档中提到的 "input" 字段（"用于替换提示词中的关键字，作为输入；内容在 tickflow 全局记录的内容字典里"）实际上就是 node 的 inputs 映射——从上游节点产出中取值注入 prompt。
-
-**实现方向**：
-- 当前 `TaskDefinition.inputs` 已映射到 graph 的 `node.inputs`（→ `view.field_name.value`）
-- body 内部通过 `view.xxx.value` 取上游产出
-- PromptRenderer 的 `{key}` 替换已经是运行时从 DictView 取值
-- 此项标记为"验证现有实现是否覆盖"——若已覆盖，移入已实现清单
+获取当前 Module 的运行状态（静态值）。
 
 ---
 
@@ -178,7 +171,7 @@
 ┌─────────────────────────┐
 │ 1. spec+tasklist 输入   │  ← 解锁 #3 #4 #5
 ├─────────────────────────┤
-│ 2. 键值替换验证         │  ← 小，验证后可标记为完成
+│ 2. 运行状态查询         │  ← 依赖module的搭建完成
 ├─────────────────────────┤
 │ 3. 对齐检查 harness     │  ← 独立，不依赖其他
 ├─────────────────────────┤
@@ -192,4 +185,4 @@
 └─────────────────────────┘
 ```
 
-`#1 → #4 → #5 → #6` 有依赖链，`#3` 和 `#7` 可独立进行。
+`#1 → #4 → #5 → #6 & #2` 有依赖链，`#3` 和 `#7` 可独立进行。
