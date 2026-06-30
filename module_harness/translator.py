@@ -81,3 +81,39 @@ class TasklistValidator:
             errors.append(f"Flow 解析失败: {e}")
 
         return errors
+
+
+class TemplateLoader:
+    """加载与管理 tasklist 模板。"""
+
+    def __init__(self) -> None:
+        self._templates: dict[str, TasklistTemplate] = {}
+
+    def register(self, name: str, data: dict[str, Any]) -> None:
+        """注册一个模板（代码调用或文件加载）。data 直接过 from_json。"""
+        self._templates[name] = TasklistTemplate.from_json(data)
+
+    def get(self, name: str) -> TasklistTemplate | None:
+        return self._templates.get(name)
+
+    def list_names(self) -> list[str]:
+        return list(self._templates.keys())
+
+    def load_directory(self, path: str | Path) -> int:
+        """从目录加载 .json 模板文件。返回加载数量。"""
+        p = Path(path)
+        count = 0
+        if p.is_dir():
+            for f in sorted(p.glob("*.json")):
+                try:
+                    data = json.loads(f.read_text(encoding="utf-8"))
+                    self.register(data["name"], data)
+                    count += 1
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    pass  # 跳过无效文件
+        return count
+
+    def load_builtins(self) -> int:
+        """加载内置模板（module_harness/templates/builtin/）。"""
+        builtin_dir = Path(__file__).parent / "templates" / "builtin"
+        return self.load_directory(builtin_dir)

@@ -1,0 +1,26 @@
+{
+  "name": "translate",
+  "description": "通用翻译模块",
+  "translation": {
+    "type": "harness",
+    "harness": "spec_to_tasklist",
+    "prompt": "你是一个流程设计器。根据以下 spec 生成合法的 tasklist JSON。spec 包含 task_type、source_text、target_lang、style 字段。生成的 tasklist 应包含两个节点：A 执行翻译（type=harness, harness=translate），B 执行后处理（type=script, script=format_output）。请输出完整的 tasklist JSON，Tasks 键与 Flow 字符串。"
+  },
+  "tasklist": {
+    "Tasks": {
+      "A": {
+        "type": "harness",
+        "harness": "translate",
+        "promptmode": "{spec.style}",
+        "inputs": {"text": "{spec.source_text}"},
+        "outputformat": {"type": "json_object"}
+      },
+      "B": {
+        "type": "script",
+        "script": "format_output",
+        "inputs": {"data": "A"}
+      }
+    },
+    "Flow": "A --> B"
+  }
+}
