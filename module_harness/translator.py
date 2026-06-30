@@ -76,6 +76,11 @@ class TasklistValidator:
                 errors.append(f"Task '{key}': type='script' 但缺少 'script' 字段")
             elif not registry.is_script(task.script) and not registry.has_body(task.script):
                 errors.append(f"Task '{key}': script '{task.script}' 未在 registry 中注册")
+        elif task.type == "command":
+            if not task.command:
+                errors.append(f"Task '{key}': type='command' 但缺少 'command' 字段")
+            elif not registry.is_command(task.command) and not registry.has_body(task.command):
+                errors.append(f"Task '{key}': command '{task.command}' 未在 registry 中注册")
         else:
             errors.append(f"Task '{key}': 未知 type '{task.type}'")
 

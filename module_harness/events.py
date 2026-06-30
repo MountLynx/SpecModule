@@ -80,6 +80,25 @@ class ScriptFailed(ScriptEvent):
     error: str
 
 
+# ── Command 事件类型 ────────────────────────────────────────────
+
+@dataclass
+class CommandStarted(HarnessEvent):
+    pass
+
+
+@dataclass
+class CommandCompleted(HarnessEvent):
+    stdout: str
+    stderr: str
+    returncode: int
+
+
+@dataclass
+class CommandFailed(HarnessEvent):
+    error: str
+
+
 # ── EventBus ──────────────────────────────────────────────────────
 
 class EventBus:

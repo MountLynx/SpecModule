@@ -17,7 +17,11 @@ from .events import (
     ScriptStarted,
     ScriptCompleted,
     ScriptFailed,
+    CommandStarted,
+    CommandCompleted,
+    CommandFailed,
 )
+from .command import Command, CommandConfig
 from .harness import Harness
 from .registry import HarnessRegistry
 from .spec import (
@@ -55,6 +59,12 @@ __all__ = [
     # 核心
     "Harness",
     "HarnessRegistry",
+    "Command",
+    "CommandConfig",
+    # Command 事件
+    "CommandStarted",
+    "CommandCompleted",
+    "CommandFailed",
     # 数据模型
     "Spec",
     "TaskDefinition",

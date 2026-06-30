@@ -91,6 +91,8 @@ class TasklistTranslator:
             self._register_harness(key, task)
         elif task.type == "script":
             self._register_script(key, task)
+        elif task.type == "command":
+            self._register_command(key, task)
         else:
             raise ValueError(f"Task '{key}': unknown type {task.type!r}")
 
@@ -143,3 +145,21 @@ class TasklistTranslator:
             )
         orig_body = self.reg.get_body(task.script)
         self.reg.body(self._isolated(key), orig_body)
+
+    def _register_command(self, key: str, task: TaskDefinition) -> None:
+        """Copy an existing command config, apply task overrides, register under
+        the isolated name."""
+        assert task.command is not None  # validated by spec
+        existing = self.reg.command_config(task.command)
+        if existing is None:
+            raise ValueError(
+                f"Task '{key}': command '{task.command}' not found.  "
+                f"Make sure it was registered via reg.command()."
+            )
+
+        self.reg.command(
+            self._isolated(key),
+            existing,
+            timeout=task.timeout,
+            cwd=task.cwd,
+        )

@@ -12,6 +12,7 @@ from tickflow import Registry
 from tickflow.views import DictView
 
 from .config import HarnessConfig
+from .command import Command, CommandConfig
 from .harness import Harness
 from .events import (
     EventBus,
@@ -38,6 +39,7 @@ class HarnessRegistry(Registry):
         self._event_bus = event_bus or EventBus.null()
         self._harness_cfgs: dict[str, HarnessConfig] = {}
         self._script_names: set[str] = set()
+        self._command_cfgs: dict[str, CommandConfig] = {}
 
     # ── harness 注册 ──────────────────────────────────────────────
 
@@ -120,6 +122,27 @@ class HarnessRegistry(Registry):
 
         return deco
 
+    # ── command 注册 ───────────────────────────────────────────────
+
+    def command(
+        self,
+        name: str,
+        config: CommandConfig,
+        *,
+        timeout: float | None = None,
+        cwd: str | None = None,
+    ) -> "HarnessRegistry":
+        """注册一个 command body。
+
+        ``name`` 是 graph 中 ``node.body`` 引用的名称。
+        返回 self，支持链式调用。
+        """
+        cmd = Command(config, self._event_bus)
+        body = cmd.build_body(timeout=timeout, cwd=cwd)
+        self.body(name, body)
+        self._command_cfgs[name] = config
+        return self
+
     # ── 查询 ──────────────────────────────────────────────────────
 
     def is_harness(self, name: str) -> bool:
@@ -130,6 +153,14 @@ class HarnessRegistry(Registry):
         """name 是否通过 script() 注册。"""
         return name in self._script_names
 
+    def is_command(self, name: str) -> bool:
+        """name 是否通过 command() 注册。"""
+        return name in self._command_cfgs
+
     def harness_config(self, name: str) -> HarnessConfig | None:
         """返回 harness 的配置，若不是 harness 返回 None。"""
         return self._harness_cfgs.get(name)
+
+    def command_config(self, name: str) -> CommandConfig | None:
+        """返回 command 的配置，若不是 command 返回 None。"""
+        return self._command_cfgs.get(name)
