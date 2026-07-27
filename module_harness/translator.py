@@ -182,6 +182,23 @@ class Translator:
             flow = tasks_dict.get("Flow", flow)
             tasks_dict = tasks_dict["Tasks"]
 
+        # 兼容 LLM 将 Tasks 输出为数组：转为 {A: ..., B: ...} 格式
+        if isinstance(tasks_dict, list):
+            import string
+            tasks_dict = {
+                string.ascii_uppercase[i]: td
+                for i, td in enumerate(tasks_dict)
+            }
+        # 兼容 LLM 将 Flow 输出为数组：["A","B"] → "A --> B"
+        if isinstance(flow, list):
+            flow = " --> ".join(str(n) for n in flow)
+        # 规范化 Flow 语法：容忍 LLM 常见的格式偏差
+        if isinstance(flow, str):
+            flow = flow.replace("→", "-->")           # unicode → ASCII
+            flow = flow.replace("--->", "-->")         # 防止已经含 --> 的再替换
+            if "-->" not in flow:
+                flow = flow.replace("->", "-->")
+
         # 构建 tasklist 并校验
         tasklist = Tasklist(tasks={
             key: TaskDefinition.from_dict(td) if isinstance(td, dict) else td

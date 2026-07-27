@@ -72,6 +72,37 @@ class LLMResponse:
 # ---------------------------------------------------------------------------
 
 
+# 已知的 OpenAI SDK 参数（直接入 kwargs，不归入 extra_body）
+_KNOWN_OPENAI_PARAMS = frozenset({
+    "model", "messages", "temperature", "top_p", "n", "stream",
+    "stop", "max_tokens", "max_completion_tokens",
+    "presence_penalty", "frequency_penalty", "logit_bias", "user",
+    "response_format", "seed", "tools", "tool_choice",
+    "reasoning_effort", "logprobs", "top_logprobs",
+    "functions", "function_call",
+    "stream_options", "extra_headers",
+})
+
+# 已知的 Anthropic SDK 参数
+_KNOWN_ANTHROPIC_PARAMS = frozenset({
+    "model", "messages", "system", "max_tokens", "temperature",
+    "thinking", "tools", "tool_choice", "stop_sequences",
+    "top_p", "top_k", "metadata",
+})
+
+
+def _apply_api_params(kwargs: dict[str, Any], api_params: dict[str, Any] | None,
+                      known: frozenset[str]) -> None:
+    """将 api_params 合并到 kwargs：已知字段直接入参，未知入 extra_body。"""
+    if not api_params:
+        return
+    for k, v in api_params.items():
+        if k in known:
+            kwargs[k] = v
+        else:
+            kwargs.setdefault("extra_body", {})[k] = v
+
+
 def _build_system(system: str | None, notdo: list[str] | None) -> str | None:
     """拼装 system prompt：基础 system + 否定性约束(notdo)。
 
@@ -181,6 +212,7 @@ class AnthropicClient:
         output_format: dict[str, Any] | None = None,
         notdo: list[str] | None = None,
         on_token: Callable[[str], None] | None = None,
+        api_params: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """单轮调用入口（harness body 用）。
 
@@ -188,11 +220,12 @@ class AnthropicClient:
         - ``model``/``temperature``/``think``：按调用覆盖，缺省回落 config
         - ``output_format``：原生结构化输出（强制 tool-use）
         - ``on_token``：流式 token 回调（提供时走流式接口）
+        - ``api_params``：透传给 SDK 的额外参数（已知字段入 kwargs，未知入 extra_body）
         """
         self._require_ready()
         model = model or self.config.model
         temperature = self.config.temperature if temperature is None else temperature
-        thinking = self._thinking_param(think if think is not None else self.config.think)
+        thinking = self._thinking_param(think if think is not None else self.config.model_info(model).get("think"))
         sys_prompt = _build_system(system, notdo)
 
         kwargs: dict[str, Any] = {
@@ -214,6 +247,8 @@ class AnthropicClient:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice
             forced_tool = tools[0]["name"]
+
+        _apply_api_params(kwargs, api_params, _KNOWN_ANTHROPIC_PARAMS)
 
         try:
             if on_token:
@@ -390,6 +425,7 @@ class OpenAIClient:
         output_format: dict[str, Any] | None = None,
         notdo: list[str] | None = None,
         on_token: Callable[[str], None] | None = None,
+        api_params: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """单轮调用入口（harness body 用）。
 
@@ -397,11 +433,12 @@ class OpenAIClient:
           或 ``{"type": "json_schema", "json_schema": {...}}``）
         - ``think``：reasoning 模型映射为 ``reasoning_effort``（"low"/"medium"/"high"，
           dict 可指定 ``effort``；非 reasoning 模型忽略）
+        - ``api_params``：透传给 SDK 的额外参数（已知字段入 kwargs，未知入 extra_body）
         """
         self._require_ready()
         model = model or self.config.model
         temperature = self.config.temperature if temperature is None else temperature
-        think = think if think is not None else self.config.think
+        think = think if think is not None else self.config.model_info(model).get("think")
         sys_prompt = _build_system(system, notdo)
         reasoning = self._is_reasoning_model(model)
 
@@ -424,6 +461,8 @@ class OpenAIClient:
                 kwargs["reasoning_effort"] = "medium"
         if output_format:
             kwargs["response_format"] = output_format
+
+        _apply_api_params(kwargs, api_params, _KNOWN_OPENAI_PARAMS)
 
         try:
             if on_token:

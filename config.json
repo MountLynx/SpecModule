@@ -1,0 +1,28 @@
+{
+  "providers": [
+    {
+      "name": "deepseek",
+      "sdktype": "openai",
+      "base_url": "https://api.deepseek.com",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "timeout": 120,
+      "max_retries": 3
+    }
+  ],
+  "models": [
+    {
+      "name": "deepseek-v4-flash",
+      "provider": "deepseek",
+      "think": true,
+      "multimodal": false,
+      "max_tokens": 1000000
+    },
+    {
+      "name": "deepseek-v4-pro",
+      "provider": "deepseek",
+      "think": true,
+      "multimodal": false,
+      "max_tokens": 1000000
+    }
+  ]
+}

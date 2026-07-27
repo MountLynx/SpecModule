@@ -1,19 +1,35 @@
 """LLM 客户端配置
 
 支持多种LLM后端：Anthropic、OpenAI 及兼容接口。
-通过环境变量和 .env 文件配置。
+通过项目根目录的 config.json 配置::
+
+    {
+      "providers": [
+        {"name":"deepseek","sdktype":"openai","base_url":"...","api_key_env":"DEEPSEEK_API_KEY",...}
+      ],
+      "models": [
+        {"name":"deepseek-v4-flash","provider":"deepseek","think":true,...}
+      ]
+    }
+
+- providers：服务商连接信息，api_key 通过 api_key_env 指向 .env 中的变量
+- models：模型注册表，provider 字段引用 providers[].name
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+log = logging.getLogger(__name__)
+
 
 def _load_dotenv(project_root: Path) -> None:
-    """加载 .env 文件（若存在）"""
+    """加载 .env 文件到 os.environ（若存在）。"""
     env_path = project_root / ".env"
     if not env_path.exists():
         return
@@ -32,110 +48,109 @@ def _load_dotenv(project_root: Path) -> None:
         pass
 
 
-def _parse_bool(value: Any) -> bool | None:
-    """宽松解析布尔值：1/true/yes/on → True，0/false/no/off → False，其余 None。"""
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return value
-    s = str(value).strip().lower()
-    if s in ("1", "true", "yes", "on", "enabled"):
-        return True
-    if s in ("0", "false", "no", "off", "disabled"):
-        return False
-    return None
-
-
-def _parse_think(override: Any, env_value: str | None) -> bool | dict | None:
-    """解析 think 配置。
-
-    - dict 原样保留（可含 ``budget_tokens``）
-    - bool 原样保留
-    - 字符串 "true"/"false" → bool
-    - 其余（None）→ None
-    优先 override，其次环境变量。
-    """
-    if isinstance(override, dict):
-        return override
-    if isinstance(override, bool):
-        return override
-    if override is not None:
-        return _parse_bool(override)
-    return _parse_bool(env_value)
+def _load_config_json(project_root: Path) -> dict[str, Any]:
+    """加载 config.json。不存在或格式错误时返回空 dict。"""
+    config_path = project_root / "config.json"
+    if not config_path.exists():
+        log.warning("config.json 未找到: %s", config_path)
+        return {}
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        log.warning("config.json 解析失败: %s", exc)
+        return {}
 
 
 @dataclass
 class LLMConfig:
     """LLM 配置
 
-    优先级：实例值 > 环境变量 > 默认值
+    优先级：HarnessConfig.api_params > LLMConfig 默认值 > config.json > 硬编码默认值
+    API key 通过 .env 中的环境变量注入（provider.api_key_env 指定变量名）。
 
-    支持的 provider：
-    - anthropic: 使用 ANTHROPIC_API_KEY
-    - openai: 使用 OPENAI_API_KEY
-    - openai-compatible: 任意兼容接口，通过 base_url 指定
+    支持的 sdktype：
+    - openai / openai-compatible: OpenAI 及兼容接口（DeepSeek 等）
+    - anthropic: Anthropic Claude API
     """
-    provider: str = "openai"          # "anthropic" | "openai" | "openai-compatible"
-    model: str = "gpt-4o-mini"
+    # ── 连接信息（来自 config.json providers）──
+    provider: str = "openai"          # SDK 类型： "openai" | "openai-compatible" | "anthropic"
     api_key: str = ""
     base_url: str | None = None
-    max_tokens: int = 4096
-    temperature: float = 0.7
     timeout: float = 60.0
     max_retries: int = 3
-    think: bool | dict | None = None  # 扩展思考：True=默认 budget；dict={"budget_tokens":N}；None=关
+
+    # ── 默认模型参数（harness 未指定时兜底）──
+    model: str = ""                   # 默认模型名；取 config.json models[0].name
+    max_tokens: int = 4096
+    temperature: float = 0.7
+
+    # ── 模型注册表（来自 config.json models）──
+    models: dict[str, dict[str, Any]] = field(default_factory=dict)
+    """{model_name: {provider, think, multimodal, max_tokens, ...}}。"""
+
+    def model_info(self, name: str) -> dict[str, Any]:
+        """获取指定模型的能力声明。"""
+        return self.models.get(name, {})
 
     @classmethod
     def from_env(cls, project_root: Path | None = None, **overrides: Any) -> "LLMConfig":
-        """从环境变量加载配置
+        """从 config.json + .env 加载配置。
 
         Args:
-            project_root: 项目根目录（用于加载 .env）
+            project_root: 项目根目录（含 config.json 和 .env）
             **overrides: 覆盖配置项
         """
         if project_root is None:
             project_root = Path.cwd()
+
+        # 1. 加载 .env → os.environ（API key 等密钥）
         _load_dotenv(project_root)
 
-        provider = overrides.pop("provider", None) or os.environ.get(
-            "LLM_PROVIDER", "openai"
-        )
+        # 2. 加载 config.json
+        cfg = _load_config_json(project_root)
+        providers: list[dict[str, Any]] = cfg.get("providers", [])
+        models: list[dict[str, Any]] = cfg.get("models", [])
 
+        if not providers:
+            raise ValueError(
+                "config.json 中 providers 为空或缺失。"
+                "请参照 config.example.json 配置。"
+            )
+
+        # ── 选中 provider（取第一个，后续可扩展选择逻辑）──
+        p = providers[0]
+
+        # ── 解析 API key：优先 overrides，其次 api_key_env 指向的 .env 变量 ──
         api_key = overrides.pop("api_key", None)
         if api_key is None:
-            if provider == "anthropic":
-                api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-            elif provider == "openai":
-                api_key = (
-                    os.environ.get("OPENAI_API_KEY")
-                    or os.environ.get("LLM_APIKEY")
-                    or os.environ.get("LLM_API_KEY", "")
-                )
-            else:
-                # 兼容常见的变量名变体
-                api_key = (
-                    os.environ.get("LLM_APIKEY")
-                    or os.environ.get("LLM_API_KEY")
-                    or os.environ.get("ANTHROPIC_API_KEY")
-                    or os.environ.get("OPENAI_API_KEY", "")
-                )
+            key_env = p.get("api_key_env", "")
+            api_key = os.environ.get(key_env, "") if key_env else ""
+
+        # ── 构建 models 注册表 ──
+        models_map: dict[str, dict[str, Any]] = {}
+        default_model = ""
+        default_temperature = 0.7
+
+        for m in models:
+            name = m.get("name", "")
+            if name:
+                models_map[name] = m
+            if not default_model:
+                default_model = name
+                default_temperature = float(m.get("temperature", 0.7))
 
         config = cls(
-            provider=provider,
-            model=overrides.pop("model", None) or os.environ.get("LLM_MODEL", "gpt-4o-mini"),
+            provider=p.get("sdktype", "openai"),
             api_key=api_key,
-            base_url=(
-                overrides.pop("base_url", None)
-                or os.environ.get("LLM_BASEURL")       # 兼容无下划线版本
-                or os.environ.get("LLM_BASE_URL")
-            ),
-            max_tokens=int(overrides.pop("max_tokens", None) or os.environ.get("LLM_MAX_TOKENS", "4096")),
-            temperature=float(overrides.pop("temperature", None) or os.environ.get("LLM_TEMPERATURE", "0.7")),
-            timeout=float(overrides.pop("timeout", None) or os.environ.get("LLM_TIMEOUT", "60.0")),
-            max_retries=int(overrides.pop("max_retries", None) or os.environ.get("LLM_MAX_RETRIES", "3")),
-            think=_parse_think(overrides.pop("think", None), os.environ.get("LLM_THINK")),
+            base_url=p.get("base_url"),
+            timeout=float(p.get("timeout", 60.0)),
+            max_retries=int(p.get("max_retries", 3)),
+            model=overrides.pop("model", None) or default_model,
+            max_tokens=int(overrides.pop("max_tokens", None) or 4096),
+            temperature=float(overrides.pop("temperature", None) or default_temperature),
+            models=models_map,
         )
-        # 应用剩余覆盖项
         for key, value in overrides.items():
             if hasattr(config, key) and value is not None:
                 setattr(config, key, value)
@@ -149,7 +164,6 @@ class LLMConfig:
             "max_tokens": self.max_tokens,
             "temperature": self.temperature,
             "timeout": self.timeout,
-            "think": self.think,
         }
         if self.base_url:
             kwargs["base_url"] = self.base_url
