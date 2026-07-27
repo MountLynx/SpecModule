@@ -226,7 +226,15 @@ class AnthropicClient:
         model = model or self.config.model
         temperature = self.config.temperature if temperature is None else temperature
         thinking = self._thinking_param(think if think is not None else self.config.model_info(model).get("think"))
-        sys_prompt = _build_system(system, notdo)
+        # 框架级 system_rules 注入到 system prompt 最前面
+        full_system = None
+        if self.config.system_rules:
+            full_system = self.config.system_rules
+            if system:
+                full_system += "\n\n" + system
+        elif system:
+            full_system = system
+        sys_prompt = _build_system(full_system, notdo)
 
         kwargs: dict[str, Any] = {
             "model": model,
@@ -439,7 +447,15 @@ class OpenAIClient:
         model = model or self.config.model
         temperature = self.config.temperature if temperature is None else temperature
         think = think if think is not None else self.config.model_info(model).get("think")
-        sys_prompt = _build_system(system, notdo)
+        # 框架级 system_rules 注入到 system prompt 最前面
+        full_system = None
+        if self.config.system_rules:
+            full_system = self.config.system_rules
+            if system:
+                full_system += "\n\n" + system
+        elif system:
+            full_system = system
+        sys_prompt = _build_system(full_system, notdo)
         reasoning = self._is_reasoning_model(model)
 
         messages: list[dict[str, Any]] = []

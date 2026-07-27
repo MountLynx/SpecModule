@@ -1,19 +1,10 @@
 """LLM 客户端配置
 
 支持多种LLM后端：Anthropic、OpenAI 及兼容接口。
-通过项目根目录的 config.json 配置::
+通过项目根目录的 config.json 和 rules.txt 配置::
 
-    {
-      "providers": [
-        {"name":"deepseek","sdktype":"openai","base_url":"...","api_key_env":"DEEPSEEK_API_KEY",...}
-      ],
-      "models": [
-        {"name":"deepseek-v4-flash","provider":"deepseek","think":true,...}
-      ]
-    }
-
-- providers：服务商连接信息，api_key 通过 api_key_env 指向 .env 中的变量
-- models：模型注册表，provider 字段引用 providers[].name
+    config.json — Provider + Model 注册表
+    rules.txt  — 框架级输出格式约束（注入 system prompt）
 """
 
 from __future__ import annotations
@@ -62,6 +53,17 @@ def _load_config_json(project_root: Path) -> dict[str, Any]:
         return {}
 
 
+def _load_rules_txt(project_root: Path) -> str:
+    """加载 rules.txt 框架级输出格式约束。"""
+    rules_path = project_root / "rules.txt"
+    if not rules_path.exists():
+        return ""
+    try:
+        return rules_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 @dataclass
 class LLMConfig:
     """LLM 配置
@@ -74,14 +76,14 @@ class LLMConfig:
     - anthropic: Anthropic Claude API
     """
     # ── 连接信息（来自 config.json providers）──
-    provider: str = "openai"          # SDK 类型： "openai" | "openai-compatible" | "anthropic"
+    provider: str = "openai"
     api_key: str = ""
     base_url: str | None = None
     timeout: float = 60.0
     max_retries: int = 3
 
     # ── 默认模型参数（harness 未指定时兜底）──
-    model: str = ""                   # 默认模型名；取 config.json models[0].name
+    model: str = ""
     max_tokens: int = 4096
     temperature: float = 0.7
 
@@ -89,22 +91,26 @@ class LLMConfig:
     models: dict[str, dict[str, Any]] = field(default_factory=dict)
     """{model_name: {provider, think, multimodal, max_tokens, ...}}。"""
 
+    # ── 框架规则（来自 rules.txt）──
+    system_rules: str = ""
+    """框架级输出格式约束，注入每次 LLM 调用的 system prompt 最前面。"""
+
     def model_info(self, name: str) -> dict[str, Any]:
         """获取指定模型的能力声明。"""
         return self.models.get(name, {})
 
     @classmethod
     def from_env(cls, project_root: Path | None = None, **overrides: Any) -> "LLMConfig":
-        """从 config.json + .env 加载配置。
+        """从 config.json + rules.txt + .env 加载配置。
 
         Args:
-            project_root: 项目根目录（含 config.json 和 .env）
+            project_root: 项目根目录
             **overrides: 覆盖配置项
         """
         if project_root is None:
             project_root = Path.cwd()
 
-        # 1. 加载 .env → os.environ（API key 等密钥）
+        # 1. 加载 .env -> os.environ（API key 等密钥）
         _load_dotenv(project_root)
 
         # 2. 加载 config.json
@@ -118,10 +124,13 @@ class LLMConfig:
                 "请参照 config.example.json 配置。"
             )
 
-        # ── 选中 provider（取第一个，后续可扩展选择逻辑）──
+        # 3. 加载 rules.txt
+        system_rules = _load_rules_txt(project_root)
+
+        # ── 选中 provider（取第一个）──
         p = providers[0]
 
-        # ── 解析 API key：优先 overrides，其次 api_key_env 指向的 .env 变量 ──
+        # ── 解析 API key ──
         api_key = overrides.pop("api_key", None)
         if api_key is None:
             key_env = p.get("api_key_env", "")
@@ -150,6 +159,7 @@ class LLMConfig:
             max_tokens=int(overrides.pop("max_tokens", None) or 4096),
             temperature=float(overrides.pop("temperature", None) or default_temperature),
             models=models_map,
+            system_rules=system_rules,
         )
         for key, value in overrides.items():
             if hasattr(config, key) and value is not None:
