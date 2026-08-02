@@ -45,8 +45,12 @@ class Harness:
         *,
         promptmode: str | None = None,
         prompt_extra: str | None = None,
+        spec_inputs: dict[str, Any] | None = None,
     ):
         """返回一个 async body callable。
+
+        ``spec_inputs``：spec 字段常量（{field_name: value}），
+        渲染时作为占位符兜底值（graph_builder 解析 ``{spec.xxx}`` 后注入）。
 
         body 执行流程：
           1. 渲染三层 prompt
@@ -69,6 +73,7 @@ class Harness:
                 view,
                 promptmode=promptmode,
                 prompt_extra=prompt_extra,
+                extra_values=spec_inputs,
             )
             bus.emit(PromptRendered(
                 timestamp=time.monotonic(), node=node, tick=0,
@@ -100,6 +105,7 @@ class Harness:
                     output_format=dataclasses.asdict(config.output_format) if config.output_format else None,
                     notdo=config.notdo if config.notdo else None,
                     on_token=on_token,
+                    api_params=config.api_params if config.api_params else None,
                 )
             except LLMError as e:
                 bus.emit(HarnessFailed(

@@ -40,8 +40,9 @@ async def test_builtin_translate_template(llm_client):
 
     @reg.script("format_output")
     def format_output(view):
-        data = view.A.value
-        return {"result": data["translation"].strip()}
+        data = view.A.value or {}
+        # LLM 输出质量有波动，用 .get 兜底
+        return {"result": (data.get("translation") or "").strip()}
 
     # 注册翻译 harness（spec → tasklist）
     reg.harness("spec_to_tasklist", HarnessConfig(

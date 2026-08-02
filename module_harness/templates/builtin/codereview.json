@@ -1,0 +1,32 @@
+{
+  "name": "codereview",
+  "description": "代码审查模块：并行审查 + 规范检查后合并报告",
+  "translation": {
+    "type": "harness",
+    "harness": "spec_to_tasklist",
+    "prompt": "你是一个流程设计器。根据以下 spec 生成合法的 tasklist JSON。\n\nspec 内容：\n{spec}\n\n生成的 tasklist 应包含三个节点：A 执行代码审查（type=harness, harness=review_code），B 执行规范检查（type=harness, harness=check_rules），C 合并报告（type=script, script=merge_review）。A 和 B 并行执行后同时汇入 C。\n\n每个 Task 必须包含 inputs 字段。示例格式：\n{\"Tasks\": {\"A\": {\"type\": \"harness\", \"harness\": \"review_code\", \"inputs\": {\"code\": \"{spec.code}\", \"language\": \"{spec.language}\"}}, \"B\": {\"type\": \"harness\", \"harness\": \"check_rules\", \"inputs\": {\"code\": \"{spec.code}\", \"rules\": \"{spec.rules}\"}}, \"C\": {\"type\": \"script\", \"script\": \"merge_review\", \"inputs\": {\"review\": \"A\", \"rules\": \"B\"}}}, \"Flow\": \"[A] --> B\\n[A] --> C\\nB --> C\"}\n\n请输出完整的 tasklist JSON，Tasks 键与 Flow 字符串。",
+    "prompt_core": "你是一个 tasklist JSON 生成器。根据用户提供的 spec 和额外指令生成合法的 tasklist JSON。\n\n额外指令：\n{prompt_extra}\n\n请严格按照 tasklist JSON 格式输出，包含 Tasks 和 Flow 字段。"
+  },
+  "tasklist": {
+    "Tasks": {
+      "A": {
+        "type": "harness",
+        "harness": "review_code",
+        "inputs": {"code": "{spec.code}", "language": "{spec.language}"},
+        "outputformat": {"type": "json_object"}
+      },
+      "B": {
+        "type": "harness",
+        "harness": "check_rules",
+        "inputs": {"code": "{spec.code}", "rules": "{spec.rules}"},
+        "outputformat": {"type": "json_object"}
+      },
+      "C": {
+        "type": "script",
+        "script": "merge_review",
+        "inputs": {"review": "A", "rules": "B"}
+      }
+    },
+    "Flow": "[A] --> B\n[A] --> C\nB --> C"
+  }
+}

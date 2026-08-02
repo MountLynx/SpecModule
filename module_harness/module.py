@@ -67,7 +67,7 @@ class Module:
 
         tasklist = await self._translator.translate(self.spec, template)
         builder = TasklistTranslator(self._reg, self.module_id)
-        graph, reg = builder.build(tasklist)
+        graph, reg = builder.build(tasklist, spec=self.spec)
         return AsyncRunner(graph, registry=reg, keep_records=True)
 
     async def run(self, max_ticks: int = 100):

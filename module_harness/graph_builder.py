@@ -38,16 +38,19 @@ class TasklistTranslator:
     # Public API
     # ------------------------------------------------------------------
 
-    def build(self, tasklist: Tasklist) -> tuple[Graph, HarnessRegistry]:
+    def build(self, tasklist: Tasklist, spec: Any | None = None) -> tuple[Graph, HarnessRegistry]:
         """Iterate tasks, register bodies, parse flow, attach body names.
 
+        ``spec``：可选，用于解析 task 中 ``{spec.xxx}`` 字段引用。
         Returns (graph, registry) where *registry* is ``self.reg`` (the same
         object that was passed to the constructor, now populated with the
         isolated body entries).
         """
+        spec_dict = spec.to_dict() if spec is not None else {}
+
         # 1.  Register every task's body under an isolated name.
         for key, task in tasklist.tasks.items():
-            self._register_body(key, task)
+            self._register_body(key, task, spec_dict)
 
         # 2.  Prepare the flow text for tickflow's parser (no body/input
         #     declarations -- those are attached programmatically below
@@ -64,13 +67,19 @@ class TasklistTranslator:
             graph.nodes[key].body = isolated_name
 
         # 5.  Wire task inputs to graph node inputs.
-        #     Each (field_name -> producer_name) entry in task.inputs becomes
-        #     node.inputs[field_name] = InputPolicy.latest(), so the body can
-        #     access ``view.field_name.value`` and receive the producer's value.
+        #     ``task.inputs = {field_name: producer}`` — 同时注册 field 名与
+        #     producer 名两个 key：body 既可用 ``view.<producer>.value``（有值）
+        #     也可用 ``view.<field_name>.value``（Missing 不崩溃，旧写法兼容）。
+        #     ``{spec.xxx}`` 引用已由 _register_harness 解析为 spec_inputs，
+        #     此处跳过。
         for key, task in tasklist.tasks.items():
             if task.inputs:
-                for field_name in task.inputs:
+                for field_name, producer in task.inputs.items():
+                    if isinstance(producer, str) and producer.startswith("{spec."):
+                        continue
                     graph.nodes[key].inputs[field_name] = InputPolicy.latest()
+                    if producer != field_name:
+                        graph.nodes[key].inputs[producer] = InputPolicy.latest()
 
         return graph, self.reg
 
@@ -82,13 +91,14 @@ class TasklistTranslator:
         """Return the namespace-isolated body name for *key*."""
         return f"{self.module_id}:{key}"
 
-    def _register_body(self, key: str, task: TaskDefinition) -> None:
+    def _register_body(self, key: str, task: TaskDefinition,
+                       spec_dict: dict[str, Any]) -> None:
         """Register one task's body in *self.reg* under an isolated name.
 
         Delegates to the appropriate helper based on ``task.type``.
         """
         if task.type == "harness":
-            self._register_harness(key, task)
+            self._register_harness(key, task, spec_dict)
         elif task.type == "script":
             self._register_script(key, task)
         elif task.type == "command":
@@ -96,7 +106,15 @@ class TasklistTranslator:
         else:
             raise ValueError(f"Task '{key}': unknown type {task.type!r}")
 
-    def _register_harness(self, key: str, task: TaskDefinition) -> None:
+    @staticmethod
+    def _resolve_spec_ref(value: str, spec_dict: dict[str, Any]) -> Any:
+        """解析 "{spec.xxx}" 引用。非引用原样返回。"""
+        if isinstance(value, str) and value.startswith("{spec.") and value.endswith("}"):
+            return spec_dict.get(value[len("{spec."):-1])
+        return value
+
+    def _register_harness(self, key: str, task: TaskDefinition,
+                          spec_dict: dict[str, Any]) -> None:
         """Copy an existing harness config, apply task-level overrides, and
         register under the isolated name."""
         assert task.harness is not None  # validated by spec
@@ -114,6 +132,10 @@ class TasklistTranslator:
         else:
             output_format = existing.output_format
 
+        api_params = dict(existing.api_params)
+        if task.api_params:
+            api_params.update(task.api_params)
+
         cfg = HarnessConfig(
             prompt_core=existing.prompt_core,
             prompt_modes=dict(existing.prompt_modes),
@@ -126,13 +148,27 @@ class TasklistTranslator:
                 else existing.temperature
             ),
             think=task.think if task.think is not None else existing.think,
+            api_params=api_params,
         )
+
+        # 解析 "{spec.xxx}" 引用：promptmode 与 inputs 中的 spec 常量
+        promptmode = task.promptmode
+        if promptmode is not None:
+            promptmode = self._resolve_spec_ref(promptmode, spec_dict)
+
+        spec_inputs: dict[str, Any] = {}
+        if task.inputs:
+            for field_name, producer in task.inputs.items():
+                if isinstance(producer, str) and producer.startswith("{spec."):
+                    resolved = self._resolve_spec_ref(producer, spec_dict)
+                    spec_inputs[field_name] = resolved
 
         self.reg.harness(
             self._isolated(key),
             cfg,
-            promptmode=task.promptmode,
+            promptmode=promptmode,
             prompt_extra=task.prompt,
+            spec_inputs=spec_inputs,
         )
 
     def _register_script(self, key: str, task: TaskDefinition) -> None:

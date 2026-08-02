@@ -32,8 +32,13 @@ class PromptRenderer:
         *,
         promptmode: str | None = None,
         prompt_extra: str | None = None,
+        extra_values: dict[str, Any] | None = None,
     ) -> str:
-        """渲染最终 user prompt。"""
+        """渲染最终 user prompt。
+
+        ``extra_values``：占位符兜底值（如 spec 字段常量），
+        view 中缺失的 key 从该 dict 取值。
+        """
         parts: list[str] = []
 
         # Layer 1: 核心提示词
@@ -49,9 +54,14 @@ class PromptRenderer:
             parts.append(prompt_extra)
 
         combined = "\n\n".join(parts)
-        return self._substitute(combined, view)
+        return self._substitute(combined, view, extra_values)
 
-    def _substitute(self, template: str, view: DictView) -> str:
+    def _substitute(
+        self,
+        template: str,
+        view: DictView,
+        extra_values: dict[str, Any] | None = None,
+    ) -> str:
         """替换模板中的 {key} 占位符为 view 中的值。"""
         pattern = re.compile(r'\{(\w+)\}')
 
@@ -60,8 +70,12 @@ class PromptRenderer:
             try:
                 val = view[key].value
             except (KeyError, AttributeError):
+                if extra_values and key in extra_values:
+                    return str(extra_values[key])
                 return m.group(0)  # 保留原样
             if val is Missing:
+                if extra_values and key in extra_values:
+                    return str(extra_values[key])
                 return m.group(0)
             return str(val)
 

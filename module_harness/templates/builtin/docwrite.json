@@ -1,0 +1,30 @@
+{
+  "name": "docwrite",
+  "description": "文档写作模块：大纲 → 分节写作 → 合并成文",
+  "translation": {
+    "type": "script",
+    "script": "docwrite_translator"
+  },
+  "tasklist": {
+    "Tasks": {
+      "A": {
+        "type": "harness",
+        "harness": "write_outline",
+        "inputs": {"topic": "{spec.topic}"},
+        "outputformat": {"type": "json_object"}
+      },
+      "B": {
+        "type": "harness",
+        "harness": "write_section",
+        "inputs": {"outline": "A"},
+        "outputformat": {"type": "json_object"}
+      },
+      "C": {
+        "type": "script",
+        "script": "merge_doc",
+        "inputs": {"outline": "A", "sections": "B"}
+      }
+    },
+    "Flow": "A --> B\nB --> C"
+  }
+}

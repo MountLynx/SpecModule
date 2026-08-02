@@ -1,0 +1,24 @@
+{
+  "name": "summarize",
+  "description": "文本总结模块：提取要点 + 压缩摘要",
+  "translation": {
+    "type": "script",
+    "script": "summarize_translator"
+  },
+  "tasklist": {
+    "Tasks": {
+      "A": {
+        "type": "harness",
+        "harness": "summarize",
+        "inputs": {"text": "{spec.text}"},
+        "outputformat": {"type": "json_object"}
+      },
+      "B": {
+        "type": "script",
+        "script": "format_summary",
+        "inputs": {"data": "A"}
+      }
+    },
+    "Flow": "A --> B"
+  }
+}

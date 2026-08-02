@@ -245,6 +245,7 @@ class Translator:
                     model=existing.model,
                     temperature=existing.temperature,
                     think=existing.think,
+                    api_params=dict(existing.api_params),
                 )
                 h = Harness(overridden, self.reg._llm_client, self.reg._event_bus)
                 body = h.build_body()
