@@ -67,6 +67,8 @@ class Harness:
         async def body(view: DictView) -> Any:
             node = view.node
             now = time.monotonic()
+            # view.state 可为 None（bare DictView）；写入后自动进入 NodeState.mutable_state 审计
+            state = view.state
 
             # 1. 渲染 prompt
             rendered = renderer.render(
@@ -75,6 +77,8 @@ class Harness:
                 prompt_extra=prompt_extra,
                 extra_values=spec_inputs,
             )
+            if state is not None:
+                state["_prompt"] = rendered
             bus.emit(PromptRendered(
                 timestamp=time.monotonic(), node=node, tick=0,
                 rendered=rendered,
@@ -108,12 +112,19 @@ class Harness:
                     api_params=config.api_params if config.api_params else None,
                 )
             except LLMError as e:
+                if state is not None:
+                    state["_llm_error"] = str(e)
                 bus.emit(HarnessFailed(
                     timestamp=time.monotonic(), node=node, tick=0,
                     reason=str(e),
                     failure_type="infrastructure",
                 ))
                 return Failure(str(e), type="infrastructure")
+
+            # 3. LLM 原始响应 + usage 写入节点状态（审计链：NodeState.mutable_state）
+            if state is not None:
+                state["_llm_raw"] = response.content
+                state["_usage"] = dict(response.usage)
 
             # 3. 校验输出
             bus.emit(LlmCallCompleted(
