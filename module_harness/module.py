@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from tickflow.async_runner import AsyncRunner
+from tickflow.persistence import NullBackend, SqliteBackend
 
 from .spec import Spec, Tasklist
 from .consistency import ConsistencyError, ConsistencyReport, ConsistencyReviewer
@@ -14,6 +16,14 @@ from .translator import Translator, TemplateLoader, TasklistValidator
 from .graph_builder import TasklistTranslator
 from .registry import HarnessRegistry
 from .events import EventBus, ConsistencyReviewed
+
+
+def _persist_dir(module_id: str) -> Path:
+    """``<工作目录>/.specmodule/runs/<run_id>/run.sqlite``（D9）。
+
+    run_id = module_id：一个任务一次运行一个子目录、一个独立 SQLite 数据库。
+    """
+    return Path.cwd() / ".specmodule" / "runs" / module_id / "run.sqlite"
 
 
 class Module:
@@ -36,6 +46,7 @@ class Module:
         registry: HarnessRegistry | None = None,
         review_harness: str | None = "spec_tasklist_review",
         keep_records: bool = True,
+        persist: bool = True,
     ) -> None:
         if (template_name is None) == (tasklist is None):
             raise ValueError("template_name 与 tasklist 必须且只能传一个")
@@ -44,6 +55,9 @@ class Module:
         self.tasklist = tasklist
         self.review_harness = review_harness
         self.keep_records = keep_records
+        # True（默认）：构造 .specmodule/runs/<run_id>/run.sqlite 持久 backend（D9）
+        # False：快速模式——NullBackend 全内存，零落盘零 I/O（D7 语义正式化）
+        self.persist = persist
         self.review_result: ConsistencyReport | None = None
         self.module_id = module_id or f"mod_{uuid.uuid4().hex[:8]}"
 
@@ -100,7 +114,18 @@ class Module:
             tasklist = await self._translator.translate(self.spec, template)
         builder = TasklistTranslator(self._reg, self.module_id)
         graph, reg = builder.build(tasklist, spec=self.spec)
-        return AsyncRunner(graph, registry=reg, keep_records=self.keep_records)
+        backend = (
+            SqliteBackend(_persist_dir(self.module_id))
+            if self.persist
+            else NullBackend()
+        )
+        return AsyncRunner(
+            graph,
+            registry=reg,
+            keep_records=self.keep_records,
+            backend=backend,
+            session_id=self.module_id,
+        )
 
     async def run(self, max_ticks: int = 100):
         """执行翻译 → 构建 → 运行。一步跑完。"""
