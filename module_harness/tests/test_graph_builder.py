@@ -158,3 +158,46 @@ class TestTasklistTranslator:
 
         assert "A" in graph.nodes
         assert graph.nodes["A"].inputs["text"].kind == "latest"
+
+
+class TestHarnessInputAlias:
+    """跨节点 harness 输入：task.inputs 的 field 名应能渲染进 prompt。
+
+    回归：graph_builder 把 {field: producer} 注册为输入 key 后，view[field]
+    解析为 Missing（field 不是节点名），prompt 的 {field} 占位符原样保留。
+    """
+
+    @pytest.mark.asyncio
+    async def test_prompt_renders_producer_value(self, mock_llm):
+        from llm.client import LLMResponse
+        from tickflow.async_runner import AsyncRunner
+        from module_harness.events import EventBus, PromptRendered
+
+        bus = EventBus()
+        rendered: list[str] = []
+        bus.subscribe(PromptRendered, lambda e: rendered.append(e.rendered))
+        r = HarnessRegistry(llm_client=mock_llm, event_bus=bus)
+
+        @r.script("produce")
+        def produce(view):
+            return "HELLO-FROM-A"
+
+        r.harness("consume", HarnessConfig(prompt_core="输入是：{log}"))
+        mock_llm.complete = AsyncMock(return_value=LLMResponse(
+            content='{"ok": true}', usage={}, finish_reason="end_turn"))
+
+        tl = Tasklist(
+            tasks={
+                "A": TaskDefinition(type="script", script="produce"),
+                "B": TaskDefinition(
+                    type="harness", harness="consume", inputs={"log": "A"},
+                ),
+            },
+            flow="A --> B",
+        )
+        graph, reg = TasklistTranslator(r, "alias_test").build(tl)
+        runner = AsyncRunner(graph, registry=reg, keep_records=True)
+        await runner.run_until_idle(max_ticks=10)
+        assert any(
+            "HELLO-FROM-A" in p for p in rendered
+        ), f"prompt 未渲染 producer 值: {rendered!r}"

@@ -68,8 +68,10 @@ class TasklistTranslator:
 
         # 5.  Wire task inputs to graph node inputs.
         #     ``task.inputs = {field_name: producer}`` — 同时注册 field 名与
-        #     producer 名两个 key：body 既可用 ``view.<producer>.value``（有值）
-        #     也可用 ``view.<field_name>.value``（Missing 不崩溃，旧写法兼容）。
+        #     producer 名两个 key：body 用 ``view.<producer>.value``（有值），
+        #     ``view.<field_name>.value`` 为 Missing（不崩溃，脚本旧写法兼容）。
+        #     harness 的 prompt 占位符 ``{field}`` 经 _register_harness 传入的
+        #     input_aliases 在运行时解析 producer 输出值。
         #     ``{spec.xxx}`` 引用已由 _register_harness 解析为 spec_inputs，
         #     此处跳过。
         for key, task in tasklist.tasks.items():
@@ -163,12 +165,22 @@ class TasklistTranslator:
                     resolved = self._resolve_spec_ref(producer, spec_dict)
                     spec_inputs[field_name] = resolved
 
+        # 跨节点输入别名：非 {spec.} 的 inputs 把 field 名映射到 producer 节点，
+        # harness body 运行时据此把 producer 输出渲染进 prompt 的 {field} 占位符。
+        input_aliases: dict[str, str] = {}
+        if task.inputs:
+            for field_name, producer in task.inputs.items():
+                if isinstance(producer, str) and producer.startswith("{spec."):
+                    continue
+                input_aliases[field_name] = producer
+
         self.reg.harness(
             self._isolated(key),
             cfg,
             promptmode=promptmode,
             prompt_extra=task.prompt,
             spec_inputs=spec_inputs,
+            input_aliases=input_aliases,
         )
 
     def _register_script(self, key: str, task: TaskDefinition) -> None:

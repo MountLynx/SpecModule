@@ -51,11 +51,14 @@ class HarnessRegistry(Registry):
         promptmode: str | None = None,
         prompt_extra: str | None = None,
         spec_inputs: dict[str, Any] | None = None,
+        input_aliases: dict[str, str] | None = None,
     ) -> "HarnessRegistry":
         """注册一个 harness body。
 
         ``name`` 是 graph 中 ``node.body`` 引用的名称。
         ``spec_inputs``：spec 字段常量，渲染时作为占位符兜底值。
+        ``input_aliases``：跨节点输入别名 {field_name: producer}，
+        prompt 的 {field} 占位符在运行时解析 producer 的输出值。
         返回 self，支持链式调用。
         """
         h = Harness(config, self._llm_client, self._event_bus)
@@ -63,6 +66,7 @@ class HarnessRegistry(Registry):
             promptmode=promptmode,
             prompt_extra=prompt_extra,
             spec_inputs=spec_inputs,
+            input_aliases=input_aliases,
         )
         self.body(name, body)
         self._harness_cfgs[name] = config
