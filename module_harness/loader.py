@@ -47,11 +47,14 @@ class ModuleLoader:
         event_bus: EventBus | None = None,
     ) -> None:
         self._llm_client = llm_client
-        self._llm_config = llm_config or LLMConfig.from_env()
+        self._llm_config = llm_config
         self._event_bus = event_bus
 
-    def _client(self) -> Any:
+    def _ensure_client(self) -> Any:
+        """llm_client 优先；否则由 llm_config（None → from_env）惰性创建。"""
         if self._llm_client is None:
+            if self._llm_config is None:
+                self._llm_config = LLMConfig.from_env()
             self._llm_client = create_llm_client(self._llm_config)
         return self._llm_client
 
@@ -65,6 +68,8 @@ class ModuleLoader:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
             raise ModuleManifestError(f"module.json 解析失败: {e}") from e
+        if not isinstance(manifest, dict):
+            raise ModuleManifestError("module.json 顶层必须是对象")
 
         name = manifest.get("name")
         tasklist_data = manifest.get("tasklist")
@@ -86,9 +91,17 @@ class ModuleLoader:
             input=schema_data.get("input", {}) or {},
             output=schema_data.get("output", {}) or {},
         )
-        requires = list(manifest.get("requires", []) or [])
+        requires_raw = manifest.get("requires", []) or []
+        if not isinstance(requires_raw, list) or not all(
+                isinstance(r, str) for r in requires_raw):
+            raise ModuleManifestError("requires 必须是字符串列表")
+        requires = list(requires_raw)
 
         provides = {h.name for h in harnesses} | {c.name for c in commands} | set(scripts)
+        all_names = [h.name for h in harnesses] + [c.name for c in commands] + list(scripts)
+        dups = {n for n in all_names if all_names.count(n) > 1}
+        if dups:
+            raise ModuleManifestError("provides 名称重复: " + ", ".join(sorted(dups)))
         missing = [r for r in requires if r not in BUILTIN_HARNESS_NAMES and r not in provides]
         if missing:
             raise ModuleRequirementError(missing, sorted(BUILTIN_HARNESS_NAMES | provides))
@@ -104,7 +117,7 @@ class ModuleLoader:
             "commands": commands,
             "_scripts": scripts,
         })
-        return cls(llm_client=self._client(), event_bus=self._event_bus)
+        return cls(llm_client=self._ensure_client(), event_bus=self._event_bus)
 
     def _load_harnesses(self, p: Path) -> list[HarnessConfig]:
         result: list[HarnessConfig] = []
@@ -133,6 +146,7 @@ class ModuleLoader:
         return result
 
     def _load_scripts(self, p: Path) -> dict[str, Any]:
+        """加载 scripts/*.py 为可调用函数（exec 执行——加载目录视为可信代码）。"""
         result: dict[str, Any] = {}
         for f in sorted((p / "scripts").glob("*.py")):
             ns: dict[str, Any] = {}

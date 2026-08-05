@@ -266,3 +266,51 @@ class TestModuleLoader:
             json.dumps({"tasklist": {"Tasks": {}, "Flow": ""}}), encoding="utf-8")
         with pytest.raises(ModuleManifestError, match="name"):
             ModuleLoader(llm_client=mock_llm).load(d)
+
+    def test_duplicate_provides_rejected(self, tmp_path, mock_llm):
+        d = tmp_path / "dup"
+        (d / "harnesses").mkdir(parents=True)
+        for i in range(2):
+            (d / "harnesses" / f"h{i}.json").write_text(
+                json.dumps({"name": "translate", "prompt_core": "x"}),
+                encoding="utf-8")
+        (d / "module.json").write_text(json.dumps({
+            "name": "dup_mod", "tasklist": {"Tasks": {}, "Flow": ""},
+        }), encoding="utf-8")
+        with pytest.raises(ModuleManifestError, match="重复"):
+            ModuleLoader(llm_client=mock_llm).load(d)
+
+    def test_manifest_not_object(self, tmp_path, mock_llm):
+        d = tmp_path / "arr"
+        d.mkdir()
+        (d / "module.json").write_text("[1, 2, 3]", encoding="utf-8")
+        with pytest.raises(ModuleManifestError):
+            ModuleLoader(llm_client=mock_llm).load(d)
+
+    def test_requires_non_string_rejected(self, tmp_path, mock_llm):
+        class BadReq(Translator):
+            name = "bad_req"
+            requires = [42]
+        out = BadReq().pack(tmp_path / "dist")
+        with pytest.raises(ModuleManifestError, match="requires"):
+            ModuleLoader(llm_client=mock_llm).load(out)
+
+    def test_script_syntax_error_wrapped(self, tmp_path, mock_llm):
+        d = tmp_path / "badscript"
+        (d / "scripts").mkdir(parents=True)
+        (d / "scripts" / "oops.py").write_text("def broken(:\n", encoding="utf-8")
+        (d / "module.json").write_text(json.dumps({
+            "name": "bad_script", "tasklist": {"Tasks": {}, "Flow": ""},
+        }), encoding="utf-8")
+        with pytest.raises(ModuleManifestError, match="oops.py"):
+            ModuleLoader(llm_client=mock_llm).load(d)
+
+    def test_script_missing_function_wrapped(self, tmp_path, mock_llm):
+        d = tmp_path / "nofn"
+        (d / "scripts").mkdir(parents=True)
+        (d / "scripts" / "target.py").write_text("x = 1\n", encoding="utf-8")
+        (d / "module.json").write_text(json.dumps({
+            "name": "no_fn", "tasklist": {"Tasks": {}, "Flow": ""},
+        }), encoding="utf-8")
+        with pytest.raises(ModuleManifestError, match="target"):
+            ModuleLoader(llm_client=mock_llm).load(d)
