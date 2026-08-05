@@ -49,7 +49,7 @@ tasklist写法参考
 
 ## submodule
 
-submodule是tasklist固定、spec强模板化的一个module，其spec和tasklist是固定的，不能修改。且取消快照状态等开销，形成一个特定输入得到特定输出的固定的“箱子”。
+submodule是tasklist固定、spec强模板化的一个module，其spec和tasklist是固定的，不能修改。嵌入模式（audit=False）内存不保留审计，但记录仍落盘（`.specmodule/runs/<run_id>/run.sqlite`，完整历史可查）；轻量任务用 `mode = "fast"` 全内存零落盘。形成一个特定输入得到特定输出的固定的“箱子”。
 
 
 ## 状态记录与控制——快照与回滚
@@ -61,6 +61,8 @@ submodule是tasklist固定、spec强模板化的一个module，其spec和tasklis
 快照和回滚以tick为粒度，恢复到某个tick的全局字典和布尔值表状态。
 
 ** 回滚时可以调整spec和tasklist中未执行的部分 **
+
+**持久化约定**：默认每个 `Module.run` 在 `<工作目录>/.specmodule/runs/<module_id>/run.sqlite` 生成独立 SQLite 数据库（run_id = module_id；SubModule 每次 run() 生成 `{name}_{uuid[:6]}`，互不干扰）。`Module(persist=False)` 或 `SubModule mode="fast"` 关闭落盘（全内存快速模式，无 `.specmodule` 残留）。敏感数据注意：默认落盘意味着 LLM 产出（代码、prompt）持久化到工作目录——persist=False 即关闭开关。
 
 
 ## harness

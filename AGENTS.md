@@ -37,7 +37,7 @@ Tests use `pytest` + `unittest.mock` (`MagicMock`, `AsyncMock`). Fixtures define
    - `llm/` → self-contained (only `os`, `dataclasses`, `pathlib`, `typing`)
    - `module_harness/` → depends on `tickflow` + `llm`
 
-3. **Single source of truth:** `RunState` (tickflow) is the sole runtime state container. Three layers: `_edges` (fast input resolution), `_state` (per-node mutable state), `_records` (full audit, gated by `keep_records`). Never create parallel state tracking.
+3. **Single source of truth:** `RunState` (tickflow) is the sole runtime state container. Three layers: `_edges` (fast input resolution, windowed to last 2 firings per node), `_state` (per-node mutable state), `_records` (full audit, gated by `keep_records`; persisted via backend when one is attached). Never create parallel state tracking.
 
 4. **Namespace isolation:** Multiple `Module` instances coexist in one process. Body names are prefixed `{module_id}:{key}` by `TasklistTranslator` — never hardcode bare names across modules.
 
