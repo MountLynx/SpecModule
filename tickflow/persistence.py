@@ -88,6 +88,18 @@ class Backend(Protocol):
         """All firings with ``tick >= since_tick``, in append order."""
         ...
 
+    def firing_at(self, session_id: str, node: str, k: int) -> Any | None:
+        """The output of *node*'s k-th firing (1-based) in this session,
+        or None if it has fired fewer than k times.  Cold query backing
+        ``resolve(A[k])`` for k outside the in-memory window (D8)."""
+        ...
+
+    def firings_of(self, session_id: str, node: str) -> list[tuple[int, Any]]:
+        """All ``(tick, output)`` pairs for *node*, in append order (which
+        equals tick order for a real run — a node fires at most once per
+        tick).  Cold query backing ``RunState.firings_of`` (D8)."""
+        ...
+
     def save_checkpoint(self, session_id: str, label: str, snap: dict) -> None:
         """Save ``snap`` under a human-readable ``label``. Overwrites a
         checkpoint with the same label."""
@@ -135,6 +147,12 @@ class NullBackend:
 
     def list_firings(self, session_id: str, since_tick: int = 0) -> list[dict]:
         return [f for f in self._firings.get(session_id, []) if f.get("tick", 0) >= since_tick]
+
+    def firing_at(self, session_id: str, node: str, k: int) -> Any | None:
+        return None  # NullBackend keeps no cold history (fast mode, D7)
+
+    def firings_of(self, session_id: str, node: str) -> list[tuple[int, Any]]:
+        return []  # NullBackend keeps no cold history (fast mode, D7)
 
     def save_checkpoint(self, session_id: str, label: str, snap: dict) -> None:
         self._checkpoints.setdefault(session_id, {})[label] = snap
@@ -246,6 +264,39 @@ class JsonBackend:
                 out.append(d)
         return out
 
+    def _node_firings(self, session_id: str, node: str) -> list[dict]:
+        return [d for d in self.list_firings(session_id) if d.get("node") == node]
+
+    def firing_at(self, session_id: str, node: str, k: int) -> Any | None:
+        """The output of *node*'s k-th distinct-tick firing (1-based), or
+        None if it has fired fewer than k times.  Rows are deduplicated by
+        tick (keep-first) so restore-then-replay writes of the same
+        (tick, node) do not shift the k-th firing contract."""
+        if k < 1:
+            return None
+        seen: set[int] = set()
+        n = 0
+        for d in self._node_firings(session_id, node):
+            if d.get("tick") in seen:
+                continue
+            seen.add(d["tick"])
+            n += 1
+            if n == k:
+                return d.get("output")
+        return None
+
+    def firings_of(self, session_id: str, node: str) -> list[tuple[int, Any]]:
+        """All ``(tick, output)`` pairs for *node* in first-append order,
+        deduplicated by tick (a node fires at most once per tick)."""
+        seen: set[int] = set()
+        out: list[tuple[int, Any]] = []
+        for d in self._node_firings(session_id, node):
+            if d.get("tick") in seen:
+                continue
+            seen.add(d["tick"])
+            out.append((d["tick"], d.get("output")))
+        return out
+
     # -- checkpoints -------------------------------------------------------
 
     def save_checkpoint(self, session_id: str, label: str, snap: dict) -> None:
@@ -332,6 +383,7 @@ class SqliteBackend:
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT    NOT NULL,
                 tick       INTEGER NOT NULL,
+                node       TEXT    NOT NULL,
                 data       TEXT    NOT NULL
             );
             CREATE TABLE IF NOT EXISTS checkpoints (
@@ -344,6 +396,22 @@ class SqliteBackend:
             CREATE INDEX IF NOT EXISTS idx_firings_lookup
                 ON firings (session_id, tick, id);
             """
+        )
+
+        # Migration for databases created before the `node` column existed.
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(firings)")}
+        if "node" not in cols:
+            self._conn.execute("ALTER TABLE firings ADD COLUMN node TEXT")
+            self._conn.execute(
+                "UPDATE firings SET node = json_extract(data, '$.node') "
+                "WHERE node IS NULL OR node = ''"
+            )
+            self._conn.commit()
+        # Created after the migration so it also works on legacy databases
+        # that lacked the `node` column until just above.
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_firings_node "
+            "ON firings (session_id, node, id)"
         )
 
     # -- snapshots ----------------------------------------------------------
@@ -385,25 +453,26 @@ class SqliteBackend:
     def save_firing(self, session_id: str, firing: Any) -> None:
         d = firing.to_json() if hasattr(firing, "to_json") else dict(firing)
         tick = d.get("tick", 0)
+        node = str(d.get("node") or "")
         with self._lock:
             self._conn.execute(
-                "INSERT INTO firings (session_id, tick, data) VALUES (?, ?, ?)",
-                (session_id, tick, json.dumps(d, default=_default)),
+                "INSERT INTO firings (session_id, tick, node, data) VALUES (?, ?, ?, ?)",
+                (session_id, tick, node, json.dumps(d, default=_default)),
             )
             self._conn.commit()
 
     def save_firings(self, session_id: str, firings: list) -> None:
-        """Batch-insert all firings in a single transaction (one commit).
-        Cheaper than per-firing :meth:`save_firing` for a tick with N fires."""
+        """Batch-insert all firings in a single transaction (one commit)."""
         if not firings:
             return
         rows = []
         for firing in firings:
             d = firing.to_json() if hasattr(firing, "to_json") else dict(firing)
-            rows.append((session_id, d.get("tick", 0), json.dumps(d, default=_default)))
+            rows.append((session_id, d.get("tick", 0), str(d.get("node") or ""),
+                         json.dumps(d, default=_default)))
         with self._lock:
             self._conn.executemany(
-                "INSERT INTO firings (session_id, tick, data) VALUES (?, ?, ?)",
+                "INSERT INTO firings (session_id, tick, node, data) VALUES (?, ?, ?, ?)",
                 rows,
             )
             self._conn.commit()
@@ -415,6 +484,42 @@ class SqliteBackend:
                 (session_id, since_tick),
             ).fetchall()
         return [json.loads(r[0]) for r in rows]
+
+    def firing_at(self, session_id: str, node: str, k: int) -> Any | None:
+        """The output of *node*'s k-th distinct-tick firing (1-based), or
+        None if it has fired fewer than k times.  Rows are deduplicated by
+        tick (keep-first) so restore-then-replay writes of the same
+        (tick, node) do not shift the k-th firing contract."""
+        if k < 1:
+            return None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT data FROM ("
+                "SELECT data, MIN(id) AS mid FROM firings "
+                "WHERE session_id = ? AND node = ? GROUP BY tick"
+                ") ORDER BY mid LIMIT 1 OFFSET ?",
+                (session_id, node, k - 1),
+            ).fetchone()
+        if row is None:
+            return None
+        return json.loads(row[0]).get("output")
+
+    def firings_of(self, session_id: str, node: str) -> list[tuple[int, Any]]:
+        """All ``(tick, output)`` pairs for *node* in first-append order,
+        deduplicated by tick (a node fires at most once per tick)."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT data FROM ("
+                "SELECT data, MIN(id) AS mid FROM firings "
+                "WHERE session_id = ? AND node = ? GROUP BY tick"
+                ") ORDER BY mid",
+                (session_id, node),
+            ).fetchall()
+        out: list[tuple[int, Any]] = []
+        for r in rows:
+            d = json.loads(r[0])
+            out.append((d["tick"], d.get("output")))
+        return out
 
     # -- checkpoints --------------------------------------------------------
 
@@ -453,8 +558,6 @@ class SqliteBackend:
     def close(self) -> None:
         with self._lock:
             self._conn.close()
-        """Close the underlying SQLite connection."""
-        self._conn.close()
 
 
 def _default(o: Any) -> Any:
