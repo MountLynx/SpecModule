@@ -43,8 +43,8 @@ class MyTranslator(SubModule):
     # 固定流程；{spec.xxx} 占位符在构建时渲染，无需 LLM 翻译
     tasklist = Tasklist(tasks={...}, flow="A --> B")
 
-    @script("format_output")           # 类方法；self 可访问实例配置
-    def format_output(self, view):
+    @script("format_output")           # 类体内普通函数（不绑定 self，与 @reg.script 语义一致）
+    def format_output(view):
         return {"result": view.A.value["translation"].strip()}
 ```
 
@@ -154,7 +154,7 @@ class SubModule:
         ...
 ```
 
-- **类属性 = 注册信息**；`@script(name)` 装饰器给函数打标记，`__init_subclass__` 收集到 `cls._scripts: dict[str, Callable]`
+- **类属性 = 注册信息**；`@script(name)` 装饰器给函数打标记，`__init_subclass__` 收集到 `cls._scripts: dict[str, Callable]`。**脚本是类体内普通函数（不绑定 self）**——与现有 `@reg.script` 语义一致，保证 pack 导出源码后 pack/load round-trip 无需重写签名；需要类常量时通过 `view` 拿节点输出，不依赖实例状态
 - **client 注入**：`__init__(llm_client=None, event_bus=None)`——`ModuleLoader` 构造时注入；直接类使用（第一层开发态）传 None，`run()` 时经 `LLMConfig.from_env()` + `create_llm_client()` 懒创建，与 `ModuleLoader` 默认行为一致
 - `pack()` 不需要 client，纯序列化导出
 - `run()` 不平行实现执行——内部组合现有 `Module`：构建 `HarnessRegistry` → 注册 provides（harness 配置、script 用 `functools.partial(func, self)` 绑定、command 配置）→ 注册内置集 → 构造 `Module(spec=..., tasklist=...)` → 运行
@@ -183,8 +183,8 @@ def register_builtin_harnesses(reg: HarnessRegistry) -> None:
 
 ```python
 class ModuleLoader:
-    def __init__(self, llm_config: LLMConfig | None = None, event_bus: EventBus | None = None):
-        # llm_config=None → LLMConfig.from_env()（第二层用户零配置）
+    def __init__(self, llm_config: LLMConfig | None = None, *, llm_client=None, event_bus: EventBus | None = None):
+        # llm_client 优先（测试/注入用）；否则 llm_config（None → LLMConfig.from_env()）创建
         ...
 
     def load(self, path: str | Path) -> SubModule:
@@ -324,7 +324,7 @@ class MyTranslator(SubModule):
     )
 
     @script("format_output")
-    def format_output(self, view):
+    def format_output(view):
         return {"translation": view.A.value["translation"].strip()}
 
 MyTranslator().pack("./dist/my_translator/")
