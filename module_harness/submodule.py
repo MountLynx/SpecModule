@@ -9,7 +9,7 @@ import textwrap
 import uuid
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from llm import LLMConfig, create_llm_client
 
@@ -63,6 +63,9 @@ class SubModule:
     commands: list[CommandConfig] = []
     requires: list[str] = []
     tasklist: Tasklist | None = None
+    mode: Literal["persist", "fast"] = "persist"
+    # 发布者声明轻量特性："fast" = 快速模式（NullBackend 全内存，零落盘零 I/O，
+    # D11）；默认 "persist" 落盘到 .specmodule/runs/<run_id>/（D9）。
     _scripts: dict[str, Callable] = {}
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
@@ -124,7 +127,9 @@ class SubModule:
 
         - tasklist=None：用自身固定 tasklist，不触发一致性审核（发布前已验证）
         - 传入自定义 tasklist：与 Module 一致，校验 + 一致性审核
-        - audit=False（默认）：嵌入模式，EventBus.null() + keep_records=False
+        - audit=False（默认）：嵌入模式，EventBus.null() + keep_records=False；
+          注意：除非 mode="fast"，嵌入模式同样落盘（内存不保留 + 落盘，
+          完整历史在 .specmodule/runs/ 可查，D11）
         - audit=True：keep_records 全开；订阅事件需在构造时传入 event_bus
         """
         errors = self.spec_schema.validate(spec)
@@ -146,6 +151,7 @@ class SubModule:
             registry=reg,
             review_harness=review,
             keep_records=audit,
+            persist=(self.mode != "fast"),
         )
         return await module.run(max_ticks=max_ticks)
 
