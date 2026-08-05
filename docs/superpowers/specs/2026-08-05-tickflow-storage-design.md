@@ -105,12 +105,13 @@ def resolve(self, node: str, kind: str, k: int | None, t: int) -> Any:
 - `checkpoint(label)` / `rollback_to(label)`：经 backend 落盘（已有 `persistence.py:91-103`）
 - **恢复后 `A[k]` 查库可解析**（firings 表全量在库；checkpoint 与 firings 同 session 同库）
 
-### D6. backend 默认化：默认 SqliteBackend（临时文件，自动清理）
+### D6. backend 默认化：tickflow 层默认临时文件，持久化是上层约定
 
 - `Runner`/`AsyncRunner` 构造参数 `backend: Any = None`（已存在）的默认值语义**迁移**：`None`（不传）→ 自动创建临时 `SqliteBackend`（`tempfile` 模式，Runner 生命周期结束自动清理）；可显式传路径持久保留（现有显式传参方式不变）
 - **"显式不要落盘"用 `NullBackend()` 表达**——`None` 不再是"无落盘"（API 不变，语义迁移）
+- **分层职责**：tickflow 是通用引擎，不知道上层目录约定——默认临时文件（安全、零残留）；持久化到工作目录是 SpecModule 层的默认（D9）
 - 理由：准则 2（历史审计落盘）+ 准则 3（audit 功能不受影响）合起来要求"落盘是默认行为"——否则默认路径下 audit 只有窗口，功能受影响
-- 现有所有"不传 backend"的调用（含 `Module.run`）行为自动变为默认落盘——API 不变，行为增强，无需改调用方
+- 现有所有"不传 backend"的调用行为自动变为默认落盘——API 不变，行为增强，无需改调用方
 
 ### D7. 无 backend（NullBackend）兼容路径
 
@@ -139,20 +140,49 @@ def firings_of(self, session_id: str, node: str) -> list[tuple[int, Any]]:
 - `NullBackend`：`firing_at` 返回 None、`firings_of` 返回 `[]`（配合 D7 降级语义）
 - `JsonBackend`：按现有文件结构实现或抛 `NotImplementedError`（实现时定，优先复用 `list_firings`）
 
-### D9. `_state` 不变
+### D9. SpecModule 层持久化约定：`.specmodule/runs/<run_id>/` 每任务独立数据库
+
+```
+<工作目录>/.specmodule/runs/<run_id>/run.sqlite
+```
+
+- **run_id = module_id**（Module 构造时的 `module_id`；SubModule 每次 `run()` 生成的 `{name}_{uuid[:6]}`）——一个任务一次运行一个子目录、一个独立 sqlite 数据库（互不干扰，删一个任务目录即删其全部记录）
+- **持久化开关**：`Module(persist=True)`（默认）自动创建上述路径（`mkdir(parents=True)`）；`persist=False` 走 tickflow 默认临时文件（D6），无 `.specmodule` 残留
+- **默认持久化的理由**：准则 2（历史审计落盘）+ 项目愿景（docs/SpecModule.md："状态记录以最终实现前端可视化展示与监控为准"）——历史必须跨运行存在，前端/SDK/审计才有数据可查
+- 敏感数据考量：默认落盘意味着 LLM 产出（代码、prompt）持久化到工作目录——`persist=False` 即关闭开关；文档明示此默认行为（无隐式行为原则）
+- **retention/清理策略（保留最近 N 次、按大小、手动清理）不在本次范围**——随可视化与第二层用户体验优化后续设计（第 9 节）
+
+### D10. `_state` 不变
 
 每节点一份当前状态（不累积），已是"运行必要"的最小形态；其内容（如 harness 渲染的 prompt）随 NodeState 落盘供审计。
 
-### D10. module_harness 零代码改动 + 行为变化清单
+### D11. module_harness 小代码改动：`persist` 开关 + 默认持久化
 
-`module_harness` 与 tickflow 运行状态的接触面（已 grep 验证）：仅 `module.py:103`（`AsyncRunner(graph, registry=reg, keep_records=...)` 不传 backend）与 `submodule.py:148`（透传 `keep_records=audit`）——**无任何对 `run_state._edges/_records/audit/firings_of/snapshot/rollback` 的直接访问**，`Translator`/`ConsistencyReviewer` 自构造 DictView 不碰 RunState。因此代码零改动。
+`module_harness` 与 tickflow 运行状态的接触面（已 grep 验证）：仅 `module.py:103`（`AsyncRunner(graph, registry=reg, keep_records=...)` 不传 backend）与 `submodule.py:148`（透传 `keep_records=audit`）——无任何对 `run_state` 内部的直接访问。**功能改动仅一处：新增 `persist` 开关（默认 `True`）**。
 
-**行为变化**（API 不变，需文档化）：
+**`Module.__init__` 新增参数**：
 
-1. **默认落盘**：每次 `Module.run` 自动创建临时 SqliteBackend（每 tick 写库，运行结束自动清理）。LLM 场景开销可忽略；纯 script/command 密集场景有 I/O 开销（准则 4 接受）
-2. **嵌入模式（`SubModule.run(audit=False)` / `keep_records=False`）同样默认落盘**：`_persist_firing` 与 `keep_records` 正交。**定位更新**：docs/SpecModule.md 的"取消快照状态等开销"演变为"内存不保留 + 落盘"——嵌入模式由此获得完整历史（之前是丢弃），`SubModule.run` docstring 同步更新
-3. **临时文件清理可靠性**：Windows 上文件句柄/锁须正确释放才能自动清理——实现细节，测试覆盖（见第 6 节"默认 backend 生命周期"）
-4. 快照/回滚：module_harness 当前不使用（roadmap #6 待实现）；backend 默认化后未来 Module 封装 checkpoint/rollback 时落盘开箱可用。Module 可加 backend 透传参数（第二层用户指定持久 DB 路径）——**本次不加，列为后续演进**
+```python
+persist: bool = True
+# True（默认）：构造 .specmodule/runs/<run_id>/run.sqlite 持久 backend（D9）
+# False：不传 backend——tickflow 默认临时文件，运行结束自动清理
+```
+
+`_build_runner_async` 中：
+
+```python
+backend = SqliteBackend(_persist_dir(self.module_id)) if self.persist else None
+return AsyncRunner(graph, registry=reg, keep_records=self.keep_records, backend=backend)
+```
+
+`SubModule` 构造透传 `persist` 到内部 `Module`（`SubModule.run(audit=..., persist=...)` 或构造参数，实现时定）。
+
+**行为变化**（API 新增，默认行为增强，需文档化）：
+
+1. **默认持久化**：每次 `Module.run` 在 `.specmodule/runs/<run_id>/` 生成独立 sqlite（D9），跨运行历史可查
+2. **嵌入模式（`SubModule.run(audit=False)` / `keep_records=False`）同样落盘**：`_persist_firing` 与 `keep_records` 正交。**定位更新**：docs/SpecModule.md 的"取消快照状态等开销"演变为"内存不保留 + 落盘"——嵌入模式由此获得完整历史（之前是丢弃），`SubModule.run` docstring 同步更新
+3. **临时文件清理可靠性**（persist=False 时）：Windows 上文件句柄/锁须正确释放才能自动清理——实现细节，测试覆盖
+4. 快照/回滚：module_harness 当前不使用（roadmap #6 待实现）；持久 backend 使未来 Module 封装 checkpoint/rollback 时落盘开箱可用
 
 ## 4. 数据流总览
 
@@ -216,6 +246,14 @@ def firings_of(self, session_id: str, node: str) -> list[tuple[int, Any]]:
 | 无 backend 的 Runner 测试 | 兼容路径行为不变（D7），`_edges` 断言除外 |
 | `test_persistence.py` | Backend 协议新增方法需在 NullBackend/JsonBackend/SqliteBackend 实现 |
 
+**SpecModule 侧测试**（`module_harness/tests/test_module.py` 或新文件追加）：
+
+| 测试 | 断言 |
+|------|------|
+| persist 默认持久化 | `Module.run` 后 `<cwd>/.specmodule/runs/<module_id>/run.sqlite` 存在且非空 |
+| persist=False 无残留 | 运行后无 `.specmodule` 目录生成（临时文件路径，Graph 层测试覆盖清理） |
+| SubModule 每任务独立目录 | 两次 `SubModule.run()` 生成两个不同 run_id 目录，互不干扰 |
+
 ## 7. 文件变更清单
 
 ### Graph 仓库（`C:\Users\xingy\Desktop\开发\Graph`，tickflow 主仓库）
@@ -236,9 +274,10 @@ def firings_of(self, session_id: str, node: str) -> list[tuple[int, Any]]:
 |------|------|
 | `tickflow/` | 从 Graph 仓库复制同步（排除 `__pycache__`），独立 commit |
 | `AGENTS.md` | 架构规则 3 更新：`_edges` 描述补 "windowed (last 2)"、`_records` 补 "audit persisted via backend" |
-| `docs/SpecModule.md` | 嵌入模式定位更新："取消快照状态等开销" → "内存不保留 + 落盘（完整历史可查）" |
-| `module_harness/submodule.py` | 仅 docstring：`audit=False` 说明补充"仍默认落盘"（无功能代码改动） |
-| `module_harness/` | 功能代码**零改动**（D10）；`module_harness/tests` 全量回归（192 项非 smoke）确认上层语义不变 |
+| `docs/SpecModule.md` | 嵌入模式定位更新："取消快照状态等开销" → "内存不保留 + 落盘（完整历史可查）"；新增 `.specmodule/runs/` 持久化约定说明 |
+| `module_harness/module.py` | 新增 `persist: bool = True` 参数 + `_build_runner_async` 构造持久 backend（D9/D11） |
+| `module_harness/submodule.py` | 透传 `persist`（构造参数或 `run()` 参数，实现时定）；`audit=False` docstring 补充"仍默认落盘" |
+| `module_harness/` | 其余功能代码零改动；`module_harness/tests` 全量回归（192 项非 smoke）+ 上节 persist 测试 |
 
 ## 8. 向后兼容
 
@@ -250,10 +289,11 @@ def firings_of(self, session_id: str, node: str) -> list[tuple[int, Any]]:
 
 ## 9. 已知限制与后续演进
 
+- **`.specmodule/runs/` retention/清理策略**（保留最近 N 次、按大小、手动清理）——随可视化与第二层用户体验优化后续设计（D9）
 - **sqlite3 同步阻塞**（async tick 内）：接受；后续可做异步批量写入 / 独立写线程
-- **默认临时 DB**：运行结束即清理；需要跨运行持久审计时显式传路径
 - **`_records` 内存全量仅存在于无 backend 路径**：若未来强制 backend，可移除该分支
 - JsonBackend 冷查询接口实现优先级最低（SQLite 为默认）
+- Module 的 backend 精细控制（自定义路径/多 backend 策略）后续随 SDK（roadmap #6）暴露
 
 ## 10. 与既有设计文档的关系
 
