@@ -35,6 +35,7 @@ class Module:
         module_id: str | None = None,
         registry: HarnessRegistry | None = None,
         review_harness: str | None = "spec_tasklist_review",
+        keep_records: bool = True,
     ) -> None:
         if (template_name is None) == (tasklist is None):
             raise ValueError("template_name 与 tasklist 必须且只能传一个")
@@ -42,6 +43,7 @@ class Module:
         self.template_name = template_name
         self.tasklist = tasklist
         self.review_harness = review_harness
+        self.keep_records = keep_records
         self.review_result: ConsistencyReport | None = None
         self.module_id = module_id or f"mod_{uuid.uuid4().hex[:8]}"
 
@@ -98,7 +100,7 @@ class Module:
             tasklist = await self._translator.translate(self.spec, template)
         builder = TasklistTranslator(self._reg, self.module_id)
         graph, reg = builder.build(tasklist, spec=self.spec)
-        return AsyncRunner(graph, registry=reg, keep_records=True)
+        return AsyncRunner(graph, registry=reg, keep_records=self.keep_records)
 
     async def run(self, max_ticks: int = 100):
         """执行翻译 → 构建 → 运行。一步跑完。"""

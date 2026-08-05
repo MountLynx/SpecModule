@@ -354,3 +354,21 @@ class TestModuleTasklistChannel:
         )
         with pytest.raises(ValueError, match="校验失败"):
             mod.build_runner()
+
+    def test_keep_records_false(self, mock_llm, setup_registry):
+        reg, bus, loader = setup_registry
+        mod = Module(
+            spec={"source_text": "Hello"},
+            tasklist=Tasklist(
+                tasks={"A": TaskDefinition(type="script", script="format_output", inputs={"data": "{spec.source_text}"})},
+                flow="[A]",
+            ),
+            llm_client=mock_llm,
+            event_bus=bus,
+            module_id="test_kr",
+            registry=reg,
+            review_harness=None,   # build_runner 不触发一致性审核
+            keep_records=False,
+        )
+        runner = mod.build_runner()
+        assert runner.run_state._keep_records is False
