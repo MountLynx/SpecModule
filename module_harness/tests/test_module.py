@@ -9,6 +9,9 @@ from module_harness.registry import HarnessRegistry
 from module_harness.events import EventBus
 from module_harness.translator import TemplateLoader
 from module_harness.module import Module
+from module_harness.consistency import ConsistencyError, register_review_harness
+from module_harness.events import ConsistencyReviewed
+from module_harness.spec import TaskDefinition, Tasklist
 
 
 @pytest.fixture
@@ -21,8 +24,8 @@ def mock_llm():
 @pytest.fixture
 def setup_registry(mock_llm):
     """注册最小 harness/script 集合 + 模板。"""
-    reg = HarnessRegistry(llm_client=mock_llm)
     bus = EventBus()
+    reg = HarnessRegistry(llm_client=mock_llm, event_bus=bus)
 
     # 翻译 harness
     reg.harness("spec_to_tasklist", HarnessConfig(
@@ -83,6 +86,9 @@ def setup_registry(mock_llm):
             "Flow": "[A] --> B",
         },
     })
+
+    # 审核 harness
+    register_review_harness(reg)
 
     return reg, bus, loader
 
@@ -195,3 +201,156 @@ class TestModule:
         )
         assert mod.module_id is not None
         assert len(mod.module_id) > 0
+
+
+class TestModuleTasklistChannel:
+    def _tasklist(self):
+        return Tasklist(
+            tasks={
+                "A": TaskDefinition(
+                    type="harness", harness="translate",
+                    inputs={"text": "source_text"},
+                ),
+                "B": TaskDefinition(
+                    type="script", script="format_output", inputs={"data": "A"},
+                ),
+            },
+            flow="[A] --> B",
+        )
+
+    def test_build_runner_with_tasklist(self, mock_llm, setup_registry):
+        reg, bus, loader = setup_registry
+        mock_llm.complete.return_value = LLMResponse(
+            content='{"consistent": true, "suggestions": ""}',
+            usage={}, finish_reason="end_turn",
+        )
+        mod = Module(
+            spec={"source_text": "Hello"},
+            tasklist=self._tasklist(),
+            llm_client=mock_llm,
+            event_bus=bus,
+            module_id="task_mod",
+            registry=reg,
+        )
+        runner = mod.build_runner()
+        assert runner is not None
+        assert mod.review_result is not None
+        assert mod.review_result.consistent is True
+
+    @pytest.mark.asyncio
+    async def test_run_with_tasklist(self, mock_llm, setup_registry):
+        reg, bus, loader = setup_registry
+        call_count = [0]
+
+        async def fake_complete(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # 第一次调用 = 审核
+                return LLMResponse(
+                    content='{"consistent": true, "suggestions": ""}',
+                    usage={}, finish_reason="end_turn",
+                )
+            # 后续 = 执行 harness
+            return LLMResponse(
+                content='{"translation": "你好"}',
+                usage={}, finish_reason="end_turn",
+            )
+
+        mock_llm.complete = AsyncMock(side_effect=fake_complete)
+        mod = Module(
+            spec={"source_text": "Hello"},
+            tasklist=self._tasklist(),
+            llm_client=mock_llm,
+            event_bus=bus,
+            module_id="task_run",
+            registry=reg,
+        )
+        firings = await mod.run(max_ticks=10)
+        assert len(firings) >= 2
+        assert any(f.node == "B" for f in firings)
+
+    def test_tasklist_inconsistent_raises(self, mock_llm, setup_registry):
+        reg, bus, loader = setup_registry
+        mock_llm.complete.return_value = LLMResponse(
+            content='{"consistent": false, "suggestions": "flow 无法到达终点"}',
+            usage={}, finish_reason="end_turn",
+        )
+        mod = Module(
+            spec={"source_text": "Hello"},
+            tasklist=self._tasklist(),
+            llm_client=mock_llm,
+            event_bus=bus,
+            module_id="task_incon",
+            registry=reg,
+        )
+        with pytest.raises(ConsistencyError) as ei:
+            mod.build_runner()
+        assert mod.review_result is not None
+        assert "flow" in ei.value.report.suggestions
+
+    def test_review_harness_none_skips_review(self, mock_llm, setup_registry):
+        reg, bus, loader = setup_registry
+        mock_llm.complete.return_value = LLMResponse(
+            content='{"translation": "你好"}',
+            usage={}, finish_reason="end_turn",
+        )
+        mod = Module(
+            spec={"source_text": "Hello"},
+            tasklist=self._tasklist(),
+            llm_client=mock_llm,
+            event_bus=bus,
+            module_id="task_norev",
+            registry=reg,
+            review_harness=None,
+        )
+        runner = mod.build_runner()
+        assert runner is not None
+        assert mod.review_result is None
+
+    def test_review_event_emitted(self, mock_llm, setup_registry):
+        reg, bus, loader = setup_registry
+        mock_llm.complete.return_value = LLMResponse(
+            content='{"consistent": true, "suggestions": ""}',
+            usage={}, finish_reason="end_turn",
+        )
+        seen = []
+        bus.subscribe(ConsistencyReviewed, lambda e: seen.append(e))
+        mod = Module(
+            spec={"source_text": "Hello"},
+            tasklist=self._tasklist(),
+            llm_client=mock_llm,
+            event_bus=bus,
+            module_id="task_evt",
+            registry=reg,
+        )
+        mod.build_runner()
+        assert len(seen) == 1
+        assert seen[0].consistent is True
+
+    def test_template_and_tasklist_mutually_exclusive(self, mock_llm, setup_registry):
+        reg, bus, loader = setup_registry
+        with pytest.raises(ValueError, match="只能传一个"):
+            Module(
+                spec={},
+                template_name="translate",
+                tasklist=self._tasklist(),
+                llm_client=mock_llm,
+                template_loader=loader,
+            )
+        with pytest.raises(ValueError, match="只能传一个"):
+            Module(spec={}, llm_client=mock_llm)
+
+    def test_tasklist_unknown_harness_rejected(self, mock_llm, setup_registry):
+        reg, bus, loader = setup_registry
+        bad = Tasklist(
+            tasks={"A": TaskDefinition(type="harness", harness="nope")},
+            flow="[A]",
+        )
+        mod = Module(
+            spec={},
+            tasklist=bad,
+            llm_client=mock_llm,
+            registry=reg,
+        )
+        with pytest.raises(ValueError, match="校验失败"):
+            mod.build_runner()

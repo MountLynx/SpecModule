@@ -1,38 +1,48 @@
-"""Module 编排器 — spec + template → tasklist → runner。"""
+"""Module 编排器 — spec + template/tasklist → tasklist → runner。"""
 
 from __future__ import annotations
 
+import time
 import uuid
 from typing import Any
 
 from tickflow.async_runner import AsyncRunner
 
-from .spec import Spec
-from .translator import Translator, TemplateLoader
+from .spec import Spec, Tasklist
+from .consistency import ConsistencyError, ConsistencyReport, ConsistencyReviewer
+from .translator import Translator, TemplateLoader, TasklistValidator
 from .graph_builder import TasklistTranslator
 from .registry import HarnessRegistry
-from .events import EventBus
+from .events import EventBus, ConsistencyReviewed
 
 
 class Module:
     """SpecModule 的核心编排器。
 
-    spec + template → 翻译 → tasklist → tickflow Graph + registry → AsyncRunner。
+    spec + template → 翻译 → tasklist → tickflow Graph + registry → AsyncRunner
+    或 spec + tasklist（自定义）→ 校验 + 一致性审核 → AsyncRunner。
     """
 
     def __init__(
         self,
         spec: dict[str, Any],
-        template_name: str,
-        llm_client: Any,
         *,
+        template_name: str | None = None,
+        tasklist: Tasklist | None = None,
+        llm_client: Any,
         event_bus: EventBus | None = None,
         template_loader: TemplateLoader | None = None,
         module_id: str | None = None,
         registry: HarnessRegistry | None = None,
+        review_harness: str | None = "spec_tasklist_review",
     ) -> None:
+        if (template_name is None) == (tasklist is None):
+            raise ValueError("template_name 与 tasklist 必须且只能传一个")
         self.spec = Spec(spec)
         self.template_name = template_name
+        self.tasklist = tasklist
+        self.review_harness = review_harness
+        self.review_result: ConsistencyReport | None = None
         self.module_id = module_id or f"mod_{uuid.uuid4().hex[:8]}"
 
         if registry is not None:
@@ -61,11 +71,31 @@ class Module:
 
     async def _build_runner_async(self) -> AsyncRunner:
         """异步版 build_runner。"""
-        template = self._loader.get(self.template_name)
-        if template is None:
-            raise ValueError(f"模板 '{self.template_name}' 未找到")
-
-        tasklist = await self._translator.translate(self.spec, template)
+        if self.tasklist is not None:
+            tasklist = self.tasklist
+            errors = TasklistValidator.validate(tasklist, self._reg)
+            if errors:
+                raise ValueError(
+                    "tasklist 校验失败:\n" + "\n".join(f"  - {e}" for e in errors)
+                )
+            if self.review_harness is not None:
+                report = await ConsistencyReviewer(
+                    self._reg, self.review_harness
+                ).review(self.spec, tasklist)
+                self.review_result = report
+                self._reg._event_bus.emit(ConsistencyReviewed(
+                    timestamp=time.monotonic(), node="__review__", tick=0,
+                    consistent=report.consistent,
+                    suggestions=report.suggestions,
+                    raw=report.raw,
+                ))
+                if not report.consistent:
+                    raise ConsistencyError(report)
+        else:
+            template = self._loader.get(self.template_name)
+            if template is None:
+                raise ValueError(f"模板 '{self.template_name}' 未找到")
+            tasklist = await self._translator.translate(self.spec, template)
         builder = TasklistTranslator(self._reg, self.module_id)
         graph, reg = builder.build(tasklist, spec=self.spec)
         return AsyncRunner(graph, registry=reg, keep_records=True)
