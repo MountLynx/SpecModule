@@ -3,7 +3,12 @@
 
 from __future__ import annotations
 
+import inspect
+import json
+import textwrap
 import uuid
+from dataclasses import asdict
+from pathlib import Path
 from typing import Any, Callable
 
 from llm import LLMConfig, create_llm_client
@@ -133,3 +138,50 @@ class SubModule:
             keep_records=audit,
         )
         return await module.run(max_ticks=max_ticks)
+
+    def pack(self, out_dir: str | Path) -> Path:
+        """导出发布目录：module.json + harnesses/ + scripts/ + commands/。
+
+        scripts/*.py = 函数源码 + 必要 import（含 @script 装饰器行），
+        加载时 exec 后按函数名取注册，pack/load round-trip 无签名改写。
+        """
+        if not self.name:
+            raise ValueError("submodule 缺少 name，无法打包")
+        if self.tasklist is None:
+            raise ValueError(f"submodule '{self.name}' 未定义 tasklist，无法打包")
+        p = Path(out_dir)
+        (p / "harnesses").mkdir(parents=True, exist_ok=True)
+        (p / "scripts").mkdir(exist_ok=True)
+        (p / "commands").mkdir(exist_ok=True)
+        manifest = {
+            "name": self.name,
+            "version": self.version,
+            "description": self.description,
+            "submodule": True,
+            "spec_schema": asdict(self.spec_schema),
+            "requires": list(self.requires),
+            "tasklist": {
+                "Tasks": {k: asdict(t) for k, t in self.tasklist.tasks.items()},
+                "Flow": self.tasklist.flow,
+            },
+        }
+        (p / "module.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        for hc in self.harnesses:
+            if not hc.name:
+                raise ValueError(f"harnesses 配置缺少 name: {hc}")
+            (p / "harnesses" / f"{hc.name}.json").write_text(
+                json.dumps(hc.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        for cc in self.commands:
+            if not cc.name:
+                raise ValueError(f"commands 配置缺少 name: {cc}")
+            (p / "commands" / f"{cc.name}.json").write_text(
+                json.dumps(cc.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        for sname, fn in self._scripts.items():
+            src = textwrap.dedent(inspect.getsource(fn))
+            header = "from __future__ import annotations\nfrom module_harness.submodule import script\n\n"
+            (p / "scripts" / f"{sname}.py").write_text(header + src, encoding="utf-8")
+        return p

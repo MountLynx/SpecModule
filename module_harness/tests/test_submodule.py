@@ -1,11 +1,13 @@
 """SubModule / builtins / pack / ModuleLoader 测试。"""
 
+import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from llm.client import LLMResponse
 from module_harness.builtins import BUILTIN_HARNESS_NAMES, register_builtin_harnesses
 from module_harness.config import HarnessConfig, OutputFormat
+from module_harness.consistency import ConsistencyError
 from module_harness.events import EventBus, ScriptCompleted
 from module_harness.registry import HarnessRegistry
 from module_harness.spec import SpecSchema, TaskDefinition, Tasklist
@@ -149,3 +151,62 @@ class TestSubModule:
         firings = await sm.run(
             {"source_text": "Hello", "style": "formal"}, tasklist=custom, max_ticks=10)
         assert any(f.node == "A" for f in firings)
+
+    @pytest.mark.asyncio
+    async def test_custom_tasklist_inconsistent_review_blocks(self, mock_llm):
+        async def fake_complete(*args, **kwargs):
+            return LLMResponse(
+                content='{"consistent": false, "suggestions": "tasklist 不覆盖 spec"}',
+                usage={}, finish_reason="end_turn",
+            )
+        mock_llm.complete = AsyncMock(side_effect=fake_complete)
+        sm = Translator(llm_client=mock_llm)
+        custom = Tasklist(
+            tasks={
+                "A": TaskDefinition(
+                    type="harness", harness="translate",
+                    inputs={"text": "{spec.source_text}"},
+                    outputformat={"type": "json_object"},
+                ),
+            },
+            flow="[A]",
+        )
+        with pytest.raises(ConsistencyError):
+            await sm.run({"source_text": "Hello", "style": "formal"}, tasklist=custom, max_ticks=10)
+
+
+class TestPack:
+    def test_pack_structure(self, tmp_path):
+        out = Translator().pack(tmp_path / "dist")
+        assert (out / "module.json").is_file()
+        assert (out / "harnesses" / "translate.json").is_file()
+        assert (out / "scripts" / "format_output.py").is_file()
+
+    def test_pack_manifest_content(self, tmp_path):
+        out = Translator().pack(tmp_path / "dist")
+        manifest = json.loads((out / "module.json").read_text(encoding="utf-8"))
+        assert manifest["name"] == "test_translator"
+        assert manifest["submodule"] is True
+        assert manifest["spec_schema"] == {
+            "input": {"source_text": "str", "style": "str"},
+            "output": {"translation": "str"},
+        }
+        assert set(manifest["tasklist"]["Tasks"]) == {"A", "B"}
+        assert manifest["tasklist"]["Flow"] == "A --> B"
+
+    def test_pack_script_source_executable(self, tmp_path):
+        out = Translator().pack(tmp_path / "dist")
+        src = (out / "scripts" / "format_output.py").read_text(encoding="utf-8")
+        ns: dict = {}
+        exec(compile(src, "format_output.py", "exec"), ns)
+        assert callable(ns["format_output"])
+        # 导出后的函数签名与类内一致（纯函数，无 self）
+        import inspect as _inspect
+        assert "self" not in _inspect.signature(ns["format_output"]).parameters
+
+    def test_pack_requires_missing_name(self, tmp_path):
+        class NoName(SubModule):
+            name = ""
+            tasklist = Translator.tasklist
+        with pytest.raises(ValueError, match="name"):
+            NoName().pack(tmp_path / "dist")
