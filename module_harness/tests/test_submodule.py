@@ -9,6 +9,7 @@ from module_harness.builtins import BUILTIN_HARNESS_NAMES, register_builtin_harn
 from module_harness.config import HarnessConfig, OutputFormat
 from module_harness.consistency import ConsistencyError
 from module_harness.events import EventBus, ScriptCompleted
+from module_harness.loader import ModuleLoader, ModuleManifestError, ModuleRequirementError
 from module_harness.registry import HarnessRegistry
 from module_harness.spec import SpecSchema, TaskDefinition, Tasklist
 from module_harness.submodule import SpecValidationError, SubModule, script
@@ -210,3 +211,58 @@ class TestPack:
             tasklist = Translator.tasklist
         with pytest.raises(ValueError, match="name"):
             NoName().pack(tmp_path / "dist")
+
+
+class TestModuleLoader:
+    def test_load_returns_instance(self, tmp_path, mock_llm):
+        out = Translator().pack(tmp_path / "dist")
+        module = ModuleLoader(llm_client=mock_llm).load(out)
+        assert isinstance(module, SubModule)
+        assert module.name == "test_translator"
+        assert set(module._scripts) == {"format_output"}
+
+    @pytest.mark.asyncio
+    async def test_load_roundtrip_run(self, tmp_path, mock_llm):
+        out = Translator().pack(tmp_path / "dist")
+        mock_llm.complete.return_value = LLMResponse(
+            content='{"translation": "你好世界"}', usage={}, finish_reason="end_turn")
+        module = ModuleLoader(llm_client=mock_llm).load(out)
+        firings = await module.run({"source_text": "Hello", "style": "formal"}, max_ticks=10)
+        b_out = next(f.output for f in firings if f.node == "B")
+        assert b_out == {"translation": "你好世界"}
+
+    def test_requires_missing(self, tmp_path, mock_llm):
+        class NeedsX(Translator):
+            name = "needs_x"
+            requires = ["does_not_exist"]
+        out = NeedsX().pack(tmp_path / "dist")
+        with pytest.raises(ModuleRequirementError) as ei:
+            ModuleLoader(llm_client=mock_llm).load(out)
+        assert "does_not_exist" in str(ei.value)
+
+    def test_requires_builtin_ok(self, tmp_path, mock_llm):
+        class NeedsReview(Translator):
+            name = "needs_review"
+            requires = ["spec_tasklist_review"]
+        out = NeedsReview().pack(tmp_path / "dist")
+        module = ModuleLoader(llm_client=mock_llm).load(out)
+        assert module.name == "needs_review"
+
+    def test_missing_manifest(self, tmp_path, mock_llm):
+        with pytest.raises(ModuleManifestError):
+            ModuleLoader(llm_client=mock_llm).load(tmp_path / "nope")
+
+    def test_bad_manifest_json(self, tmp_path, mock_llm):
+        d = tmp_path / "bad"
+        d.mkdir()
+        (d / "module.json").write_text("{not json", encoding="utf-8")
+        with pytest.raises(ModuleManifestError):
+            ModuleLoader(llm_client=mock_llm).load(d)
+
+    def test_manifest_missing_name(self, tmp_path, mock_llm):
+        d = tmp_path / "noname"
+        d.mkdir()
+        (d / "module.json").write_text(
+            json.dumps({"tasklist": {"Tasks": {}, "Flow": ""}}), encoding="utf-8")
+        with pytest.raises(ModuleManifestError, match="name"):
+            ModuleLoader(llm_client=mock_llm).load(d)
