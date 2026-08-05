@@ -1,7 +1,8 @@
 # module_harness/tests/test_spec.py
 import pytest
 from module_harness.spec import (
-    Spec, TaskDefinition, Tasklist, TranslationSpec, TasklistTemplate,
+    Spec, SpecSchema, TaskDefinition, Tasklist, TranslationSpec,
+    TasklistTemplate,
 )
 
 
@@ -130,3 +131,41 @@ class TestTasklistTemplate:
         data = {"translation": {"type": "script", "script": "s"}, "tasklist": {"Tasks": {}, "Flow": ""}}
         with pytest.raises(ValueError, match="name"):
             TasklistTemplate.from_json(data)
+
+
+class TestSpecSchema:
+    def test_validate_passes(self):
+        schema = SpecSchema(input={"a": "str", "n": "int", "b": "bool"})
+        assert schema.validate({"a": "x", "n": 1, "b": True}) == []
+
+    def test_validate_missing_field(self):
+        schema = SpecSchema(input={"a": "str"})
+        errors = schema.validate({})
+        assert len(errors) == 1
+        assert "a" in errors[0]
+
+    def test_validate_wrong_type(self):
+        schema = SpecSchema(input={"n": "int"})
+        errors = schema.validate({"n": "1"})
+        assert len(errors) == 1
+
+    def test_bool_and_int_not_interchangeable(self):
+        schema = SpecSchema(input={"n": "int", "b": "bool"})
+        errors = schema.validate({"n": True, "b": 1})
+        assert len(errors) == 2
+
+    def test_any_type(self):
+        schema = SpecSchema(input={"x": "any"})
+        assert schema.validate({"x": object()}) == []
+
+    def test_unknown_type_declared(self):
+        schema = SpecSchema(input={"x": "date"})
+        errors = schema.validate({"x": "2026-01-01"})
+        assert len(errors) == 1
+
+    def test_undeclared_fields_allowed(self):
+        schema = SpecSchema(input={"a": "str"})
+        assert schema.validate({"a": "x", "extra": 42}) == []
+
+    def test_default_empty_schema(self):
+        assert SpecSchema().validate({}) == []

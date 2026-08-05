@@ -58,6 +58,7 @@ class TaskDefinition:
     model: str | None = None
     temperature: float | None = None
     think: bool | dict | None = None
+    api_params: dict[str, Any] | None = None  # 透传给 LLM SDK 的额外参数
     inputs: dict[str, str] | None = None
 
     @classmethod
@@ -76,6 +77,7 @@ class TaskDefinition:
             model=d.get("model"),
             temperature=d.get("temperature"),
             think=d.get("think"),
+            api_params=d.get("api_params"),
             inputs=d.get("inputs"),
         )
 
@@ -140,3 +142,48 @@ class TasklistTemplate:
             translation=TranslationSpec.from_dict(data["translation"]),
             tasklist=Tasklist.from_json(data["tasklist"]),
         )
+
+
+_SCHEMA_TYPES: dict[str, type] = {
+    "str": str, "int": int, "float": float, "bool": bool,
+    "list": list, "dict": dict,
+}
+
+
+def _value_matches(value: Any, type_name: str) -> bool:
+    """判断值是否满足类型声明。bool 与 int 严格区分。"""
+    if type_name == "any":
+        return True
+    expected = _SCHEMA_TYPES.get(type_name)
+    if expected is None:
+        return False
+    if expected is bool:
+        return isinstance(value, bool)
+    if expected is int:
+        return isinstance(value, int) and not isinstance(value, bool)
+    return isinstance(value, expected)
+
+
+@dataclass
+class SpecSchema:
+    """submodule 的 spec 契约：input 校验，output 仅声明。"""
+
+    input: dict[str, str] = field(default_factory=dict)
+    output: dict[str, str] = field(default_factory=dict)
+
+    def validate(self, spec: dict[str, Any]) -> list[str]:
+        """校验 spec 是否满足契约。返回错误列表，空 = 通过。
+
+        声明的字段必须存在且类型匹配；未声明的字段允许存在。
+        """
+        errors: list[str] = []
+        for field_name, type_name in self.input.items():
+            if field_name not in spec:
+                errors.append(f"缺少字段 '{field_name}'（应为 {type_name}）")
+                continue
+            if not _value_matches(spec[field_name], type_name):
+                errors.append(
+                    f"字段 '{field_name}' 类型错误：期望 {type_name}，"
+                    f"实际 {type(spec[field_name]).__name__}"
+                )
+        return errors
