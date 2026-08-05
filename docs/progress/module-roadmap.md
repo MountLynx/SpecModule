@@ -1,6 +1,6 @@
 # SpecModule 开发进度与路线
 
-> 最后更新：2026-06-30
+> 最后更新：2026-08-05
 
 本文档追踪 SpecModule module 核心功能的开发状态与实现方向。
 范围限定：module 内核（harness / script / command / spec / tasklist / submodule / 编排 / 状态数据）。
@@ -8,7 +8,7 @@
 
 ## 完成度速览
 
-已实现：**12** / 待实现：**7**
+已实现：**14** / 待实现：**5**
 
 ---
 
@@ -31,6 +31,8 @@
 | **spec only → tasklist 翻译** — LLM harness 翻译 + script 函数翻译 | `Translator` + `TemplateLoader` | `translator.py` |
 | **内置 tasklist 模板** — JSON 文件模板，代码/目录加载 | `TemplateLoader.load_builtins()` | `translator.py`, `templates/builtin/` |
 | **tasklist → tickflow Graph** — 每个 Task 映射为 node body，命名空间隔离 | `TasklistTranslator` | `graph_builder.py` |
+| **spec + 自定义 tasklist 输入** — tasklist 参数直入 graph builder，跳过翻译（与 template_name 互斥） | `Module` | `module.py` |
+| **一致性审核** — 独立审核 harness `spec_tasklist_review`，spec+tasklist 语义一致性 LLM 审核，不通过抛 `ConsistencyError` 阻塞 | `ConsistencyReviewer` + `register_review_harness` | `consistency.py`, `events.py` |
 
 ### 编排与基础设施
 
@@ -44,20 +46,6 @@
 ---
 
 ## 待实现 🔲
-
-### 1. spec + 自定义 tasklist 输入
-
-**说明**：同时传入 spec 和自定义 tasklist（不经过翻译模版），一致性检查后 tasklist 直入 graph builder。当前 `Module` 只接受 `spec + template_name`，缺少 `spec + tasklist` 的输入通道。
-
-**实现方向**：
-- `Module.__init__` 新增 `tasklist: Tasklist | None` 参数
-- 若传入 tasklist → 跳过翻译，触发一致性审核（复用翻译 LLM，输入 spec + tasklist，输出 pass/fail + 建议）
-- 审核通过后 `TasklistTranslator.build(tasklist)` → runner
-- 审核失败 → 阻塞执行，返回问题描述
-
-**依赖**：一致性审核（见下方 #4）
-
----
 
 ### 2. 对齐检查
 
@@ -81,18 +69,6 @@
 ```
 
 - 最小开销：不插入即不执行
-
----
-
-### 3. 一致性审核
-
-**说明**：spec + tasklist 模式下检查二者是否逻辑一致（tasklist 是否能实现 spec 目标）。复用翻译 LLM——它既然能从 spec 生成 tasklist，自然能判断已有的 tasklist 是否合理。
-
-**实现方向**：
-- 复用 `spec_to_tasklist` 翻译 harness，加一个prompt_mode, 传入 spec + 待审 tasklist
-- 输出 `{"consistent": true/false, "suggestions": "..."}`
-- 在 `Module.build_runner()` 中，若同时传入了 spec + tasklist → 审核 → 通过才构建
-- 审核失败 → 阻塞，返回问题供修改
 
 ---
 
@@ -228,13 +204,13 @@ result = await module.run({"source_text": "Hello", "style": "formal"})
 
 ```
 ┌─────────────────────────┐
-│ 1. spec+tasklist 输入   │  ← 解锁 #3 #4 #5
+│ 1. spec+tasklist 输入   │  ✅ 已完成（含一致性审核 #4）
 ├─────────────────────────┤
 │ 2. 运行状态查询         │  ← 依赖module的搭建完成
 ├─────────────────────────┤
 │ 3. 对齐检查 harness     │  ← 独立，不依赖其他
 ├─────────────────────────┤
-│ 4. 一致性审核           │  ← 依赖 #1
+│ 4. 一致性审核           │  ✅ 随 #1 完成
 ├─────────────────────────┤
 │ 5. submodule + 打包/发布│  ← 依赖 #1，含 module.json + ModuleLoader
 ├─────────────────────────┤
