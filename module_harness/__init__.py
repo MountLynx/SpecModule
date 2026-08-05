@@ -13,6 +13,7 @@ from .events import (
     LlmCallCompleted,
     OutputValidated,
     HarnessFailed,
+    ConsistencyReviewed,
     ScriptEvent,
     ScriptStarted,
     ScriptCompleted,
@@ -30,6 +31,13 @@ from .spec import (
     Tasklist,
     TranslationSpec,
     TasklistTemplate,
+)
+from .consistency import (
+    ConsistencyError,
+    ConsistencyReport,
+    ConsistencyReviewer,
+    REVIEW_HARNESS_CONFIG,
+    register_review_harness,
 )
 from .translator import TasklistValidator, TemplateLoader, Translator
 from .graph_builder import TasklistTranslator
@@ -79,4 +87,11 @@ __all__ = [
     "TasklistTranslator",
     # 编排
     "Module",
+    # 一致性审核
+    "ConsistencyReviewed",
+    "ConsistencyError",
+    "ConsistencyReport",
+    "ConsistencyReviewer",
+    "REVIEW_HARNESS_CONFIG",
+    "register_review_harness",
 ]

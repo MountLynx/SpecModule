@@ -56,6 +56,14 @@ class HarnessFailed(HarnessEvent):
     failure_type: str  # "llm" | "infrastructure"
 
 
+@dataclass
+class ConsistencyReviewed(HarnessEvent):
+    """一致性审核事件（spec + 自定义 tasklist 通道）。"""
+    consistent: bool
+    suggestions: str
+    raw: str
+
+
 # ── Script 事件基类 ──────────────────────────────────────────────
 
 @dataclass

@@ -188,3 +188,27 @@ class TestConsistencyReviewer:
         report = await ConsistencyReviewer(reg).review(_spec(), _tasklist())
         assert report.raw == raw_text
         assert report.consistent is True
+
+
+class TestConsistencyReviewedEvent:
+    def test_event_emit_and_subscribe(self):
+        from module_harness.events import ConsistencyReviewed, EventBus
+        bus = EventBus()
+        seen = []
+        bus.subscribe(ConsistencyReviewed, lambda e: seen.append(e))
+        bus.emit(ConsistencyReviewed(
+            timestamp=1.0, node="__review__", tick=0,
+            consistent=False, suggestions="x", raw="{}",
+        ))
+        assert len(seen) == 1
+        assert seen[0].consistent is False
+        assert seen[0].node == "__review__"
+
+    def test_public_exports(self):
+        import module_harness
+        assert module_harness.ConsistencyReviewed is not None
+        assert module_harness.ConsistencyError is not None
+        assert module_harness.ConsistencyReport is not None
+        assert module_harness.ConsistencyReviewer is not None
+        assert module_harness.register_review_harness is not None
+        assert module_harness.REVIEW_HARNESS_CONFIG is not None
