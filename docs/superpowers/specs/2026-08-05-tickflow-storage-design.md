@@ -143,9 +143,16 @@ def firings_of(self, session_id: str, node: str) -> list[tuple[int, Any]]:
 
 每节点一份当前状态（不累积），已是"运行必要"的最小形态；其内容（如 harness 渲染的 prompt）随 NodeState 落盘供审计。
 
-### D10. module_harness 零代码改动
+### D10. module_harness 零代码改动 + 行为变化清单
 
-`Module.run` 创建 `AsyncRunner(graph, registry, keep_records=...)` 不传 backend——默认 SqliteBackend 自动生效（每次运行临时 DB，自动清理）。行为变化仅为"默认落盘"（磁盘 I/O + 临时文件），上层 API 不变。
+`module_harness` 与 tickflow 运行状态的接触面（已 grep 验证）：仅 `module.py:103`（`AsyncRunner(graph, registry=reg, keep_records=...)` 不传 backend）与 `submodule.py:148`（透传 `keep_records=audit`）——**无任何对 `run_state._edges/_records/audit/firings_of/snapshot/rollback` 的直接访问**，`Translator`/`ConsistencyReviewer` 自构造 DictView 不碰 RunState。因此代码零改动。
+
+**行为变化**（API 不变，需文档化）：
+
+1. **默认落盘**：每次 `Module.run` 自动创建临时 SqliteBackend（每 tick 写库，运行结束自动清理）。LLM 场景开销可忽略；纯 script/command 密集场景有 I/O 开销（准则 4 接受）
+2. **嵌入模式（`SubModule.run(audit=False)` / `keep_records=False`）同样默认落盘**：`_persist_firing` 与 `keep_records` 正交。**定位更新**：docs/SpecModule.md 的"取消快照状态等开销"演变为"内存不保留 + 落盘"——嵌入模式由此获得完整历史（之前是丢弃），`SubModule.run` docstring 同步更新
+3. **临时文件清理可靠性**：Windows 上文件句柄/锁须正确释放才能自动清理——实现细节，测试覆盖（见第 6 节"默认 backend 生命周期"）
+4. 快照/回滚：module_harness 当前不使用（roadmap #6 待实现）；backend 默认化后未来 Module 封装 checkpoint/rollback 时落盘开箱可用。Module 可加 backend 透传参数（第二层用户指定持久 DB 路径）——**本次不加，列为后续演进**
 
 ## 4. 数据流总览
 
@@ -229,7 +236,9 @@ def firings_of(self, session_id: str, node: str) -> list[tuple[int, Any]]:
 |------|------|
 | `tickflow/` | 从 Graph 仓库复制同步（排除 `__pycache__`），独立 commit |
 | `AGENTS.md` | 架构规则 3 更新：`_edges` 描述补 "windowed (last 2)"、`_records` 补 "audit persisted via backend" |
-| `module_harness/` | **零代码改动**（D10）；`module_harness/tests` 全量回归（192 项非 smoke）确认上层语义不变 |
+| `docs/SpecModule.md` | 嵌入模式定位更新："取消快照状态等开销" → "内存不保留 + 落盘（完整历史可查）" |
+| `module_harness/submodule.py` | 仅 docstring：`audit=False` 说明补充"仍默认落盘"（无功能代码改动） |
+| `module_harness/` | 功能代码**零改动**（D10）；`module_harness/tests` 全量回归（192 项非 smoke）确认上层语义不变 |
 
 ## 8. 向后兼容
 
