@@ -1,3 +1,4 @@
+from module_harness.command import CommandConfig
 from module_harness.config import HarnessConfig
 from module_harness.outputfmt import OutputFormat
 
@@ -76,3 +77,31 @@ class TestHarnessConfig:
         cfg = HarnessConfig.from_task_definition(task)
         assert cfg.model == "gpt-4o"
         assert cfg.temperature == 0.1
+
+
+class TestSerialization:
+    def test_harness_config_roundtrip(self):
+        cfg = HarnessConfig(
+            name="translate",
+            prompt_core="翻译：{text}",
+            prompt_modes={"formal": "正式", "casual": "随意"},
+            output_format=OutputFormat(type="json_object"),
+            notdo=["不要加解释"],
+            model="deepseek-v4-flash",
+            temperature=0.3,
+            think=True,
+            api_params={"extra": {"k": "v"}},
+        )
+        restored = HarnessConfig.from_dict(cfg.to_dict())
+        assert restored == cfg
+
+    def test_harness_config_roundtrip_no_output_format(self):
+        cfg = HarnessConfig(prompt_core="x")
+        assert HarnessConfig.from_dict(cfg.to_dict()) == cfg
+
+    def test_command_config_roundtrip(self):
+        cfg = CommandConfig(
+            name="ls", command="ls -la", timeout=30, cwd="/tmp",
+            env={"A": "1"}, capture_output=False, shell=False,
+        )
+        assert CommandConfig.from_dict(cfg.to_dict()) == cfg

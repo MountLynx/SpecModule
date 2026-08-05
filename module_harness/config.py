@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -31,10 +32,33 @@ class HarnessConfig:
     notdo: list[str] = field(default_factory=list)
     """否定性约束列表，拼入 system prompt。"""
 
-    # ── LLM 默认参数（Task 可逐项覆盖）──
+    # ── LLM 参数（Task 可逐项覆盖）──
     model: str | None = None
     temperature: float | None = None
     think: bool | dict | None = None
+
+    # ── SDK 透传参数 ──
+    api_params: dict[str, Any] = field(default_factory=dict)
+    """透传给 LLM SDK 的额外参数。按 API 官方格式写入，如
+    ``{"temperature": 0.3, "thinking": {"type": "enabled"}}``。
+    会与 temperature / think 等独立字段合并（api_params 优先级更高）。"""
+
+    # ── 注册信息（submodule 用）──
+    name: str | None = None
+    """注册名。submodule 的 harnesses 列表中必须提供。"""
+
+    def to_dict(self) -> dict[str, Any]:
+        """序列化为 JSON 可写 dict（含 output_format）。"""
+        return dataclasses.asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "HarnessConfig":
+        """从 to_dict() 输出还原。"""
+        data = dict(d)
+        of = data.pop("output_format", None)
+        if of is not None:
+            data["output_format"] = OutputFormat(**of)
+        return cls(**data)
 
     @classmethod
     def from_task_definition(cls, task: dict[str, Any]) -> "HarnessConfig":
@@ -48,6 +72,7 @@ class HarnessConfig:
         - model         → LLM 模型覆盖
         - temperature   → 温度覆盖
         - think         → 扩展思考覆盖
+        - api_params    → SDK 透传参数（dict）
         """
         output_format = None
         of_data = task.get("outputformat")
@@ -66,4 +91,5 @@ class HarnessConfig:
             model=task.get("model"),
             temperature=task.get("temperature"),
             think=task.get("think"),
+            api_params=task.get("api_params", {}),
         )

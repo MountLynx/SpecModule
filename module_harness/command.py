@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import dataclasses
 import subprocess
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 from tickflow import Failure
 from tickflow.views import DictView
@@ -28,6 +30,16 @@ class CommandConfig:
     env: dict[str, str] | None = None   # 额外环境变量
     capture_output: bool = True
     shell: bool = True
+
+    name: str | None = None
+    """注册名。submodule 的 commands 列表中必须提供。"""
+
+    def to_dict(self) -> dict[str, Any]:
+        return dataclasses.asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "CommandConfig":
+        return cls(**d)
 
 
 class Command:
