@@ -314,3 +314,27 @@ class TestModuleLoader:
         }), encoding="utf-8")
         with pytest.raises(ModuleManifestError, match="target"):
             ModuleLoader(llm_client=mock_llm).load(d)
+
+    @pytest.mark.asyncio
+    async def test_two_instances_namespace_isolation(self, tmp_path, mock_llm):
+        out = Translator().pack(tmp_path / "dist")
+        mock_llm.complete.return_value = LLMResponse(
+            content='{"translation": "你好世界"}', usage={}, finish_reason="end_turn")
+        loader = ModuleLoader(llm_client=mock_llm)
+        f1 = await loader.load(out).run(
+            {"source_text": "Hello", "style": "formal"}, max_ticks=10)
+        f2 = await loader.load(out).run(
+            {"source_text": "Hi", "style": "formal"}, max_ticks=10)
+        assert next(f.output for f in f1 if f.node == "B") == {"translation": "你好世界"}
+        assert next(f.output for f in f2 if f.node == "B") == {"translation": "你好世界"}
+
+
+class TestScriptNameCheck:
+    def test_script_name_mismatch_raises(self):
+        with pytest.raises(ValueError, match="不一致"):
+            class Bad(SubModule):
+                name = "bad"
+
+                @script("renamed")
+                def actual_fn(view):
+                    return {}

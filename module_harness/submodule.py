@@ -34,9 +34,14 @@ def script(name: str):
     """类内 script 标记装饰器：标记函数，__init_subclass__ 时收集。
 
     脚本是类体内普通函数（不绑定 self），与 @reg.script 语义一致。
+    注册名必须与函数名一致（函数名 = 注册名 = 打包文件名）。
     """
 
     def deco(fn: Callable) -> Callable:
+        if name != fn.__name__:
+            raise ValueError(
+                f"script 注册名 '{name}' 与函数名 '{fn.__name__}' 不一致"
+            )
         fn._submodule_script_name = name  # type: ignore[attr-defined]
         return fn
 
@@ -69,6 +74,10 @@ class SubModule:
         }
         cls._scripts = inherited
         cls._scripts.update(collected)
+        # 列表类属性按子类复制，防止子类就地修改污染父类注册
+        for attr in ("harnesses", "commands", "requires"):
+            if attr not in cls.__dict__:
+                setattr(cls, attr, list(getattr(cls, attr)))
 
     def __init__(
         self,
@@ -110,12 +119,13 @@ class SubModule:
         tasklist: Tasklist | dict[str, Any] | None = None,
         audit: bool = False,
         max_ticks: int = 100,
-    ):
+    ) -> list[Any]:
         """执行 submodule。
 
         - tasklist=None：用自身固定 tasklist，不触发一致性审核（发布前已验证）
         - 传入自定义 tasklist：与 Module 一致，校验 + 一致性审核
         - audit=False（默认）：嵌入模式，EventBus.null() + keep_records=False
+        - audit=True：keep_records 全开；订阅事件需在构造时传入 event_bus
         """
         errors = self.spec_schema.validate(spec)
         if errors:

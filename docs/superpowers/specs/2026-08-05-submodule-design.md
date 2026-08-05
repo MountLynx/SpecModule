@@ -1,6 +1,6 @@
 # Submodule 系统设计文档
 
-> 日期：2026-08-05 | 状态：待确认
+> 日期：2026-08-05 | 状态：已确认，已实现
 
 ## 背景
 
@@ -157,7 +157,7 @@ class SubModule:
 - **类属性 = 注册信息**；`@script(name)` 装饰器给函数打标记，`__init_subclass__` 收集到 `cls._scripts: dict[str, Callable]`。**脚本是类体内普通函数（不绑定 self）**——与现有 `@reg.script` 语义一致，保证 pack 导出源码后 pack/load round-trip 无需重写签名；需要类常量时通过 `view` 拿节点输出，不依赖实例状态
 - **client 注入**：`__init__(llm_client=None, event_bus=None)`——`ModuleLoader` 构造时注入；直接类使用（第一层开发态）传 None，`run()` 时经 `LLMConfig.from_env()` + `create_llm_client()` 懒创建，与 `ModuleLoader` 默认行为一致
 - `pack()` 不需要 client，纯序列化导出
-- `run()` 不平行实现执行——内部组合现有 `Module`：构建 `HarnessRegistry` → 注册 provides（harness 配置、script 用 `functools.partial(func, self)` 绑定、command 配置）→ 注册内置集 → 构造 `Module(spec=..., tasklist=...)` → 运行
+- `run()` 不平行实现执行——内部组合现有 `Module`：构建 `HarnessRegistry` → 注册 provides（harness 配置、script 直接注册、command 配置）→ 注册内置集 → 构造 `Module(spec=..., tasklist=...)` → 运行
 - `tasklist=None` 时用自身固定 tasklist，**不触发一致性审核**（发布前已验证，且任务流固定，逐次审核是噪音）
 - 传入自定义 `tasklist` 时与 `Module` 行为一致：校验 + 一致性审核（review_harness 默认开）
 - **嵌入模式**（`audit=False`，默认）：`EventBus.null()` + `keep_records=False`——纯 `(input) -> output`
