@@ -107,9 +107,10 @@ def resolve(self, node: str, kind: str, k: int | None, t: int) -> Any:
 
 ### D6. backend 默认化：默认 SqliteBackend（临时文件，自动清理）
 
-- `Runner`/`AsyncRunner` 构造默认 `SqliteBackend`：自动创建临时 DB 文件（`tempfile` 模式），Runner 生命周期结束自动清理；可显式传路径持久保留（现有显式传参方式不变）
-- 显式 `NullBackend` 为兼容路径（无落盘，行为见 D7）
+- `Runner`/`AsyncRunner` 构造参数 `backend: Any = None`（已存在）的默认值语义**迁移**：`None`（不传）→ 自动创建临时 `SqliteBackend`（`tempfile` 模式，Runner 生命周期结束自动清理）；可显式传路径持久保留（现有显式传参方式不变）
+- **"显式不要落盘"用 `NullBackend()` 表达**——`None` 不再是"无落盘"（API 不变，语义迁移）
 - 理由：准则 2（历史审计落盘）+ 准则 3（audit 功能不受影响）合起来要求"落盘是默认行为"——否则默认路径下 audit 只有窗口，功能受影响
+- 现有所有"不传 backend"的调用（含 `Module.run`）行为自动变为默认落盘——API 不变，行为增强，无需改调用方
 
 ### D7. 无 backend（NullBackend）兼容路径
 
@@ -233,7 +234,8 @@ def firings_of(self, session_id: str, node: str) -> list[tuple[int, Any]]:
 ## 8. 向后兼容
 
 - **快照格式不变**：窗口 edges 是完整 edges 的子集，新旧互读兼容
-- **无 backend 路径 = 现状行为 + 窗口化**：唯一公开语义变化是 `firings_of`（无 backend 时窗口化——已确认"裁剪即索引语义"）与 `resolve(index)` 窗口外降级
+- **`backend=None` 语义迁移**：不传 backend 的现有调用（含 `Module.run`）行为从"无落盘"变为"默认临时 SqliteBackend 落盘"——API 签名不变、返回结果不变，仅磁盘行为增强；需要"无落盘"的调用显式传 `NullBackend()`
+- **显式 NullBackend 路径 = 现状行为 + 窗口化**：唯一公开语义变化是 `firings_of`（窗口化，已确认"裁剪即索引语义"）与 `resolve(index)` 窗口外降级（D7）
 - `keep_records` 参数语义不变
 - `InputPolicy`/`A[k]` 语法/`views.py` 行为不变（有 backend 时 index 语义完整）
 
