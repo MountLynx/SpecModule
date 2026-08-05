@@ -42,6 +42,9 @@ from .consistency import (
 from .translator import TasklistValidator, TemplateLoader, Translator
 from .graph_builder import TasklistTranslator
 from .module import Module
+from .submodule import SubModule, SpecValidationError, script
+from .loader import ModuleLoader, ModuleManifestError, ModuleRequirementError
+from .spec import SpecSchema
 
 __all__ = [
     # 配置
@@ -94,4 +97,12 @@ __all__ = [
     "ConsistencyReviewer",
     "REVIEW_HARNESS_CONFIG",
     "register_review_harness",
+    # submodule
+    "SubModule",
+    "script",
+    "SpecValidationError",
+    "SpecSchema",
+    "ModuleLoader",
+    "ModuleManifestError",
+    "ModuleRequirementError",
 ]
