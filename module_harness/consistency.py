@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import json
 from dataclasses import dataclass
+from typing import Any
 
 from tickflow import Failure
 from tickflow.views import DictView, Resolved
@@ -85,6 +86,7 @@ class ConsistencyReviewer:
             },
             "Flow": tasklist.flow,
         }
+        state: dict[str, Any] = {}
         view = DictView(
             {
                 "spec": Resolved(value=spec.to_dict(), k=None),
@@ -92,6 +94,7 @@ class ConsistencyReviewer:
                     value=json.dumps(tasklist_dict, ensure_ascii=False), k=None
                 ),
             },
+            state=state,
             node="__review__",
         )
         result = await body(view)
@@ -109,6 +112,9 @@ class ConsistencyReviewer:
         else:
             raise ValueError(f"审核输出类型异常: {type(result).__name__}")
 
+        if not isinstance(data, dict):
+            raise ValueError(f"审核输出必须是 JSON 对象: {data!r}")
+
         consistent = data.get("consistent")
         suggestions = data.get("suggestions")  # 缺字段 → None → 下方 isinstance 校验抛错
         if not isinstance(consistent, bool):
@@ -116,7 +122,9 @@ class ConsistencyReviewer:
         if not isinstance(suggestions, str):
             raise ValueError(f"审核输出 'suggestions' 必须是字符串: {data!r}")
 
-        raw = result if isinstance(result, str) else json.dumps(data, ensure_ascii=False)
+        raw = state.get("_llm_raw")
+        if raw is None:
+            raw = result if isinstance(result, str) else json.dumps(data, ensure_ascii=False)
         return ConsistencyReport(
             consistent=consistent, suggestions=suggestions, raw=raw
         )

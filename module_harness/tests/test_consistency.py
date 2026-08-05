@@ -161,3 +161,30 @@ class TestConsistencyReviewer:
         prompt = mock_llm.complete.call_args.kwargs["prompt"]
         assert "Hello" in prompt          # spec 数据注入
         assert "source_text" in prompt    # tasklist 字段注入
+
+    @pytest.mark.asyncio
+    async def test_review_str_path_non_dict_raises(self, mock_llm):
+        """合法 JSON 但非对象（如数组）→ ValueError 而非 AttributeError。"""
+        reg = HarnessRegistry(llm_client=mock_llm)
+        reg.harness("review_text", HarnessConfig(
+            prompt_core="审核：{spec} / {tasklist}",
+            output_format=OutputFormat(type="text"),
+        ))
+        mock_llm.complete.return_value = LLMResponse(
+            content='[1, 2]', usage={}, finish_reason="end_turn",
+        )
+        with pytest.raises(ValueError, match="必须是 JSON 对象"):
+            await ConsistencyReviewer(
+                reg, harness_name="review_text"
+            ).review(_spec(), _tasklist())
+
+    @pytest.mark.asyncio
+    async def test_review_raw_is_literal_llm_output(self, mock_llm, reg):
+        """raw 记录 LLM 原始输出（含 markdown 围栏），而非提取后的 dict。"""
+        raw_text = '```json\n{"consistent": true, "suggestions": ""}\n```'
+        mock_llm.complete.return_value = LLMResponse(
+            content=raw_text, usage={}, finish_reason="end_turn",
+        )
+        report = await ConsistencyReviewer(reg).review(_spec(), _tasklist())
+        assert report.raw == raw_text
+        assert report.consistent is True
