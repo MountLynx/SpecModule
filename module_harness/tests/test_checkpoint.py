@@ -1,10 +1,20 @@
-"""AutoCheckpointStore 单元测试。"""
+"""AutoCheckpointStore 与 check_resume_compat 单元测试。"""
 
 import json
 
 import pytest
 
-from module_harness.checkpoint import AutoCheckpointStore, _run_db_path
+from module_harness.checkpoint import (
+    AutoCheckpointStore,
+    ResumeCheck,
+    _run_db_path,
+    check_resume_compat,
+)
+from module_harness.config import HarnessConfig, OutputFormat
+from module_harness.spec import TaskDefinition, Tasklist
+from module_harness.graph_builder import TasklistTranslator
+from module_harness.registry import HarnessRegistry
+from module_harness.events import EventBus
 
 
 @pytest.fixture
@@ -107,3 +117,229 @@ class TestAutoCheckpointStore:
             {"when": datetime.datetime.now()}, {"Tasks": {}, "Flow": ""}
         )
         assert store.load_module_inputs() is None
+
+
+def _graph_for(tl, module_id="mod_test"):
+    """构建真实 Graph（复用 TasklistTranslator），registry 只含占位 body。"""
+    reg = HarnessRegistry(llm_client=object(), event_bus=EventBus())
+    reg.harness("h", HarnessConfig(
+        prompt_core="p", output_format=OutputFormat(type="text"),
+    ))
+    reg.script("s")(lambda view: {"ok": True})
+    builder = TasklistTranslator(reg, module_id)
+    graph, _ = builder.build(tl)
+    return graph
+
+
+def _tl(tasks, flow):
+    return Tasklist(
+        tasks={k: TaskDefinition(**v) for k, v in tasks.items()},
+        flow=flow,
+    )
+
+
+class TestCheckResumeCompat:
+    def test_ok_when_new_nodes_reference_executed(self):
+        # A 已执行；C 引用 A（已执行）+ B（未执行但拓扑上游 [A] --> B
+        # B --> C）。
+        # A 是 start 且有历史——但旧 flow 也是 [A]（start 未变）→ 不警告。
+        old_tl = _tl(
+            {
+                "A": {"type": "script", "script": "s"},
+                "B": {"type": "script", "script": "s", "inputs": {"data": "A"}},
+                "C": {"type": "script", "script": "s", "inputs": {"data": "B"}},
+            },
+            "[A] --> B\nB --> C",
+        )
+        tl = _tl(
+            {
+                "A": {"type": "script", "script": "s"},
+                "B": {"type": "script", "script": "s", "inputs": {"data": "A"}},
+                "C": {"type": "script", "script": "s", "inputs": {"data": "B"}},
+            },
+            "[A] --> B\nB --> C",
+        )
+        graph = _graph_for(tl)
+        check = check_resume_compat(tl, graph, executed_nodes={"A"}, old_tasklist=old_tl)
+        assert check.hard_errors == []
+        assert check.warnings == []
+
+    def test_hard_error_producer_not_in_graph(self):
+        tl = _tl(
+            {
+                "A": {"type": "script", "script": "s", "inputs": {"data": "GHOST"}},
+            },
+            "[A]",
+        )
+        graph = _graph_for(tl)
+        check = check_resume_compat(tl, graph, executed_nodes=set())
+        assert any("GHOST" in e for e in check.hard_errors)
+
+    def test_hard_error_new_start_with_history(self):
+        # A 旧图不是 start（旧 flow 无 [A]），新图成为 start 且有历史 → 硬错误
+        old_tl = _tl({"A": {"type": "script", "script": "s"}}, "A")
+        tl = _tl({"A": {"type": "script", "script": "s"}}, "[A]")
+        graph = _graph_for(tl)
+        check = check_resume_compat(tl, graph, executed_nodes={"A"}, old_tasklist=old_tl)
+        assert any("start" in e.lower() for e in check.hard_errors)
+
+    def test_no_hard_error_when_start_unchanged(self):
+        # A 新旧图都是 start 且有历史 = 正常 resume 场景 → 不误报
+        old_tl = _tl({"A": {"type": "script", "script": "s"}}, "[A]")
+        tl = _tl({"A": {"type": "script", "script": "s"}}, "[A]")
+        graph = _graph_for(tl)
+        check = check_resume_compat(tl, graph, executed_nodes={"A"}, old_tasklist=old_tl)
+        assert check.hard_errors == []
+
+    def test_start_with_history_no_archive_warns(self):
+        # 无存档（old_tasklist=None）时降级为警告，不阻断
+        tl = _tl({"A": {"type": "script", "script": "s"}}, "[A]")
+        graph = _graph_for(tl)
+        check = check_resume_compat(tl, graph, executed_nodes={"A"})
+        assert check.hard_errors == []
+        assert any("A" in w for w in check.warnings)
+
+    def test_warning_executed_node_modified(self):
+        old_tl = _tl({"A": {"type": "script", "script": "s", "promptmode": "x"}}, "[A]")
+        new_tl = _tl({"A": {"type": "script", "script": "s", "promptmode": "y"}}, "[A]")
+        graph = _graph_for(new_tl)
+        check = check_resume_compat(new_tl, graph, executed_nodes={"A"}, old_tasklist=old_tl)
+        assert check.hard_errors == []
+        assert any("A" in w for w in check.warnings)
+
+    def test_no_warning_when_executed_node_unchanged(self):
+        old_tl = _tl({"A": {"type": "script", "script": "s"}}, "[A]")
+        new_tl = _tl({"A": {"type": "script", "script": "s"}}, "[A]")
+        graph = _graph_for(new_tl)
+        check = check_resume_compat(new_tl, graph, executed_nodes={"A"}, old_tasklist=old_tl)
+        assert check.hard_errors == []
+        assert check.warnings == []
+
+    def test_warning_producer_unexecuted_and_not_upstream(self):
+        # B 在图中但未执行，且 flow 无 B → C 边：C 引用 B 会在运行时 Missing
+        old_tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s"},
+             "C": {"type": "script", "script": "s"}},
+            "[A] --> B\n[A] --> C",
+        )
+        tl = _tl(
+            {
+                "A": {"type": "script", "script": "s"},
+                "B": {"type": "script", "script": "s"},
+                "C": {"type": "script", "script": "s", "inputs": {"data": "B"}},
+            },
+            "[A] --> B\n[A] --> C",
+        )
+        graph = _graph_for(tl)
+        check = check_resume_compat(tl, graph, executed_nodes={"A"}, old_tasklist=old_tl)
+        assert check.hard_errors == []
+        assert any("B" in w for w in check.warnings)
+
+    def test_no_warning_producer_unexecuted_but_topological_upstream(self):
+        # B 未执行但 flow 保证先于 C 执行：[A] --> B\nB --> C
+        old_tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s"},
+             "C": {"type": "script", "script": "s"}},
+            "[A] --> B\nB --> C",
+        )
+        tl = _tl(
+            {
+                "A": {"type": "script", "script": "s"},
+                "B": {"type": "script", "script": "s", "inputs": {"data": "A"}},
+                "C": {"type": "script", "script": "s", "inputs": {"data": "B"}},
+            },
+            "[A] --> B\nB --> C",
+        )
+        graph = _graph_for(tl)
+        check = check_resume_compat(tl, graph, executed_nodes={"A"}, old_tasklist=old_tl)
+        assert check.hard_errors == []
+        assert check.warnings == []
+
+    def test_spec_constant_ref_skipped(self):
+        # {spec.xxx} 常量引用不参与图节点校验
+        tl = _tl(
+            {
+                "A": {"type": "script", "script": "s",
+                      "inputs": {"text": "{spec.title}", "data": "A"}},
+            },
+            "[A]",
+        )
+        graph = _graph_for(tl)
+        check = check_resume_compat(tl, graph, executed_nodes=set())
+        assert check.hard_errors == []
+
+    def test_warning_new_node_in_edges_unmet(self):
+        # D 是新增节点（入边 (D,B) 不在旧 marking）→ 永不 fire → 警告
+        old_tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s"},
+             "C": {"type": "script", "script": "s"}},
+            "[A] --> B\nB --> C",
+        )
+        tl = _tl(
+            {
+                "A": {"type": "script", "script": "s"},
+                "B": {"type": "script", "script": "s", "inputs": {"data": "A"}},
+                "C": {"type": "script", "script": "s", "inputs": {"data": "B"}},
+                "D": {"type": "script", "script": "s", "inputs": {"data": "B"}},
+            },
+            "[A] --> B\nB --> C\nB --> D",
+        )
+        graph = _graph_for(tl)
+        # 检查点 marking：A、B 已执行；C 的入边 (C,B)=True（B 刚执行完未消费），
+        # D 的入边 (D,B) 不存在（新边）→ D 永不 fire
+        marking_slots = {"C|B": True}
+        check = check_resume_compat(
+            tl, graph, executed_nodes={"A", "B"},
+            old_tasklist=old_tl,
+            marking_slots=marking_slots,
+        )
+        assert check.hard_errors == []
+        assert any("D" in w for w in check.warnings)
+
+    def test_no_warning_when_in_edge_satisfied(self):
+        # C 未执行但其入边 (C,B) 在检查点已满足 → C 会执行 → 不警告
+        old_tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s", "inputs": {"data": "A"}},
+             "C": {"type": "script", "script": "s"}},
+            "[A] --> B\nB --> C",
+        )
+        tl = _tl(
+            {
+                "A": {"type": "script", "script": "s"},
+                "B": {"type": "script", "script": "s", "inputs": {"data": "A"}},
+                "C": {"type": "script", "script": "s", "inputs": {"data": "B"}},
+            },
+            "[A] --> B\nB --> C",
+        )
+        graph = _graph_for(tl)
+        marking_slots = {"C|B": True}
+        check = check_resume_compat(
+            tl, graph, executed_nodes={"A", "B"},
+            old_tasklist=old_tl,
+            marking_slots=marking_slots,
+        )
+        assert check.hard_errors == []
+        assert check.warnings == []
+
+    def test_no_warning_markslot_none(self):
+        # marking_slots=None 时跳过入边检查（单元测试不带 snapshot 的用法）
+        old_tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s"}},
+            "[A] --> B",
+        )
+        tl = _tl(
+            {
+                "A": {"type": "script", "script": "s"},
+                "B": {"type": "script", "script": "s", "inputs": {"data": "A"}},
+            },
+            "[A] --> B",
+        )
+        graph = _graph_for(tl)
+        check = check_resume_compat(tl, graph, executed_nodes={"A"}, old_tasklist=old_tl)
+        assert check.hard_errors == []
+        assert check.warnings == []
