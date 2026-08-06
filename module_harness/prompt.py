@@ -8,6 +8,9 @@ from typing import Any
 
 from tickflow.views import DictView, Missing
 
+# C5：常量正则模块级编译一次（render 每 harness 节点每 tick 调用）。
+_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
 from .config import HarnessConfig
 
 
@@ -63,7 +66,6 @@ class PromptRenderer:
         extra_values: dict[str, Any] | None = None,
     ) -> str:
         """替换模板中的 {key} 占位符为 view 中的值。"""
-        pattern = re.compile(r'\{(\w+)\}')
 
         def _replacer(m: re.Match) -> str:
             key = m.group(1)
@@ -79,4 +81,4 @@ class PromptRenderer:
                 return m.group(0)
             return str(val)
 
-        return pattern.sub(_replacer, template)
+        return _PLACEHOLDER_RE.sub(_replacer, template)
