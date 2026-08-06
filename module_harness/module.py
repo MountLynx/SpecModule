@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -199,40 +200,52 @@ class Module:
     # 快照/回滚（roadmap #5）
     # ------------------------------------------------------------------
 
+    def _require_runner(self) -> AsyncRunner:
+        """快照/回滚 API 前置守卫：runner 未构建时抛错。"""
+        if self._runner is None:
+            raise RuntimeError("尚未构建 runner——请先 build_runner() 或 run()")
+        return self._runner
+
     def snapshot(self) -> dict:
         """进程内全量快照：{spec, tasklist, runner_snapshot} 三件套。
 
         深拷贝语义：修改返回的 dict 不影响 Module 状态。
         """
-        if self._runner is None:
-            raise RuntimeError("尚未构建 runner——请先 build_runner() 或 run()")
+        runner = self._require_runner()
         assert self._last_tasklist is not None
-        return {
+        snap = {
             "spec": self.spec.to_dict(),
             "tasklist": tasklist_to_dict(self._last_tasklist),
-            "runner": self._runner.snapshot(),
+            "runner": runner.snapshot(),
         }
+        # to_dict/runner 快照均为浅拷贝（嵌套结构共享引用）——整体深拷贝
+        # 兑现 docstring 的深拷贝承诺（零 tickflow 修改）。
+        return copy.deepcopy(snap)
 
     def restore(self, snap: dict) -> None:
         """回滚 runner 到快照，并恢复 spec/tasklist 字段。"""
-        if self._runner is None:
-            raise RuntimeError("尚未构建 runner——请先 build_runner() 或 run()")
+        runner = self._require_runner()
         self.spec = Spec(snap["spec"])
         self.tasklist = tasklist_from_dict(snap["tasklist"])
         self._last_tasklist = self.tasklist
-        self._runner.restore(snap["runner"])
+        # 与 __init__ 的"template/tasklist 二选一"不变量一致：restore 后
+        # 走 tasklist 通道，template_name 不再持有
+        self.template_name = None
+        runner.restore(snap["runner"])
 
     def checkpoint(self, label: str) -> None:
         """手动检查点（backend 表，永久保留）。透传 runner。"""
-        if self._runner is None:
-            raise RuntimeError("尚未构建 runner——请先 build_runner() 或 run()")
-        self._runner.checkpoint(label)
+        runner = self._require_runner()
+        if not self.persist:
+            raise RuntimeError("检查点需要 persist=True（fast mode 零持久化）")
+        runner.checkpoint(label)
 
     def rollback_to(self, label: str) -> None:
         """进程内回退到命名检查点。透传 runner。"""
-        if self._runner is None:
-            raise RuntimeError("尚未构建 runner——请先 build_runner() 或 run()")
-        self._runner.rollback_to(label)
+        runner = self._require_runner()
+        if not self.persist:
+            raise RuntimeError("检查点需要 persist=True（fast mode 零持久化）")
+        runner.rollback_to(label)
 
     def list_checkpoints(self) -> list[tuple[str, int, str]]:
         """全部检查点 (label, tick, kind)，按 tick 升序。kind ∈ {"auto", "manual"}。
@@ -247,14 +260,18 @@ class Module:
         finally:
             store.close()
         if self.persist:
+            backend = SqliteBackend(_persist_dir(self.module_id))
             try:
-                backend = SqliteBackend(_persist_dir(self.module_id))
                 out.extend(
                     (label, tick, "manual")
                     for label, tick in backend.list_checkpoints(self.module_id)
                 )
             except Exception:
                 log.exception("手动检查点列表读取失败（忽略）")
+            finally:
+                # 显式释放连接（WAL PRAGMA + 建表 + 迁移检查的独立连接），
+                # 与 AutoCheckpointStore 的显式 close 一致，不依赖 GC。
+                backend.close()
         return sorted(out, key=lambda item: item[1])
 
     async def run(self, max_ticks: int = 100):

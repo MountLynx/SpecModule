@@ -406,11 +406,11 @@ def _chain_tasklist():
 
 
 class TestModuleSnapshotAPI:
-    def _make_module(self, mock_llm, tmp_path, monkeypatch, tasklist=None, **kw):
+    def _make_module(self, mock_llm, tmp_path, monkeypatch, tasklist=None, spec=None, **kw):
         monkeypatch.chdir(tmp_path)
         kw.setdefault("registry", _script_reg(mock_llm))
         return Module(
-            spec={"x": 1},
+            spec={"x": 1} if spec is None else spec,
             tasklist=tasklist or _chain_tasklist(),
             llm_client=mock_llm,
             review_harness=None,
@@ -449,6 +449,16 @@ class TestModuleSnapshotAPI:
         assert mod.spec.to_dict() == {"x": 1}
         assert mod.tasklist.flow == "[A] --> B\nB --> C"
 
+    def test_snapshot_deep_copy_nested(self, mock_llm, tmp_path, monkeypatch):
+        # 嵌套 dict 也必须深拷贝：改快照不得串改 live spec
+        mod = self._make_module(
+            mock_llm, tmp_path, monkeypatch, spec={"x": 1, "nested": {"x": 1}},
+        )
+        mod.build_runner()
+        snap = mod.snapshot()
+        snap["spec"]["nested"]["x"] = 999
+        assert mod.spec.to_dict()["nested"]["x"] == 1
+
     def test_checkpoint_rollback_to(self, mock_llm, tmp_path, monkeypatch):
         mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
         mod.build_runner()
@@ -461,6 +471,23 @@ class TestModuleSnapshotAPI:
         mod.rollback_to("manual:start")
         assert mod._runner.tick_count == 0
 
+    @pytest.mark.asyncio
+    async def test_restore_rewinds_executed_state(self, mock_llm, tmp_path, monkeypatch):
+        # 回退到中途检查点：tick 归位、已执行状态回退、后续可继续跑
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
+        runner = await mod._build_runner_async()
+        await runner.run_until_idle(max_ticks=2)     # A、B 已执行，C 待执行
+        assert runner.tick_count == 2
+        snap = mod.snapshot()
+        await runner.run_until_idle(max_ticks=10)    # 跑完整个链路
+        assert runner.tick_count > 2
+
+        mod.restore(snap)
+        assert mod._runner.tick_count == 2           # tick 回到快照时
+        assert "C" in mod._runner.fireable()         # C 的入边仍在 marking 中
+        firings = await mod._runner.run_until_idle(max_ticks=10)
+        assert any(f.node == "C" for f in firings)   # 回退后继续执行 C
+
     def test_list_checkpoints_empty_before_run(self, mock_llm, tmp_path, monkeypatch):
         mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
         mod.build_runner()
@@ -470,3 +497,13 @@ class TestModuleSnapshotAPI:
         mod = self._make_module(mock_llm, tmp_path, monkeypatch)
         with pytest.raises(RuntimeError, match="runner"):
             mod.checkpoint("x")
+
+    def test_checkpoint_fast_mode_raises(self, mock_llm, tmp_path, monkeypatch):
+        # fast mode（persist=False，NullBackend）：检查点不可用，必须显式报错
+        # （而不是静默存进内存 dict、list_checkpoints 又查不到）
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=False)
+        mod.build_runner()
+        with pytest.raises(RuntimeError, match="persist"):
+            mod.checkpoint("x")
+        with pytest.raises(RuntimeError, match="persist"):
+            mod.rollback_to("x")
