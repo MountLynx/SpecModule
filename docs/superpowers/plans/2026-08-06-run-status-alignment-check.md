@@ -807,6 +807,7 @@ git commit -m "feat(status): cross-process query_run_status over status.json + l
 - `__init__` 签名加 `status_file: bool = True`（默认 True，#7 开箱可用）——独立开关，与 persist 正交：`status_file=False` 时不写盘（零残留）；快速模式 = `persist=False + status_file=False`
 - `__init__` 末尾写 `idle`；`_build_runner_async` 写 `reviewing`/`translating` → `building` → `ready`；`run()` 写 `running` → `done`/`aborted`/`cancelled`
 - RunStatus 映射：IDLE → done；ABORTED → aborted；CANCELLED → cancelled；FAILED → aborted（非正常结束统一归中止）
+- **异常路径（终态必达，杜绝假 done）**：run 中 body/guard 抛普通异常 → `aborted`（error=str(e)）后 re-raise；`asyncio.CancelledError` → `cancelled` 后 re-raise；`_build_runner_async` 抛错（校验失败/ConsistencyError/模板缺失，`run()` 与同步 `build_runner()` 均包住）→ `aborted`（error=str(e)）后 re-raise
 
 - [ ] **Step 1: 编写失败测试**（追加到 `test_run_status.py`）
 
@@ -896,7 +897,11 @@ class TestModulePhase:
             ),
         )
         task = asyncio.create_task(mod.run())
-        await asyncio.sleep(0.05)
+        deadline = asyncio.get_event_loop().time() + 2.0
+        while asyncio.get_event_loop().time() < deadline:
+            if self._read_status(tmp_path)["phase"] == "running":
+                break
+            await asyncio.sleep(0.01)
         assert self._read_status(tmp_path)["phase"] == "running"
         await task
         assert self._read_status(tmp_path)["phase"] == "done"
@@ -950,18 +955,62 @@ class TestModulePhase:
         assert st.tick is None          # 无 DB
         assert st.outputs == {}
         assert not (tmp_path / ".specmodule" / "runs" / "mod_test" / "run.sqlite").exists()
+
+    @pytest.mark.asyncio
+    async def test_run_exception_writes_aborted(self, tmp_path, monkeypatch, mock_llm):
+        """body 抛普通异常（非 Failure）→ phase=aborted + error 记录，异常继续传播。"""
+
+        def boom(view):
+            raise RuntimeError("boom")
+
+        mod = self._make_module(
+            mock_llm, tmp_path, monkeypatch,
+            registry=self._script_reg(mock_llm, boom=boom),
+            tasklist=Tasklist(
+                tasks={"A": TaskDefinition(type="script", script="boom")},
+                flow="[A]",
+            ),
+        )
+        with pytest.raises(RuntimeError, match="boom"):
+            await mod.run()
+        st = self._read_status(tmp_path)
+        assert st["phase"] == "aborted"
+        assert st["error"] == "boom"
+
+    @pytest.mark.asyncio
+    async def test_build_failure_writes_aborted(self, tmp_path, monkeypatch, mock_llm):
+        """构建失败（tasklist 引用了未注册 harness）→ phase=aborted + error。"""
+        monkeypatch.chdir(tmp_path)
+        mod = Module(
+            spec={"x": 1},
+            tasklist=Tasklist(
+                tasks={"A": TaskDefinition(type="harness", harness="nope")},
+                flow="[A]",
+            ),
+            llm_client=mock_llm,
+            registry=self._script_reg(mock_llm),
+            review_harness=None,
+            persist=False,
+            module_id="mod_test",
+        )
+        with pytest.raises(ValueError):
+            await mod.run()
+        st = self._read_status(tmp_path)
+        assert st["phase"] == "aborted"
+        assert "nope" in st["error"]
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
 
 Run: `python -m pytest module_harness/tests/test_run_status.py::TestModulePhase -q`
-Expected: 8 failed — `FileNotFoundError: status.json` / `.specmodule` 不存在（Module 尚未写）
+Expected: 10 failed — `FileNotFoundError: status.json` / `.specmodule` 不存在（Module 尚未写）
 
 - [ ] **Step 3: 实现**（修改 `module_harness/module.py`）
 
 import 区补充：
 
 ```python
+import asyncio
 import json
 import logging
 import os
@@ -1057,18 +1106,29 @@ else 分支开头加：
         return AsyncRunner(
 ```
 
-`run()` 改造：
+`run()` 改造（try/except/else：异常路径显式写盘，else 只在正常返回时按 runner.status 映射，杜绝假 done）：
 
 ```python
     async def run(self, max_ticks: int = 100):
         """执行翻译 → 构建 → 运行。一步跑完。"""
         from tickflow.runner import RunStatus
 
-        runner = await self._build_runner_async()
+        try:
+            runner = await self._build_runner_async()
+        except Exception as e:
+            self._write_phase("aborted", error=str(e))
+            raise
         self._write_phase("running")
         try:
             firings = await runner.run_until_idle(max_ticks=max_ticks)
-        finally:
+        except asyncio.CancelledError:
+            self._write_phase("cancelled", error="cancelled")
+            raise
+        except Exception as e:
+            self._write_phase("aborted", error=str(e))
+            raise
+        else:
+            # 正常返回：按 runner.status 映射终态
             if runner.status == RunStatus.ABORTED:
                 self._write_phase("aborted", error=runner.cancel_reason or "aborted")
             elif runner.status == RunStatus.CANCELLED:
@@ -1080,10 +1140,25 @@ else 分支开头加：
         return firings
 ```
 
+同步 `build_runner()`（构建失败同样写 aborted 后 re-raise；`import asyncio` 已提升到模块级，方法内不再局部 import）：
+
+```python
+    def build_runner(self) -> AsyncRunner:
+        """执行翻译 → 构建 graph → 返回 AsyncRunner。..."""
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(self._build_runner_async())
+        except Exception as e:
+            self._write_phase("aborted", error=str(e))
+            raise
+        finally:
+            loop.close()
+```
+
 - [ ] **Step 4: 运行测试确认通过**
 
 Run: `python -m pytest module_harness/tests/test_run_status.py -q`
-Expected: 14 passed（TestQueryRunStatus 6 + TestModulePhase 8）
+Expected: 16 passed（TestQueryRunStatus 6 + TestModulePhase 10）
 
 - [ ] **Step 5: Commit**
 
