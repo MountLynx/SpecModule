@@ -177,10 +177,7 @@ class SubModule:
             "submodule": True,
             "spec_schema": asdict(self.spec_schema),
             "requires": list(self.requires),
-            "tasklist": {
-                "Tasks": {k: asdict(t) for k, t in self.tasklist.tasks.items()},
-                "Flow": self.tasklist.flow,
-            },
+            "tasklist": self.tasklist.to_dict(),
         }
         (p / "module.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
