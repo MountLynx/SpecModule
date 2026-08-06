@@ -29,6 +29,7 @@ class ModuleStatus:
     status: str | None = None  # tickflow RunStatus（"running"/"idle"/...；无 DB 时为 None）
     tick: int | None = None    # 最新快照 tick（无 DB 时为 None）
     fireable: list[str] = field(default_factory=list)
+    fired: list[str] = field(default_factory=list)      # 最新快照本 tick fire 的节点
     outputs: dict[str, Any] = field(default_factory=dict)     # node → 最新输出
     node_states: dict[str, dict] = field(default_factory=dict)  # node → mutable state
     error: str | None = None
@@ -74,15 +75,20 @@ def query_run_status(
                 tick = backend.latest_tick(module_id)
                 if tick is not None:
                     snap = backend.load_snapshot(module_id, tick)
-                    run_state_data = snap.get("run_state", {})
                     st.status = snap.get("status")
                     st.tick = snap.get("tick", tick)
                     st.fireable = list(snap.get("fireable", []))
+                    st.fired = list(snap.get("fired", []))
+                    # S3：快照不再含 edges/state——最新输出/状态从 firings
+                    # 取（每节点最后一 firing，SqliteBackend.latest_firings）。
+                    latest = backend.latest_firings(module_id)
                     st.outputs = {
-                        n: lst[-1][1]
-                        for n, lst in run_state_data.get("edges", {}).items()
+                        d["node"]: d.get("output") for d in latest if d.get("node")
                     }
-                    st.node_states = dict(run_state_data.get("state", {}))
+                    st.node_states = {
+                        d["node"]: d.get("mutable_state", {})
+                        for d in latest if d.get("node")
+                    }
             finally:
                 backend.close()
         except Exception:

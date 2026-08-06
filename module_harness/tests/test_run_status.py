@@ -53,41 +53,38 @@ class TestQueryRunStatus:
         assert st.updated_at == 100.0
 
     def test_full_snapshot_query(self, tmp_path):
+        """最小快照（无 edges/state）+ firings 行 → outputs/node_states 从 firings 读。"""
         run_dir = _write_status(tmp_path, phase="running", updated_at=100.0)
         backend = SqliteBackend(run_dir / "run.sqlite")
-        # 真实 Runner.snapshot() 形状：edges/state 嵌套在 run_state 下
+        from tickflow.state import NodeState
         backend.save_snapshot("mod_x", 2, {
             "tick": 2,
             "marking": {},
-            "run_state": {
-                "edges": {"A": [[1, "out1"], [2, "out2"]]},
-                "state": {"A": {"_prompt": "x"}},
-            },
+            "run_state": {"keep_records": True},
             "status": "running",
             "fireable": ["B"],
+            "fired": ["A"],
         })
+        backend.save_firing("mod_x", NodeState(tick=1, node="A", output="out1",
+                                               mutable_state={"_prompt": "x"}))
+        backend.save_firing("mod_x", NodeState(tick=2, node="A", output="out2",
+                                               mutable_state={"_prompt": "x"}))
         backend.close()
 
         st = query_run_status("mod_x", base_dir=tmp_path)
         assert st.status == "running"
         assert st.tick == 2
         assert st.fireable == ["B"]
-        assert st.outputs == {"A": "out2"}          # run_state.edges 窗口最新值
+        assert st.fired == ["A"]
+        assert st.outputs == {"A": "out2"}          # 每节点最后一 firing
         assert st.node_states == {"A": {"_prompt": "x"}}
 
-    @pytest.mark.xfail(
-        reason="Task 11: query_run_status 迁移到 firings 后修复",
-        strict=False,
-    )
     @pytest.mark.asyncio
     async def test_real_runner_snapshot_roundtrip(self, tmp_path):
         """真实 runner 快照 → query_run_status 能读到 outputs/node_states。
 
         回归：快照的 edges/state 嵌套在 ``run_state`` 键下，若读顶层键则
         outputs/node_states 恒为空（无 output_format 时输出为原始字符串）。
-
-        xfail：快照已最小化（S3），快照不再含 edges/state，outputs/node_states
-        改由 firings 提供（Task 11 迁移后移除 xfail）。
         """
         mock_llm = MagicMock()
         mock_llm.complete = AsyncMock(return_value=LLMResponse(content='{"ok": true}'))
@@ -109,7 +106,10 @@ class TestQueryRunStatus:
         _write_status(tmp_path, module_id="mod_x", phase="done")
         st = query_run_status("mod_x", base_dir=tmp_path)
         assert st.tick is not None                 # 快照已 persist
-        assert st.outputs == {"A": '{"ok": true}'}  # 读顶层 edges 会得到 {} → 捕获嵌套回归
+        # 最新快照是空 tick（A 跑完后 tick 1 无 fireable）→ fired 为空，
+        # 语义正确（fired = 该快照 tick 刚完成的节点列表）
+        assert st.fired == []
+        assert st.outputs == {"A": '{"ok": true}'}
         assert st.node_states["A"]["_llm_raw"] == '{"ok": true}'
 
     def test_corrupt_status_json_returns_none(self, tmp_path, caplog):
@@ -131,6 +131,22 @@ class TestQueryRunStatus:
         assert st.phase == "done"          # 降级为 phase-only
         assert st.status is None
         assert st.tick is None
+
+    def test_replayed_firings_keep_first(self, tmp_path):
+        """restore-then-replay 的重复行在 latest_firings 中 keep-first。"""
+        run_dir = _write_status(tmp_path, phase="done")
+        backend = SqliteBackend(run_dir / "run.sqlite")
+        from tickflow.state import NodeState
+        backend.save_snapshot("mod_x", 2, {
+            "tick": 2, "marking": {}, "run_state": {"keep_records": True},
+            "status": "idle", "fireable": [], "fired": ["A"],
+        })
+        backend.save_firing("mod_x", NodeState(tick=1, node="A", output="orig"))
+        backend.save_firing("mod_x", NodeState(tick=1, node="A", output="replay"))
+        backend.close()
+
+        st = query_run_status("mod_x", base_dir=tmp_path)
+        assert st.outputs == {"A": "orig"}
 
 
 class TestModulePhase:
@@ -233,17 +249,9 @@ class TestModulePhase:
         assert st["phase"] == "aborted"
         assert st["error"] == "aborted"
 
-    @pytest.mark.xfail(
-        reason="Task 11: query_run_status 迁移到 firings 后修复",
-        strict=False,
-    )
     @pytest.mark.asyncio
     async def test_persist_mode_end_to_end_query(self, tmp_path, monkeypatch, mock_llm):
-        """persist=True：run 后 status.json + run.sqlite 都在，query 读全字段。
-
-        xfail：快照已最小化（S3），outputs/node_states 改由 firings 提供
-        （Task 11 迁移后移除 xfail）。
-        """
+        """persist=True：run 后 status.json + run.sqlite 都在，query 读全字段。"""
         mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
         await mod.run()
 
