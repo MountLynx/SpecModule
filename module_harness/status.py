@@ -26,7 +26,7 @@ class ModuleStatus:
 
     module_id: str
     phase: str                 # idle/translating/reviewing/building/ready/running/done/aborted/cancelled
-    status: str | None = None  # tickflow RunStatus（"RUNNING"/"IDLE"/...；无 DB 时为 None）
+    status: str | None = None  # tickflow RunStatus（"running"/"idle"/...；无 DB 时为 None）
     tick: int | None = None    # 最新快照 tick（无 DB 时为 None）
     fireable: list[str] = field(default_factory=list)
     outputs: dict[str, Any] = field(default_factory=dict)     # node → 最新输出
@@ -54,16 +54,15 @@ def query_run_status(
         return None
     try:
         data = json.loads(status_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        st = ModuleStatus(
+            module_id=str(data.get("module_id", module_id)),
+            phase=str(data.get("phase", "unknown")),
+            error=data.get("error"),
+            updated_at=float(data.get("updated_at", 0.0)),
+        )
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, AttributeError):
         log.warning("status.json 损坏或不可读: %s", status_path)
         return None
-
-    st = ModuleStatus(
-        module_id=str(data.get("module_id", module_id)),
-        phase=str(data.get("phase", "unknown")),
-        error=data.get("error"),
-        updated_at=float(data.get("updated_at", 0.0)),
-    )
 
     db_path = run_dir / "run.sqlite"
     if db_path.exists():
@@ -75,13 +74,15 @@ def query_run_status(
                 tick = backend.latest_tick(module_id)
                 if tick is not None:
                     snap = backend.load_snapshot(module_id, tick)
+                    run_state_data = snap.get("run_state", {})
                     st.status = snap.get("status")
                     st.tick = snap.get("tick", tick)
                     st.fireable = list(snap.get("fireable", []))
                     st.outputs = {
-                        n: lst[-1][1] for n, lst in snap.get("edges", {}).items()
+                        n: lst[-1][1]
+                        for n, lst in run_state_data.get("edges", {}).items()
                     }
-                    st.node_states = dict(snap.get("state", {}))
+                    st.node_states = dict(run_state_data.get("state", {}))
             finally:
                 backend.close()
         except Exception:
