@@ -116,7 +116,7 @@ class AutoCheckpointStore:
             )
             self._prune()
             self._conn.commit()
-        except (sqlite3.Error, OSError, KeyError):
+        except (sqlite3.Error, OSError, KeyError, TypeError):
             log.exception("自动检查点保存失败（不阻断）: %s", self.db_path)
 
     def _prune(self) -> None:
@@ -180,7 +180,7 @@ class AutoCheckpointStore:
                  time.time()),
             )
             self._conn.commit()
-        except (sqlite3.Error, OSError):
+        except (sqlite3.Error, OSError, TypeError):
             log.exception("module_inputs 存档失败（不阻断）: %s", self.db_path)
 
     def load_module_inputs(self) -> dict[str, Any] | None:

@@ -65,3 +65,45 @@ class TestAutoCheckpointStore:
         conn.close()
         assert store.load("bad") is None
         assert store.list() == [("auto:tick:1", 1)]
+
+    def test_module_inputs_roundtrip(self, store):
+        store.save_module_inputs(
+            {"alpha": 1}, {"Tasks": {"A": {"type": "harness"}}, "Flow": "A"}
+        )
+        assert store.load_module_inputs() == {
+            "spec": {"alpha": 1},
+            "tasklist": {"Tasks": {"A": {"type": "harness"}}, "Flow": "A"},
+        }
+
+    def test_module_inputs_overwrite(self, store):
+        store.save_module_inputs({"v": 1}, {"Tasks": {}, "Flow": ""})
+        store.save_module_inputs({"v": 2}, {"Tasks": {}, "Flow": "B"})
+        assert store.load_module_inputs() == {
+            "spec": {"v": 2},
+            "tasklist": {"Tasks": {}, "Flow": "B"},
+        }
+
+    def test_module_inputs_missing_returns_none(self, store):
+        assert store.load_module_inputs() is None
+
+    def test_module_inputs_corrupt_ignored(self, store, tmp_path):
+        store.save_module_inputs({"v": 1}, {"Tasks": {}, "Flow": ""})
+        import sqlite3
+        conn = sqlite3.connect(_run_db_path("mod_test", tmp_path))
+        conn.execute("UPDATE module_inputs SET spec = '{not json' WHERE id = 1")
+        conn.commit()
+        conn.close()
+        assert store.load_module_inputs() is None
+
+    def test_save_unserializable_snap_does_not_raise(self, store):
+        # datetime 不可 JSON 序列化 → TypeError，应仅 log 不阻断
+        import datetime
+        store.save("auto:tick:1", {"tick": 1, "when": datetime.datetime.now()})
+        assert store.load("auto:tick:1") is None
+
+    def test_save_module_inputs_unserializable_does_not_raise(self, store):
+        import datetime
+        store.save_module_inputs(
+            {"when": datetime.datetime.now()}, {"Tasks": {}, "Flow": ""}
+        )
+        assert store.load_module_inputs() is None
