@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import os
 import time
 import uuid
 from pathlib import Path
@@ -17,6 +20,8 @@ from .graph_builder import TasklistTranslator
 from .registry import HarnessRegistry
 from .events import EventBus, ConsistencyReviewed
 
+log = logging.getLogger(__name__)
+
 
 def _persist_dir(module_id: str) -> Path:
     """``<工作目录>/.specmodule/runs/<run_id>/run.sqlite``（D9）。
@@ -24,6 +29,14 @@ def _persist_dir(module_id: str) -> Path:
     run_id = module_id：一个任务一次运行一个子目录、一个独立 SQLite 数据库。
     """
     return Path.cwd() / ".specmodule" / "runs" / module_id / "run.sqlite"
+
+
+def _status_path(module_id: str) -> Path:
+    """``<工作目录>/.specmodule/runs/<module_id>/status.json``（roadmap #7）。
+
+    阶段级运行状态文件：与 run.sqlite 同目录，跨进程查询的轻量通道。
+    """
+    return Path.cwd() / ".specmodule" / "runs" / module_id / "status.json"
 
 
 class Module:
@@ -70,6 +83,37 @@ class Module:
             )
         self._loader = template_loader or TemplateLoader()
         self._translator = Translator(self._reg)
+        self._write_phase("idle")
+
+    # ------------------------------------------------------------------
+    # 运行状态（roadmap #7）
+    # ------------------------------------------------------------------
+
+    def _write_phase(self, phase: str, error: str | None = None) -> None:
+        """原子写 status.json（tmp + os.replace）。失败仅 log，不阻断运行。
+
+        phase 取值：idle/translating/reviewing/building/ready/running/
+        done/aborted/cancelled。快速模式（persist=False）不写盘——保持
+        D7 语义：零落盘零 I/O。
+        """
+        if not self.persist:
+            return
+        path = _status_path(self.module_id)
+        tmp = path.with_suffix(".json.tmp")
+        try:
+            tmp.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(
+                json.dumps({
+                    "module_id": self.module_id,
+                    "phase": phase,
+                    "error": error,
+                    "updated_at": time.time(),
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            os.replace(tmp, path)
+        except OSError:
+            log.exception("写 status.json 失败（不阻断运行）: %s", path)
 
     def build_runner(self) -> AsyncRunner:
         """执行翻译 → 构建 graph → 返回 AsyncRunner。
@@ -88,6 +132,7 @@ class Module:
     async def _build_runner_async(self) -> AsyncRunner:
         """异步版 build_runner。"""
         if self.tasklist is not None:
+            self._write_phase("reviewing")
             tasklist = self.tasklist
             errors = TasklistValidator.validate(tasklist, self._reg)
             if errors:
@@ -108,10 +153,12 @@ class Module:
                 if not report.consistent:
                     raise ConsistencyError(report)
         else:
+            self._write_phase("translating")
             template = self._loader.get(self.template_name)
             if template is None:
                 raise ValueError(f"模板 '{self.template_name}' 未找到")
             tasklist = await self._translator.translate(self.spec, template)
+        self._write_phase("building")
         builder = TasklistTranslator(self._reg, self.module_id)
         graph, reg = builder.build(tasklist, spec=self.spec)
         backend = (
@@ -119,6 +166,7 @@ class Module:
             if self.persist
             else NullBackend()
         )
+        self._write_phase("ready")
         return AsyncRunner(
             graph,
             registry=reg,
@@ -129,5 +177,19 @@ class Module:
 
     async def run(self, max_ticks: int = 100):
         """执行翻译 → 构建 → 运行。一步跑完。"""
+        from tickflow.runner import RunStatus
+
         runner = await self._build_runner_async()
-        return await runner.run_until_idle(max_ticks=max_ticks)
+        self._write_phase("running")
+        try:
+            firings = await runner.run_until_idle(max_ticks=max_ticks)
+        finally:
+            if runner.status == RunStatus.ABORTED:
+                self._write_phase("aborted", error=runner.cancel_reason or "aborted")
+            elif runner.status == RunStatus.CANCELLED:
+                self._write_phase("cancelled", error=runner.cancel_reason)
+            elif runner.status == RunStatus.FAILED:
+                self._write_phase("aborted", error="all nodes failed")
+            else:
+                self._write_phase("done")
+        return firings
