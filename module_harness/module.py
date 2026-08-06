@@ -20,6 +20,13 @@ from .translator import Translator, TemplateLoader, TasklistValidator
 from .graph_builder import TasklistTranslator
 from .registry import HarnessRegistry
 from .events import EventBus, ConsistencyReviewed
+from .checkpoint import (
+    AutoCheckpointStore,
+    ResumeError,
+    check_resume_compat,
+    tasklist_from_dict,
+    tasklist_to_dict,
+)
 
 log = logging.getLogger(__name__)
 
@@ -89,6 +96,11 @@ class Module:
         self._loader = template_loader or TemplateLoader()
         self._translator = Translator(self._reg)
         self._write_phase("idle")
+
+        # roadmap #5：runner 由 _build_runner_async 持有；快照/回滚 API 依赖它
+        self._runner: AsyncRunner | None = None
+        self._last_tasklist: Tasklist | None = None
+        self._checkpoint_store: AutoCheckpointStore | None = None
 
     # ------------------------------------------------------------------
     # 运行状态（roadmap #7）
@@ -166,19 +178,84 @@ class Module:
         self._write_phase("building")
         builder = TasklistTranslator(self._reg, self.module_id)
         graph, reg = builder.build(tasklist, spec=self.spec)
+        self._last_tasklist = tasklist
         backend = (
             SqliteBackend(_persist_dir(self.module_id))
             if self.persist
             else NullBackend()
         )
         self._write_phase("ready")
-        return AsyncRunner(
+        runner = AsyncRunner(
             graph,
             registry=reg,
             keep_records=self.keep_records,
             backend=backend,
             session_id=self.module_id,
         )
+        self._runner = runner
+        return runner
+
+    # ------------------------------------------------------------------
+    # 快照/回滚（roadmap #5）
+    # ------------------------------------------------------------------
+
+    def snapshot(self) -> dict:
+        """进程内全量快照：{spec, tasklist, runner_snapshot} 三件套。
+
+        深拷贝语义：修改返回的 dict 不影响 Module 状态。
+        """
+        if self._runner is None:
+            raise RuntimeError("尚未构建 runner——请先 build_runner() 或 run()")
+        assert self._last_tasklist is not None
+        return {
+            "spec": self.spec.to_dict(),
+            "tasklist": tasklist_to_dict(self._last_tasklist),
+            "runner": self._runner.snapshot(),
+        }
+
+    def restore(self, snap: dict) -> None:
+        """回滚 runner 到快照，并恢复 spec/tasklist 字段。"""
+        if self._runner is None:
+            raise RuntimeError("尚未构建 runner——请先 build_runner() 或 run()")
+        self.spec = Spec(snap["spec"])
+        self.tasklist = tasklist_from_dict(snap["tasklist"])
+        self._last_tasklist = self.tasklist
+        self._runner.restore(snap["runner"])
+
+    def checkpoint(self, label: str) -> None:
+        """手动检查点（backend 表，永久保留）。透传 runner。"""
+        if self._runner is None:
+            raise RuntimeError("尚未构建 runner——请先 build_runner() 或 run()")
+        self._runner.checkpoint(label)
+
+    def rollback_to(self, label: str) -> None:
+        """进程内回退到命名检查点。透传 runner。"""
+        if self._runner is None:
+            raise RuntimeError("尚未构建 runner——请先 build_runner() 或 run()")
+        self._runner.rollback_to(label)
+
+    def list_checkpoints(self) -> list[tuple[str, int, str]]:
+        """全部检查点 (label, tick, kind)，按 tick 升序。kind ∈ {"auto", "manual"}。
+
+        auto：Module 自动检查点（环形保留 20）；manual：checkpoint() 手动检查点。
+        不依赖 runner——跨进程场景（新 Module 实例）也可查询。
+        """
+        out: list[tuple[str, int, str]] = []
+        store = AutoCheckpointStore(self.module_id)
+        try:
+            out.extend((label, tick, "auto") for label, tick in store.list())
+        finally:
+            store.close()
+        if self.persist:
+            try:
+                backend = SqliteBackend(_persist_dir(self.module_id))
+                out.extend(
+                    (label, tick, "manual")
+                    for label, tick in backend.list_checkpoints(self.module_id)
+                )
+            except Exception:
+                log.exception("手动检查点列表读取失败（忽略）")
+        return sorted(out, key=lambda item: item[1])
 
     async def run(self, max_ticks: int = 100):
         """执行翻译 → 构建 → 运行。一步跑完。"""

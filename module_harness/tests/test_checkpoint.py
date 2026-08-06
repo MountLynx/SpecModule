@@ -1,5 +1,6 @@
 """AutoCheckpointStore 与 check_resume_compat 单元测试。"""
 
+import asyncio
 import json
 
 import pytest
@@ -15,6 +16,7 @@ from module_harness.spec import TaskDefinition, Tasklist
 from module_harness.graph_builder import TasklistTranslator
 from module_harness.registry import HarnessRegistry
 from module_harness.events import EventBus
+from module_harness.module import Module
 
 
 @pytest.fixture
@@ -375,3 +377,96 @@ class TestCheckResumeCompat:
         check = check_resume_compat(tl, graph, executed_nodes={"A"}, old_tasklist=old_tl)
         assert check.hard_errors == []
         assert check.warnings == []
+
+
+def _script_reg(mock_llm, **scripts):
+    from module_harness.registry import HarnessRegistry
+    from module_harness.events import EventBus
+    reg = HarnessRegistry(llm_client=mock_llm, event_bus=EventBus())
+
+    def echo(view):
+        return {"ok": True}
+
+    reg.script("echo")(echo)
+    for name, fn in scripts.items():
+        reg.script(name)(fn)
+    return reg
+
+
+def _chain_tasklist():
+    """A(script) --> B(script) --> C(script) 三节点链。"""
+    return Tasklist(
+        tasks={
+            "A": TaskDefinition(type="script", script="echo"),
+            "B": TaskDefinition(type="script", script="echo", inputs={"data": "A"}),
+            "C": TaskDefinition(type="script", script="echo", inputs={"data": "B"}),
+        },
+        flow="[A] --> B\nB --> C",
+    )
+
+
+class TestModuleSnapshotAPI:
+    def _make_module(self, mock_llm, tmp_path, monkeypatch, tasklist=None, **kw):
+        monkeypatch.chdir(tmp_path)
+        kw.setdefault("registry", _script_reg(mock_llm))
+        return Module(
+            spec={"x": 1},
+            tasklist=tasklist or _chain_tasklist(),
+            llm_client=mock_llm,
+            review_harness=None,
+            module_id="mod_test",
+            **kw,
+        )
+
+    def test_snapshot_requires_runner(self, mock_llm, tmp_path, monkeypatch):
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch)
+        with pytest.raises(RuntimeError, match="runner"):
+            mod.snapshot()
+
+    def test_snapshot_restore_roundtrip(self, mock_llm, tmp_path, monkeypatch):
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
+        runner = mod.build_runner()
+        assert mod._runner is runner          # _build_runner_async 持有 runner
+
+        snap = mod.snapshot()
+        assert set(snap) == {"spec", "tasklist", "runner"}
+        assert snap["spec"] == {"x": 1}
+        assert snap["tasklist"]["Flow"] == "[A] --> B\nB --> C"
+        assert "marking" in snap["runner"]
+
+        # restore 后 spec/tasklist/runner 状态一致
+        mod.restore(snap)
+        assert mod.spec.to_dict() == {"x": 1}
+        assert mod.tasklist.flow == "[A] --> B\nB --> C"
+        assert mod._runner.tick_count == runner.tick_count
+
+    def test_snapshot_deep_copy_independent(self, mock_llm, tmp_path, monkeypatch):
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch)
+        mod.build_runner()
+        snap = mod.snapshot()
+        snap["spec"]["x"] = 999
+        snap["tasklist"]["Flow"] = "changed"
+        assert mod.spec.to_dict() == {"x": 1}
+        assert mod.tasklist.flow == "[A] --> B\nB --> C"
+
+    def test_checkpoint_rollback_to(self, mock_llm, tmp_path, monkeypatch):
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
+        mod.build_runner()
+        mod.checkpoint("manual:start")
+        assert ("manual:start", 0) in [
+            (l, t) for l, t, _ in mod.list_checkpoints()
+        ]
+        # 手动检查点 kind 为 manual
+        assert ("manual:start", 0, "manual") in mod.list_checkpoints()
+        mod.rollback_to("manual:start")
+        assert mod._runner.tick_count == 0
+
+    def test_list_checkpoints_empty_before_run(self, mock_llm, tmp_path, monkeypatch):
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
+        mod.build_runner()
+        assert mod.list_checkpoints() == []
+
+    def test_checkpoint_without_runner_raises(self, mock_llm, tmp_path, monkeypatch):
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch)
+        with pytest.raises(RuntimeError, match="runner"):
+            mod.checkpoint("x")
