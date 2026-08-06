@@ -1,4 +1,4 @@
-"""最小快照（S1/S3）与 restore 等价性 + SqliteBackend.latest_firings 测试。"""
+"""轻量快照（S1）与 restore 等价性 + SqliteBackend.latest_firings 测试。"""
 
 from __future__ import annotations
 
@@ -14,16 +14,8 @@ from tickflow.runner import Runner
 from tickflow.state import NodeState, RunState
 
 
-class TestToSnapshotDataMinimal:
-    def test_minimal_keeps_only_keep_records(self):
-        rs = RunState(keep_records=True)
-        rs.record(NodeState(tick=0, node="A", output=1,
-                            mutable_state={"k": "v"}))
-        data = rs.to_snapshot_data(include_records=False, minimal=True)
-        assert set(data) == {"keep_records"}
-        assert data["keep_records"] is True
-
-    def test_default_still_full(self):
+class TestToSnapshotDataLightweight:
+    def test_default_full_shape(self):
         rs = RunState(keep_records=True)
         rs.record(NodeState(tick=0, node="A", output=1,
                             mutable_state={"k": "v"}))
@@ -31,11 +23,15 @@ class TestToSnapshotDataMinimal:
         assert set(data) == {"edges", "fire_counts", "state", "keep_records", "records"}
 
     def test_include_records_false_strips_records_only(self):
+        """轻量快照：剥离 records，但 edges/fire_counts/state 保留（自包含）。"""
         rs = RunState(keep_records=True)
-        rs.record(NodeState(tick=0, node="A", output=1))
+        rs.record(NodeState(tick=0, node="A", output=1,
+                            mutable_state={"k": "v"}))
         data = rs.to_snapshot_data(include_records=False)
         assert "records" not in data
-        assert "edges" in data
+        assert set(data) == {"edges", "fire_counts", "state", "keep_records"}
+        assert data["edges"]["A"] == [[0, 1]]
+        assert data["state"]["A"] == {"k": "v"}
 
     def test_keep_records_false_no_records(self):
         rs = RunState(keep_records=False)
@@ -65,7 +61,7 @@ def _chain_registry() -> Registry:
     return reg
 
 
-class TestMinimalSnapshotRoundtrip:
+class TestLightweightSnapshotRoundtrip:
     @pytest.fixture
     def runner(self, tmp_path):
         backend = SqliteBackend(tmp_path / "t.sqlite")
@@ -73,7 +69,7 @@ class TestMinimalSnapshotRoundtrip:
         yield r
         backend.close()
 
-    def test_persist_tick_writes_minimal_snapshot(self, runner):
+    def test_persist_tick_writes_lightweight_snapshot(self, runner):
         runner.tick()                       # A 执行
         runner.tick()                       # B 执行
         rows = []
@@ -85,15 +81,15 @@ class TestMinimalSnapshotRoundtrip:
             conn.close()
         assert [r["tick"] for r in rows] == [1, 2]
         snap = rows[-1]
-        assert set(snap["run_state"]) == {"keep_records"}
-        assert snap["fired"] == ["B"]
+        # 轻量快照：无 records（S1），但 edges/state 保留（自包含，S3 修正）
         assert "records" not in snap["run_state"]
-        assert "edges" not in snap["run_state"]
+        assert set(snap["run_state"]) == {"edges", "fire_counts", "state", "keep_records"}
+        assert snap["fired"] == ["B"]
 
-    def test_restore_minimal_snapshot_continues_correctly(self, runner):
+    def test_restore_lightweight_snapshot_continues_correctly(self, runner):
         runner.tick()                       # tick 1: A
         runner.tick()                       # tick 2: B
-        snap = runner.snapshot(include_records=False, minimal=True)
+        snap = runner.snapshot(include_records=False)
         snap["fired"] = ["B"]
         assert runner.tick_count == 2
         runner.run_until_idle(max_ticks=10) # 跑完 C
@@ -106,6 +102,24 @@ class TestMinimalSnapshotRoundtrip:
         assert r2.tick_count == 2
         assert "C" in r2.fireable()
         # 窗口/计数/state 已从 firings 重建：B 的输出可被 C 解析
+        firings = r2.run_until_idle(max_ticks=10)
+        assert [f.node for f in firings] == ["C"]
+        assert firings[0].inputs["B"] == {"ok": True}
+
+    def test_restore_into_fresh_runner_self_contained(self, runner):
+        """轻量快照 restore 到全新 runner（无任何 firings）仍自包含可用。
+
+        S3 修正的回归钉：快照剥离 edges/state 后此场景崩溃（truncate_after
+        无 history 可重建），快照必须自带窗口/状态。
+        """
+        runner.tick()                       # tick 1: A
+        runner.tick()                       # tick 2: B
+        snap = runner.snapshot(include_records=False)
+        # 全新 runner：默认临时 backend，session 无任何 firings
+        r2 = Runner(_chain_graph(), _chain_registry())
+        r2.restore(snap)
+        assert r2.tick_count == 2
+        assert "C" in r2.fireable()
         firings = r2.run_until_idle(max_ticks=10)
         assert [f.node for f in firings] == ["C"]
         assert firings[0].inputs["B"] == {"ok": True}

@@ -338,28 +338,26 @@ class RunState:
     # Snapshot data
     # ------------------------------------------------------------------
 
-    def to_snapshot_data(
-        self, include_records: bool = True, minimal: bool = False
-    ) -> dict:
+    def to_snapshot_data(self, include_records: bool = True) -> dict:
         """JSON-able dict for ``Runner.snapshot()``.
 
-        ``edges``/``fire_counts``/``state`` are included unless ``minimal``;
-        ``records`` only when ``keep_records=True`` and ``include_records``
-        and not ``minimal`` (minimal implies no records).
-        ``minimal`` (the persistent per-tick snapshot) keeps only
-        ``keep_records`` -- the window/counts/state are dead data (S3:
-        restore's truncate_after rebuilds them from firings), and records
-        live in the firings table (S1).
+        ``edges``/``fire_counts``/``state`` are always included -- snapshots
+        are self-contained (a snapshot may be restored into a fresh runner
+        with no history of its own, where truncate_after has nothing to
+        rebuild from; S3-revised). ``records`` only when ``keep_records=True``
+        and ``include_records``; the persistent per-tick path passes
+        ``include_records=False`` (records live in the firings table, S1).
         """
-        data: dict[str, Any] = {"keep_records": self._keep_records}
-        if not minimal:
-            data["edges"] = {
+        data: dict[str, Any] = {
+            "edges": {
                 n: [[t, _jsonable(v)] for (t, v) in lst]
                 for n, lst in self._edges.items()
-            }
-            data["fire_counts"] = dict(self._fire_counts)
-            data["state"] = {n: dict(s) for n, s in self._state.items()}
-        if self._keep_records and include_records and not minimal:
+            },
+            "fire_counts": dict(self._fire_counts),
+            "state": {n: dict(s) for n, s in self._state.items()},
+            "keep_records": self._keep_records,
+        }
+        if self._keep_records and include_records:
             data["records"] = [ns.to_json() for ns in self._records]
         return data
 

@@ -282,12 +282,12 @@ class _BaseRunner:
         try:
             self.run_state.flush_firings()
             if self._persistent:
-                # Per-tick snapshots are minimal (S1/S3): records live in the
-                # firings table, and the window/counts/state are rebuilt by
-                # truncate_after from firings on restore -- the snapshot only
-                # carries marking + status + fireable + fired.
+                # Per-tick snapshots are lightweight (S1): records live in the
+                # firings table, so they are stripped -- but edges/state stay
+                # (a snapshot is self-contained and may be restored into a
+                # fresh runner with no history, S3-revised).
                 # Fast mode (NullBackend) skips per-tick snapshots (D7).
-                snap = self.snapshot(include_records=False, minimal=True)
+                snap = self.snapshot(include_records=False)
                 snap["fired"] = list(fired)
                 self._backend.save_snapshot(self._session_id, self.tick_count, snap)
         except Exception:
@@ -297,18 +297,16 @@ class _BaseRunner:
     # Snapshot / restore
     # ------------------------------------------------------------------
 
-    def snapshot(
-        self, include_records: bool = True, minimal: bool = False
-    ) -> dict:
+    def snapshot(self, include_records: bool = True) -> dict:
         """JSON-able snapshot of (marking, run_state, tick, status, fireable).
 
-        ``include_records``/``minimal`` are forwarded to
-        :meth:`RunState.to_snapshot_data` -- ``minimal`` produces the small
-        per-tick snapshot persisted by ``_persist_tick`` (S1/S3).
+        ``include_records`` is forwarded to
+        :meth:`RunState.to_snapshot_data` -- the persistent per-tick path
+        passes False (records live in the firings table, S1). The snapshot
+        is always self-contained otherwise (edges/state included, so it can
+        be restored into a fresh runner, S3-revised).
         """
-        run_data = self.run_state.to_snapshot_data(
-            include_records=include_records, minimal=minimal
-        )
+        run_data = self.run_state.to_snapshot_data(include_records=include_records)
         return {
             "tick": self.tick_count,
             "marking": self.marking.to_json(),
