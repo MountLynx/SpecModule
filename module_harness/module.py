@@ -338,3 +338,77 @@ class Module:
             self._write_phase("running")   # max_ticks 截断：仍在运行
         else:
             self._write_phase("done")
+
+    async def resume(self, rollback_to: str, max_ticks: int = 100):
+        """跨进程续跑：从检查点恢复 + 用当前 spec/tasklist 重建未执行部分。
+
+        流程：检查点查找（auto 表 → 手动表）→ 新图全量重建 → 兼容性校验
+        （硬错误拒绝，不触碰 runner）→ restore + remap_graph 移植 marking →
+        注册自动检查点 hook → 续跑。
+
+        要求 persist=True（自动检查点依赖 SQLite backend）。
+        """
+        if not self.persist:
+            raise RuntimeError(
+                "resume 需要 persist=True（自动检查点依赖 SQLite backend）"
+            )
+
+        # 1. 检查点查找：auto 表 → 手动表
+        store = AutoCheckpointStore(self.module_id)
+        try:
+            snap = store.load(rollback_to)
+            if snap is None:
+                backend = SqliteBackend(_persist_dir(self.module_id))
+                snap = backend.load_checkpoint(self.module_id, rollback_to)
+            if snap is None:
+                available = ", ".join(
+                    label for label, _, _ in self.list_checkpoints()
+                ) or "（无）"
+                raise KeyError(
+                    f"检查点 {rollback_to!r} 不存在（可用: {available}）"
+                )
+            old_inputs = store.load_module_inputs()
+        finally:
+            store.close()
+
+        # 2. 新 spec/tasklist 全量重建（含校验 + 一致性审核）
+        try:
+            runner = await self._build_runner_async()
+        except Exception as e:
+            self._write_phase("aborted", error=str(e))
+            raise
+
+        # 3. 兼容性校验（构造 runner 后、restore 前；硬错误拒绝且不触碰状态）
+        executed_nodes = set(
+            snap.get("run_state", {}).get("edges", {}).keys()
+        )
+        marking_slots = snap.get("marking", {}).get("slots")
+        old_tl = tasklist_from_dict(old_inputs["tasklist"]) if old_inputs else None
+        check = check_resume_compat(
+            self._last_tasklist, runner.graph, executed_nodes,
+            old_tasklist=old_tl,
+            marking_slots=marking_slots,
+        )
+        for w in check.warnings:
+            log.warning("resume 兼容性警告: %s", w)
+        if check.hard_errors:
+            raise ResumeError(check.hard_errors)
+
+        # 4. restore + remap：移植检查点 marking 到新图
+        runner.restore(snap)
+        runner.remap_graph(runner.graph)
+
+        # 5. 注册自动检查点 + 续跑
+        self._register_auto_checkpoint()
+        self._write_phase("running")
+        try:
+            firings = await runner.run_until_idle(max_ticks=max_ticks)
+        except asyncio.CancelledError:
+            self._write_phase("cancelled", error="cancelled")
+            raise
+        except Exception as e:
+            self._write_phase("aborted", error=str(e))
+            raise
+        else:
+            self._finalize_phase(runner)
+        return firings

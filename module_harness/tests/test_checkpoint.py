@@ -8,6 +8,7 @@ import pytest
 from module_harness.checkpoint import (
     AutoCheckpointStore,
     ResumeCheck,
+    ResumeError,
     _run_db_path,
     check_resume_compat,
 )
@@ -596,3 +597,143 @@ class TestAutoCheckpointHook:
         await mod.run()
         auto = [c for c in mod.list_checkpoints() if c[2] == "auto"]
         assert len(auto) == 5
+
+
+class TestResume:
+    def _make_module(self, mock_llm, tmp_path, monkeypatch, tasklist=None, persist=True, spec=None):
+        monkeypatch.chdir(tmp_path)
+        return Module(
+            spec=spec if spec is not None else {"x": 1},
+            tasklist=tasklist or _chain_tasklist(),
+            llm_client=mock_llm,
+            review_harness=None,
+            persist=persist,
+            module_id="mod_test",
+            registry=_script_reg(mock_llm),
+        )
+
+    @pytest.mark.asyncio
+    async def test_resume_continues_from_checkpoint(self, mock_llm, tmp_path, monkeypatch):
+        """第一轮跑完 3 节点链；新实例微调后 resume 到 auto:tick:1。
+
+        auto:tick:1 = B 已执行、C 未执行。resume 后只应重跑 C（用新定义）。
+        """
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch)
+        await mod.run()
+        assert any(c[2] == "auto" and c[1] == 1 for c in mod.list_checkpoints())
+
+        # 新 Module 实例（模拟跨进程）：微调 C 的 prompt
+        new_tl = Tasklist(
+            tasks={
+                "A": TaskDefinition(type="script", script="echo"),
+                "B": TaskDefinition(type="script", script="echo", inputs={"data": "A"}),
+                "C": TaskDefinition(type="script", script="echo",
+                                    inputs={"data": "B"}, prompt="微调后的 prompt"),
+            },
+            flow="[A] --> B\nB --> C",
+        )
+        mod2 = self._make_module(mock_llm, tmp_path, monkeypatch, tasklist=new_tl)
+        firings = await mod2.resume(rollback_to="auto:tick:1")
+        nodes = [f.node for f in firings]
+        assert nodes == ["C"], f"resume 应只重跑 C，实际 {nodes}"
+        # 运行结束状态
+        from tickflow.runner import RunStatus
+        assert mod2._runner.status == RunStatus.IDLE
+
+    @pytest.mark.asyncio
+    async def test_resume_preserves_executed_outputs(self, mock_llm, tmp_path, monkeypatch):
+        """resume 后已执行节点的输出保留，可被新节点通过 inputs 消费。"""
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch)
+        await mod.run()
+        # 新图：C 换成 record script，读取 B（已执行）的输出。
+        # 注：view 键用 producer 名（view["B"]）——field 名键（view["data"]）
+        # 按 graph_builder 设计恒为 Missing（graph_builder.py:88-93 注释）。
+        reg = _script_reg(mock_llm, record=lambda view: {"echo": view["B"].value})
+        monkeypatch.chdir(tmp_path)
+        new_tl = Tasklist(
+            tasks={
+                "A": TaskDefinition(type="script", script="echo"),
+                "B": TaskDefinition(type="script", script="echo", inputs={"data": "A"}),
+                "C": TaskDefinition(type="script", script="record", inputs={"data": "B"}),
+            },
+            flow="[A] --> B\nB --> C",
+        )
+        mod2 = Module(
+            spec={"x": 1},
+            tasklist=new_tl,
+            llm_client=mock_llm,
+            review_harness=None,
+            persist=True,
+            module_id="mod_test",
+            registry=reg,
+        )
+        firings = await mod2.resume(rollback_to="auto:tick:1")
+        assert [f.node for f in firings] == ["C"]
+        # C 读到的 B 输出是 resume 前已执行的结果 {"ok": True}
+        assert firings[0].output == {"echo": {"ok": True}}
+
+    @pytest.mark.asyncio
+    async def test_resume_new_node_after_executed_warns(self, mock_llm, tmp_path, monkeypatch, caplog):
+        """新节点挂在已执行节点之后（入边为新边）→ 警告，且该节点不执行。"""
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch)
+        await mod.run()
+        new_tl = Tasklist(
+            tasks={
+                "A": TaskDefinition(type="script", script="echo"),
+                "B": TaskDefinition(type="script", script="echo", inputs={"data": "A"}),
+                "C": TaskDefinition(type="script", script="echo", inputs={"data": "B"}),
+                "D": TaskDefinition(type="script", script="echo", inputs={"data": "B"}),
+            },
+            flow="[A] --> B\nB --> C\nB --> D",
+        )
+        mod2 = self._make_module(mock_llm, tmp_path, monkeypatch, tasklist=new_tl)
+        import logging
+        with caplog.at_level(logging.WARNING, logger="module_harness.module"):
+            firings = await mod2.resume(rollback_to="auto:tick:2")
+        assert "D" not in [f.node for f in firings]
+        assert any("D" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_resume_fast_mode_raises(self, mock_llm, tmp_path, monkeypatch):
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=False)
+        await mod.run()
+        with pytest.raises(RuntimeError, match="persist=True"):
+            await mod.resume(rollback_to="auto:tick:1")
+
+    @pytest.mark.asyncio
+    async def test_resume_missing_checkpoint_raises_keyerror(self, mock_llm, tmp_path, monkeypatch):
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
+        await mod.run()
+        with pytest.raises(KeyError, match="nope"):
+            await mod.resume(rollback_to="nope")
+
+    @pytest.mark.asyncio
+    async def test_resume_hard_error_rejects(self, mock_llm, tmp_path, monkeypatch):
+        """硬错误（引用不存在 producer）→ ResumeError，runner 未被 restore。"""
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch)
+        await mod.run()
+        bad_tl = Tasklist(
+            tasks={
+                "A": TaskDefinition(type="script", script="echo"),
+                "Z": TaskDefinition(type="script", script="echo", inputs={"data": "GHOST"}),
+            },
+            flow="[A] --> Z",
+        )
+        mod2 = self._make_module(mock_llm, tmp_path, monkeypatch, tasklist=bad_tl)
+        with pytest.raises(ResumeError, match="GHOST"):
+            await mod2.resume(rollback_to="auto:tick:1")
+        # runner 未被触碰：仍为构建后初始状态（tick 0）
+        assert mod2._runner.tick_count == 0
+
+    @pytest.mark.asyncio
+    async def test_resume_manual_checkpoint(self, mock_llm, tmp_path, monkeypatch):
+        """resume 也能回退到手动检查点（backend 表）。"""
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
+        # 注：async 测试内不能用同步 build_runner()（Python 3.12+ 禁止在运行中
+        # 的 loop 里再起新 loop 跑 run_until_complete），用其 async 等价形式。
+        await mod._build_runner_async()
+        mod.checkpoint("manual:before")
+        await mod.run()
+        mod2 = self._make_module(mock_llm, tmp_path, monkeypatch)
+        firings = await mod2.resume(rollback_to="manual:before")
+        assert [f.node for f in firings] == ["A", "B", "C"]
