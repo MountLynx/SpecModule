@@ -1,6 +1,6 @@
 # SpecModule 开发进度与路线
 
-> 最后更新：2026-08-05
+> 最后更新：2026-08-06
 
 本文档追踪 SpecModule module 核心功能的开发状态与实现方向。
 范围限定：module 内核（harness / script / command / spec / tasklist / submodule / 编排 / 状态数据）。
@@ -8,7 +8,7 @@
 
 ## 完成度速览
 
-已实现：**15** / 待实现：**4**
+已实现：**17** / 待实现：**2**
 
 ---
 
@@ -43,35 +43,12 @@
 | **EventBus** — 类型安全的事件发布订阅，harness 6 种 + script 3 种 + command 3 种 + 一致性审核 1 种事件 | `EventBus` | `events.py` |
 | **tickflow 零修改集成** — `HarnessRegistry` 子类化 `Registry`，不修改 tickflow 任何代码 | `HarnessRegistry(Registry)` | `registry.py` |
 | **submodule — 类式定义 + 打包发布** | `SubModule`（类式声明 + `@script` + `pack()` 导出）+ `ModuleLoader`（加载 + requires 校验）+ 内置 harness 集 | `submodule.py`, `loader.py`, `builtins.py` |
+| **运行状态查询** — 跨进程查询 Module 当前运行状态：status.json 阶段机（9 阶段原子写，status_file 独立开关）+ run.sqlite 最新快照叠加 | `Module._write_phase` + `query_run_status` | `module.py`, `status.py` |
+| **对齐检查** — 内置 `align_check` harness 节点，`{spec}`/`{tasklist}`/`{node}` 常量 token 注入，输出对齐/偏离 + 建议 | `ALIGN_CHECK_CONFIG` + graph_builder 常量 token | `align.py`, `graph_builder.py` |
 
 ---
 
 ## 待实现 🔲
-
-### 2. 对齐检查
-
-**说明**：执行中判断当前产出是否偏离 spec 目标。不是框架强制行为，而是一个可复用的内置 harness 节点。模板设计者在 flow 中自行插入（通常放在关键产出节点之后），框架不额外调度。
-
-**实现方向**：
-- 提供一个内置 harness `align_check`，已注册在默认 registry 中
-- prompt 接受 spec + tasklist + 当前位置 + 所有前置节点输出，返回"对齐/偏离 + 建议"
-- tasklist 模板中使用示例：
-
-```json
-{
-  "C": {
-    "type": "harness",
-    "harness": "align_check",
-    "inputs": {"output_a": "A", "output_b": "B"},
-    "prompt": "判断以上输出是否偏离 spec 目标..."
-  },
-  "Flow": "A --> B --> C"
-}
-```
-
-- 最小开销：不插入即不执行
-
----
 
 ### 5. 快照/回滚 Module 封装
 
@@ -106,12 +83,6 @@
 
 ---
 
-### 7. 运行状态查询
-
-获取当前 Module 的运行状态（静态值）。
-
----
-
 ## 不在当前范围 ⏸️
 
 | 功能 | 说明 |
@@ -130,9 +101,9 @@
 ┌─────────────────────────┐
 │ 1. spec+tasklist 输入   │  ✅ 已完成（含一致性审核 #4）
 ├─────────────────────────┤
-│ 2. 运行状态查询         │  ← 依赖module的搭建完成
+│ 2. 运行状态查询         │  ✅ 已完成
 ├─────────────────────────┤
-│ 3. 对齐检查 harness     │  ← 独立，不依赖其他
+│ 3. 对齐检查 harness     │  ✅ 已完成
 ├─────────────────────────┤
 │ 4. 一致性审核           │  ✅ 随 #1 完成
 ├─────────────────────────┤
@@ -144,4 +115,4 @@
 └─────────────────────────┘
 ```
 
-`#1 → #4 → #5 → #6 & #2` 有依赖链。#5 已随 submodule 系统完成。`#5` 是最大的任务——submodule + 打包发布合并实现，一次设计覆盖"嵌入式运行 + 自描述清单 + 模块发布"。`#3` 和 `#7` 可独立进行。
+`#1 → #4 → #5 → #6` 有依赖链。#5 已随 submodule 系统完成。`#5` 是最大的任务——submodule + 打包发布合并实现，一次设计覆盖"嵌入式运行 + 自描述清单 + 模块发布"。`#3`（对齐检查）与 `#7`（运行状态查询）已独立完成。
