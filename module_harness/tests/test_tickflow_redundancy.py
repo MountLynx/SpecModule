@@ -72,3 +72,26 @@ class TestGraphAdjacencyIndex:
         g1, g2 = _graph(), _graph()
         _ = g1.producers("A")
         assert g1 == g2
+
+
+class TestCheckerBranchCache:
+    def test_check_unchanged_with_prior_impl(self):
+        """缓存重构后 check() 输出与逐对重算实现逐项相等。"""
+        g = _graph()
+        sugs = check(g)
+        # M1（A∈g1 分支、B∈g2 分支 → 互斥）+ M3（D∈g3、E∈g4）各一条；
+        # M2（A、C 同在 g1 分支）无建议。
+        assert len(sugs) == 2
+        assert {s.node for s in sugs} == {"M1", "M3"}
+        assert {s.splitter for s in sugs} == {"S1", "S2"}
+        by_node = {s.node: s for s in sugs}
+        assert set(by_node["M1"].producers) == {"A", "B"}
+        # branches 内容与逐对实现一致：S1 的 g1 分支 = {A, M1, M2}（A 向下
+        # 扩展，M1/M2 是 merge 节点、含入但不继续展开），g2 分支 = {B, M1}
+        assert by_node["M1"].branches == {"g1": ["A", "M1", "M2"], "g2": ["B", "M1"]}
+
+    def test_check_does_not_mutate(self):
+        g = _graph()
+        before = (g.nodes["M1"].join, g.nodes["M2"].join, g.nodes["M3"].join)
+        check(g)
+        assert (g.nodes["M1"].join, g.nodes["M2"].join, g.nodes["M3"].join) == before
