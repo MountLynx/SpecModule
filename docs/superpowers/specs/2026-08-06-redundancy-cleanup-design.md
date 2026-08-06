@@ -1,6 +1,6 @@
 # 冗余清理设计（重复存储 + 重复计算一次性消除）
 
-> 日期：2026-08-06 | 状态：已确认
+> 日期：2026-08-06 | 状态：已确认，已实现
 > 关联：[2026-08-07-lightweight-snapshot-design.md](./2026-08-07-lightweight-snapshot-design.md)
 > 本设计把轻量快照文档的判定标准（"重复存储、重复计算是否还有性能/功能上的必要"）应用到全代码库，一次性消除同类冗余。tickflow 直接在本仓库修改（经用户确认），后续随既有 sync 机制同步上游 Graph 仓库。
 
@@ -92,7 +92,7 @@
   - snapshots 表条目：`(tick, fired 节点列表, "tick")`（逐 tick `load_snapshot` 读 `fired`——历史审阅雏形，`fired` 的唯一消费方；条目量大时可后续加轻量查询，本设计不做）
   - manual checkpoints 条目：`(tick, label, "manual")`（沿用既有 `list_checkpoints`）
   - 环形 20 概念消失。
-- **`query_run_status`**：`status/tick/fireable/fired` 从最小快照读；`outputs/node_states` 改从 firings 读——新增 `SqliteBackend.latest_firings(session_id) -> list[dict]`：每节点最后一 firing（`(tick, node)` 去重 keep-first，语义与 `firings_of` 一致），SQL 走既有 `idx_firings_node` 索引，O(节点数)。
+- **`query_run_status`**：`status/tick/fireable/fired` 从最小快照读；`outputs/node_states` 改从 firings 读——新增 `SqliteBackend.latest_firings(session_id) -> list[dict]`：每节点最后一 firing（`(tick, node)` 去重 keep-first，语义与 `firings_of` 一致），O(会话内 firings)（`idx_firings_node` 索引限定 session 范围）。
 
 ### D3. auto_checkpoints 退役（module_harness: `checkpoint.py` / `module.py` / `__init__.py`）
 
