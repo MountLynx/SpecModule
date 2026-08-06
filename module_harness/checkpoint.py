@@ -240,7 +240,10 @@ def _is_transitive_upstream(graph: Graph, producer: str, consumer: str) -> bool:
 
 
 def _reachable_from_marking(
-    graph: Graph, executed_nodes: set[str], marking_slots: dict[str, bool]
+    graph: Graph,
+    executed_nodes: set[str],
+    marking_slots: dict[str, bool],
+    armed_starts: set[str] | list[str] | None = None,
 ) -> set[str]:
     """不动点模拟：从检查点 marking 出发，判定哪些未执行非 start 节点最终会 fire。
 
@@ -249,12 +252,22 @@ def _reachable_from_marking(
     一旦 fire 就会产出下游节点的入边 slot。此处模拟"将 fire"的传播：
 
     1. 初始 ``satisfied`` = 检查点 marking 中值为 True 的边键集合
-       （键格式 ``"dst|src"``，与 Marking.to_json 一致）。
+       （键格式 ``"dst|src"``，与 Marking.to_json 一致）∪ 武装 start 的
+       出边键（见下）。
     2. 迭代：对每个未执行且非 start 的节点 M，若 M 的所有入边（AND join）
        或任一入边（OR join）都在 ``satisfied`` 中（与
        ``engine._join_satisfied`` 的语义一致）→ M 将 fire → M 的所有出边
        加入 ``satisfied``。
     3. 循环至 ``satisfied`` 不再增长（不动点）。
+
+    ``armed_starts`` 分支（``engine._join_satisfied`` 首条分支，
+    engine.py:103-106）：武装的 start 在续跑的第一个 tick 无条件 fire 并写
+    下游 slot——即使其入边在检查点全部未满足。典型场景是 resume 到"运行前
+    手动检查点"（build_runner() 后、run 前打点：armed_starts 非空、slots
+    全空）。模拟与之一致：把每个在图中且武装的 start 的所有出边键并入初始
+    ``satisfied``（guard 出边同样乐观加入，与下述取舍一致）。格式与
+    ``Marking.to_json`` 的 ``armed_starts`` 一致（排序 list，engine.py:72）；
+    为 None/空时跳过。
 
     guard 边（``e.guard is not None``）**乐观加入**：guard 结果运行时才知，
     此处假定为 True。取舍：警告语义是"可能不会执行"的提示性警告——乐观
@@ -265,6 +278,9 @@ def _reachable_from_marking(
     返回判定为"将 fire"的节点集合（已执行节点与 start 永不参与）。
     """
     satisfied = {k for k, v in marking_slots.items() if v}
+    for n in set(armed_starts or []):
+        if n in graph.nodes:
+            satisfied.update(f"{e.dst}|{e.src}" for e in graph.out_edges(n))
     reachable: set[str] = set()
     changed = True
     while changed:
@@ -297,6 +313,7 @@ def check_resume_compat(
     executed_nodes: set[str],
     old_tasklist: Tasklist | None = None,
     marking_slots: dict[str, bool] | None = None,
+    armed_starts: set[str] | list[str] | None = None,
 ) -> ResumeCheck:
     """新 tasklist 与已执行节点的兼容性校验。
 
@@ -324,6 +341,11 @@ def check_resume_compat(
       到更早检查点让其上游重新执行，或设为 start。``marking_slots`` 为检查点
       snapshot 的 ``marking.slots``，键格式 ``"dst|src"``（与
       ``Marking.to_json`` 一致，engine.py:71）；为 None 时跳过本检查。
+      ``armed_starts`` 为检查点 snapshot 的 ``marking.armed_starts``（排序
+      list，engine.py:72）——武装的 start 续跑时无条件 fire 并写下游 slot
+      （``engine._join_satisfied`` 首分支，engine.py:103-106），模拟将其出边
+      并入初始 satisfied（如 resume 到"运行前手动检查点"：armed_starts 非空、
+      slots 全空）；为 None 时跳过。
 
     返回 ResumeCheck；调用方在 hard_errors 非空时 raise ResumeError。
     """
@@ -380,7 +402,9 @@ def check_resume_compat(
     # → 永不 fire。模拟考虑"入边已满足的上游节点将 fire 并产出下游 slot"，
     # 消除深回退（回退到 ≥2 层上游）场景的误报——那是核心工作流。
     if marking_slots is not None:
-        reachable = _reachable_from_marking(graph, executed_nodes, marking_slots)
+        reachable = _reachable_from_marking(
+            graph, executed_nodes, marking_slots, armed_starts
+        )
         for n in graph.nodes:
             if n in executed_nodes or n in graph.starts or n in reachable:
                 continue

@@ -420,6 +420,75 @@ class TestCheckResumeCompat:
         assert check.hard_errors == []
         assert check.warnings == []
 
+    def test_no_warning_armed_start_propagates(self):
+        # 运行前手动检查点（armed_starts=['A']、slots 全空）：武装的 start
+        # 无条件 fire 并写下游 slot（engine._join_satisfied 首分支）→ B、C
+        # 经 A 的出边传播均可达 → 不误报警告 3。
+        # （不并入 armed_starts 分支时 B、C 各报一条误报）
+        old_tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s", "inputs": {"data": "A"}},
+             "C": {"type": "script", "script": "s", "inputs": {"data": "B"}}},
+            "[A] --> B\nB --> C",
+        )
+        tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s", "inputs": {"data": "A"}},
+             "C": {"type": "script", "script": "s", "inputs": {"data": "B"}}},
+            "[A] --> B\nB --> C",
+        )
+        graph = _graph_for(tl)
+        check = check_resume_compat(
+            tl, graph, executed_nodes=set(), old_tasklist=old_tl,
+            marking_slots={}, armed_starts=["A"],
+        )
+        assert check.hard_errors == []
+        assert check.warnings == []
+
+    def test_or_join_reachable_via_any(self):
+        # OR join：任一入边满足即可达（engine._join_satisfied OR 分支）。
+        # 同一 marking 下 AND join 不满足（需全部）→ 警告；OR 满足 → 不警告，
+        # 钉住不动点模拟的 OR 分支。
+        def _or_graph(tl):
+            graph = _graph_for(tl)
+            assert graph.nodes["C"].join == "OR"   # DSL 的 C.join: OR 声明生效
+            return graph
+
+        old_tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s"},
+             "C": {"type": "script", "script": "s"}},
+            "[A] --> C\nB --> C\nC.join: OR",
+        )
+        tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s"},
+             "C": {"type": "script", "script": "s"}},
+            "[A] --> C\nB --> C\nC.join: OR",
+        )
+        graph = _or_graph(tl)
+        marking_slots = {"C|A": False, "C|B": True}
+        check = check_resume_compat(
+            tl, graph, executed_nodes=set(), old_tasklist=old_tl,
+            marking_slots=marking_slots,
+        )
+        assert check.hard_errors == []
+        assert check.warnings == []
+        # 对照：同一 marking 下 AND join 的 C 不可达 → 警告
+        and_tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s"},
+             "C": {"type": "script", "script": "s"}},
+            "[A] --> C\nB --> C",
+        )
+        and_graph = _graph_for(and_tl)
+        assert and_graph.nodes["C"].join == "AND"
+        and_check = check_resume_compat(
+            and_tl, and_graph, executed_nodes=set(), old_tasklist=old_tl,
+            marking_slots=marking_slots,
+        )
+        assert any("C" in w for w in and_check.warnings)
+
     def test_no_warning_markslot_none(self):
         # marking_slots=None 时跳过入边检查（单元测试不带 snapshot 的用法）
         old_tl = _tl(
@@ -884,6 +953,26 @@ class TestResume:
         mod2 = self._make_module(mock_llm, tmp_path, monkeypatch)
         firings = await mod2.resume(rollback_to="manual:before")
         assert [f.node for f in firings] == ["A", "B", "C"]
+
+    @pytest.mark.asyncio
+    async def test_resume_manual_checkpoint_no_false_warning(self, mock_llm, tmp_path, monkeypatch, caplog):
+        """resume 到"运行前手动检查点"：armed start 无条件 fire 传播下游 slot。
+
+        I2 同类残留：检查点打在建 runner 后、run 前（armed_starts=['A']、
+        slots 全空）→ 实际续跑 ['A','B','C'] 全部执行；不动点模拟须并入
+        armed_starts 分支，否则 B、C 被误报"不会自动执行"。
+        """
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
+        await mod._build_runner_async()
+        mod.checkpoint("manual:before")
+        await mod.run()
+
+        mod2 = self._make_module(mock_llm, tmp_path, monkeypatch)
+        import logging
+        with caplog.at_level(logging.WARNING, logger="module_harness.module"):
+            firings = await mod2.resume(rollback_to="manual:before")
+        assert [f.node for f in firings] == ["A", "B", "C"]
+        assert not any("不会自动执行" in r.message for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_resume_overwrites_module_inputs(self, mock_llm, tmp_path, monkeypatch):

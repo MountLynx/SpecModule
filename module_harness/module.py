@@ -419,12 +419,16 @@ class Module:
         executed_nodes = set(
             snap.get("run_state", {}).get("edges", {}).keys()
         )
-        marking_slots = (snap.get("marking") or {}).get("slots")
+        marking = snap.get("marking") or {}
+        marking_slots = marking.get("slots")
+        # snapshot 的 marking.armed_starts 是排序 list（engine.py:72）
+        armed_starts = marking.get("armed_starts")
         old_tl = tasklist_from_dict(old_inputs["tasklist"]) if old_inputs else None
         check = check_resume_compat(
             self._last_tasklist, runner.graph, executed_nodes,
             old_tasklist=old_tl,
             marking_slots=marking_slots,
+            armed_starts=armed_starts,
         )
         for w in check.warnings:
             log.warning("resume 兼容性警告: %s", w)
