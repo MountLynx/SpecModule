@@ -8,6 +8,8 @@ so modules with overlapping task keys do not collide.
 
 from __future__ import annotations
 
+import dataclasses
+import json
 from typing import Any
 
 from tickflow import Graph, parse as parse_graph
@@ -18,6 +20,17 @@ from .outputfmt import OutputFormat
 from .registry import HarnessRegistry
 from .spec import TaskDefinition, Tasklist
 from .translator import prepare_flow
+
+
+_CONSTANT_TOKENS = frozenset({"{spec}", "{tasklist}", "{node}"})
+
+
+def _is_constant_ref(producer: Any) -> bool:
+    """是否为注册时解析的常量引用（{spec}/{tasklist}/{node} 或 {spec.xxx}）。"""
+    return (
+        isinstance(producer, str)
+        and (producer in _CONSTANT_TOKENS or producer.startswith("{spec."))
+    )
 
 
 class TasklistTranslator:
@@ -47,10 +60,16 @@ class TasklistTranslator:
         isolated body entries).
         """
         spec_dict = spec.to_dict() if spec is not None else {}
+        tasklist_dict = {
+            "Tasks": {
+                key: dataclasses.asdict(task) for key, task in tasklist.tasks.items()
+            },
+            "Flow": tasklist.flow,
+        }
 
         # 1.  Register every task's body under an isolated name.
         for key, task in tasklist.tasks.items():
-            self._register_body(key, task, spec_dict)
+            self._register_body(key, task, spec_dict, tasklist_dict)
 
         # 2.  Prepare the flow text for tickflow's parser (no body/input
         #     declarations -- those are attached programmatically below
@@ -72,12 +91,12 @@ class TasklistTranslator:
         #     ``view.<field_name>.value`` 为 Missing（不崩溃，脚本旧写法兼容）。
         #     harness 的 prompt 占位符 ``{field}`` 经 _register_harness 传入的
         #     input_aliases 在运行时解析 producer 输出值。
-        #     ``{spec.xxx}`` 引用已由 _register_harness 解析为 spec_inputs，
-        #     此处跳过。
+        #     常量引用（{spec}/{tasklist}/{node}、{spec.xxx}）已由
+        #     _register_harness 解析为 spec_inputs，此处跳过。
         for key, task in tasklist.tasks.items():
             if task.inputs:
                 for field_name, producer in task.inputs.items():
-                    if isinstance(producer, str) and producer.startswith("{spec."):
+                    if _is_constant_ref(producer):
                         continue
                     graph.nodes[key].inputs[field_name] = InputPolicy.latest()
                     if producer != field_name:
@@ -94,13 +113,14 @@ class TasklistTranslator:
         return f"{self.module_id}:{key}"
 
     def _register_body(self, key: str, task: TaskDefinition,
-                       spec_dict: dict[str, Any]) -> None:
+                       spec_dict: dict[str, Any],
+                       tasklist_dict: dict[str, Any]) -> None:
         """Register one task's body in *self.reg* under an isolated name.
 
         Delegates to the appropriate helper based on ``task.type``.
         """
         if task.type == "harness":
-            self._register_harness(key, task, spec_dict)
+            self._register_harness(key, task, spec_dict, tasklist_dict)
         elif task.type == "script":
             self._register_script(key, task)
         elif task.type == "command":
@@ -115,8 +135,23 @@ class TasklistTranslator:
             return spec_dict.get(value[len("{spec."):-1])
         return value
 
+    @staticmethod
+    def _resolve_constant(token: str, node_key: str,
+                          spec_dict: dict[str, Any],
+                          tasklist_dict: dict[str, Any]) -> Any:
+        """解析常量 token：{spec} → spec JSON，{tasklist} → tasklist JSON，
+        {node} → 当前节点 key。未知 token 抛 ValueError。"""
+        if token == "{spec}":
+            return json.dumps(spec_dict, ensure_ascii=False)
+        if token == "{tasklist}":
+            return json.dumps(tasklist_dict, ensure_ascii=False)
+        if token == "{node}":
+            return node_key
+        raise ValueError(f"未知常量 token: {token}")
+
     def _register_harness(self, key: str, task: TaskDefinition,
-                          spec_dict: dict[str, Any]) -> None:
+                          spec_dict: dict[str, Any],
+                          tasklist_dict: dict[str, Any]) -> None:
         """Copy an existing harness config, apply task-level overrides, and
         register under the isolated name."""
         assert task.harness is not None  # validated by spec
@@ -153,7 +188,8 @@ class TasklistTranslator:
             api_params=api_params,
         )
 
-        # 解析 "{spec.xxx}" 引用：promptmode 与 inputs 中的 spec 常量
+        # 解析常量引用：promptmode 的 "{spec.xxx}" 与 inputs 的常量 token
+        # （{spec}/{tasklist}/{node} 与 {spec.xxx}）均在注册时解析为字面值
         promptmode = task.promptmode
         if promptmode is not None:
             promptmode = self._resolve_spec_ref(promptmode, spec_dict)
@@ -161,16 +197,20 @@ class TasklistTranslator:
         spec_inputs: dict[str, Any] = {}
         if task.inputs:
             for field_name, producer in task.inputs.items():
-                if isinstance(producer, str) and producer.startswith("{spec."):
+                if isinstance(producer, str) and producer in _CONSTANT_TOKENS:
+                    spec_inputs[field_name] = self._resolve_constant(
+                        producer, key, spec_dict, tasklist_dict
+                    )
+                elif isinstance(producer, str) and producer.startswith("{spec."):
                     resolved = self._resolve_spec_ref(producer, spec_dict)
                     spec_inputs[field_name] = resolved
 
-        # 跨节点输入别名：非 {spec.} 的 inputs 把 field 名映射到 producer 节点，
+        # 跨节点输入别名：非常量引用的 inputs 把 field 名映射到 producer 节点，
         # harness body 运行时据此把 producer 输出渲染进 prompt 的 {field} 占位符。
         input_aliases: dict[str, str] = {}
         if task.inputs:
             for field_name, producer in task.inputs.items():
-                if isinstance(producer, str) and producer.startswith("{spec."):
+                if _is_constant_ref(producer):
                     continue
                 input_aliases[field_name] = producer
 

@@ -5,11 +5,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from tickflow import Graph
+from tickflow.async_runner import AsyncRunner
+from tickflow.persistence import NullBackend
 
+from llm.client import LLMResponse
 from module_harness.config import HarnessConfig
 from module_harness.graph_builder import TasklistTranslator
 from module_harness.registry import HarnessRegistry
-from module_harness.spec import TaskDefinition, Tasklist
+from module_harness.spec import Spec, TaskDefinition, Tasklist
 
 
 @pytest.fixture
@@ -28,6 +31,100 @@ def reg(mock_llm):
         return {"result": "processed"}
 
     return r
+
+
+@pytest.fixture
+def mock_llm_async(mock_llm):
+    mock_llm.complete = AsyncMock(return_value=LLMResponse(content='{"ok": true}'))
+    return mock_llm
+
+
+class TestConstantTokens:
+    """{spec}/{tasklist}/{node} 常量 token：注册时解析，不注册为图输入。"""
+
+    @pytest.mark.asyncio
+    async def test_tokens_resolve_to_spec_inputs(self, mock_llm_async, reg):
+        """token 不注册为图输入（不进 InputPolicy），非常量 input 正常 wiring。"""
+        reg.harness("align_probe", HarnessConfig(
+            prompt_core="spec={spec}\ntasklist={tasklist}\npos={position}\ndata={data}"
+        ))
+        tl = Tasklist(
+            tasks={
+                "A": TaskDefinition(
+                    type="harness", harness="translate",
+                    inputs={"text": "{spec.source_text}"},
+                ),
+                "C": TaskDefinition(
+                    type="harness", harness="align_probe",
+                    inputs={
+                        "spec": "{spec}",
+                        "tasklist": "{tasklist}",
+                        "position": "{node}",
+                        "data": "A",
+                    },
+                ),
+            },
+            flow="[A] --> C",
+        )
+        builder = TasklistTranslator(reg, module_id="m1")
+        graph, out_reg = builder.build(tl, spec=Spec({"source_text": "你好", "target": "world"}))
+
+        assert "spec" not in graph.nodes["C"].inputs
+        assert "tasklist" not in graph.nodes["C"].inputs
+        assert "position" not in graph.nodes["C"].inputs
+        assert "data" in graph.nodes["C"].inputs
+
+    @pytest.mark.asyncio
+    async def test_tokens_render_into_prompt(self, mock_llm_async, reg):
+        """端到端：prompt 渲染包含 spec JSON / tasklist JSON / 节点 key。"""
+        reg.harness("align_probe", HarnessConfig(
+            prompt_core="spec={spec}\ntasklist={tasklist}\npos={position}\ndata={data}"
+        ))
+        tl = Tasklist(
+            tasks={
+                "A": TaskDefinition(
+                    type="harness", harness="translate",
+                    inputs={"text": "{spec.source_text}"},
+                ),
+                "C": TaskDefinition(
+                    type="harness", harness="align_probe",
+                    inputs={
+                        "spec": "{spec}",
+                        "tasklist": "{tasklist}",
+                        "position": "{node}",
+                        "data": "A",
+                    },
+                ),
+            },
+            flow="[A] --> C",
+        )
+        builder = TasklistTranslator(reg, module_id="m1")
+        graph, out_reg = builder.build(tl, spec=Spec({"source_text": "你好", "target": "world"}))
+        runner = AsyncRunner(graph, registry=out_reg, backend=NullBackend())
+        await runner.run_until_idle(max_ticks=10)
+
+        assert mock_llm_async.complete.await_count == 2
+        prompt = mock_llm_async.complete.call_args_list[1].kwargs["prompt"]
+        assert '"source_text": "你好"' in prompt    # {spec} → spec JSON
+        assert '"Tasks"' in prompt                   # {tasklist} → tasklist JSON
+        assert "pos=C" in prompt                     # {position} → 节点 key
+
+    @pytest.mark.asyncio
+    async def test_spec_token_without_spec_renders_empty(self, mock_llm_async, reg):
+        """build 未传 spec 时 {spec} → 空 dict JSON（显式可见）。"""
+        reg.harness("probe", HarnessConfig(prompt_core="spec={spec}"))
+        tl = Tasklist(
+            tasks={"A": TaskDefinition(
+                type="harness", harness="probe", inputs={"spec": "{spec}"},
+            )},
+            flow="[A]",
+        )
+        builder = TasklistTranslator(reg, module_id="m1")
+        graph, out_reg = builder.build(tl)  # 不传 spec
+        runner = AsyncRunner(graph, registry=out_reg, backend=NullBackend())
+        await runner.run_until_idle(max_ticks=5)
+        prompt = mock_llm_async.complete.call_args.kwargs["prompt"]
+        assert "spec={}" in prompt
 
 
 class TestTasklistTranslator:
