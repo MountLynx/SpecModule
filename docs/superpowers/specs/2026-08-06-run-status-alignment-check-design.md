@@ -69,7 +69,7 @@ Module 进程（写者）                    监控进程（读者）
 
 - **原子写**：先写 `status.json.tmp`，再 `os.replace()`——读者永远读不到半写状态
 - `updated_at` 用 `time.time()` 墙钟（跨进程可比；事件流里的 `time.monotonic()` 是进程内的，不可跨进程比较）
-- **persist=False 快速模式也写**：阶段级写入每次运行仅 ~5 次小写，不破坏"零 tick 级落盘"语义；此时 DB 通道不可用，查询侧 phase 仍可查，tick 级字段降级
+- **status_file 独立开关（默认 True）**：与 persist 正交——`status_file=False` 时不写盘（零残留）；`persist=False + status_file=True` 时只写 status.json 不写 DB，查询侧 phase 仍可查、tick 级字段降级。快速模式（`persist=False + status_file=False`）完全零残留。阶段级写入每次运行仅 ~5 次小写，不随 tick 增长
 
 ### 查询 API（新文件 `module_harness/status.py`）
 
@@ -173,7 +173,8 @@ def register_align_check_harness(reg: HarnessRegistry, name: str = "align_check"
 | status.json 不存在 | `query_run_status` 返回 None |
 | status.json JSON 损坏 | 返回 None + log warning |
 | DB 锁/读失败 | 降级返回 phase-only |
-| persist=False | tick 级字段降级 None/空，phase 可查 |
+| persist=False（status_file=True） | 只写 status.json：phase 可查，tick 级字段降级 None/空 |
+| status_file=False | 零残留：不写 status.json（与 persist=False 组合为快速模式） |
 | 同一 module_id 并发 | 文档禁止（双写者冲突） |
 | `{spec}` 未传 spec | 空 dict JSON |
 | prompt 占位符缺值 | 保留字面量 `{spec}`（渲染器现有行为） |

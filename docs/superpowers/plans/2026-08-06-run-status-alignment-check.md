@@ -804,6 +804,7 @@ git commit -m "feat(status): cross-process query_run_status over status.json + l
 
 **接口:**
 - 新增私有方法 `Module._write_phase(phase: str, error: str | None = None) -> None` — 原子写 status.json（tmp + os.replace），OSError 仅 log
+- `__init__` 签名加 `status_file: bool = True`（默认 True，#7 开箱可用）——独立开关，与 persist 正交：`status_file=False` 时不写盘（零残留）；快速模式 = `persist=False + status_file=False`
 - `__init__` 末尾写 `idle`；`_build_runner_async` 写 `reviewing`/`translating` → `building` → `ready`；`run()` 写 `running` → `done`/`aborted`/`cancelled`
 - RunStatus 映射：IDLE → done；ABORTED → aborted；CANCELLED → cancelled；FAILED → aborted（非正常结束统一归中止）
 
@@ -932,12 +933,29 @@ class TestModulePhase:
         assert st.tick is not None
         assert st.outputs == {"A": {"ok": True}}
         assert st.node_states == {"A": {}}
+
+    def test_status_file_false_no_residue(self, tmp_path, monkeypatch, mock_llm):
+        """status_file=False：不写 status.json（零残留）。"""
+        self._make_module(mock_llm, tmp_path, monkeypatch, status_file=False)
+        assert not (tmp_path / ".specmodule").exists()
+
+    @pytest.mark.asyncio
+    async def test_persist_false_status_file_true_phase_only(self, tmp_path, monkeypatch, mock_llm):
+        """persist=False + status_file=True：只写 status.json，phase 可查、tick 降级。"""
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=False)
+        await mod.run()
+        assert self._read_status(tmp_path)["phase"] == "done"
+        st = query_run_status("mod_test", base_dir=tmp_path)
+        assert st.phase == "done"
+        assert st.tick is None          # 无 DB
+        assert st.outputs == {}
+        assert not (tmp_path / ".specmodule" / "runs" / "mod_test" / "run.sqlite").exists()
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
 
 Run: `python -m pytest module_harness/tests/test_run_status.py::TestModulePhase -q`
-Expected: 6 failed — `FileNotFoundError: status.json`（Module 尚未写）
+Expected: 8 failed — `FileNotFoundError: status.json` / `.specmodule` 不存在（Module 尚未写）
 
 - [ ] **Step 3: 实现**（修改 `module_harness/module.py`）
 
@@ -977,8 +995,10 @@ def _status_path(module_id: str) -> Path:
         """原子写 status.json（tmp + os.replace）。失败仅 log，不阻断运行。
 
         phase 取值：idle/translating/reviewing/building/ready/running/
-        done/aborted/cancelled。
+        done/aborted/cancelled。status_file=False 时不写盘（零残留）。
         """
+        if not self.status_file:
+            return
         path = _status_path(self.module_id)
         tmp = path.with_suffix(".json.tmp")
         try:
@@ -997,11 +1017,15 @@ def _status_path(module_id: str) -> Path:
             log.exception("写 status.json 失败（不阻断运行）: %s", path)
 ```
 
+`__init__` 签名加 `status_file: bool = True`（`persist` 之后），赋值并注释（True（默认）：写 .specmodule/runs/<module_id>/status.json（阶段级，跨进程查询通道）；False：零残留（快速模式可用））：
+
 `__init__` 末尾（`self.module_id = ...` 赋值之后，构造函数最后一行）加：
 
 ```python
         self._write_phase("idle")
 ```
+
+`submodule.py` 的 Module 构造调用同步传 `status_file=(self.mode != "fast")`（保持 fast = 完全零残留）；`test_storage_persist.py` 快速模式用例的 Module 构造加 `status_file=False`（意图"关闭所有落盘"）。
 
 `_build_runner_async` 改造 — tasklist 分支开头加：
 
@@ -1059,7 +1083,7 @@ else 分支开头加：
 - [ ] **Step 4: 运行测试确认通过**
 
 Run: `python -m pytest module_harness/tests/test_run_status.py -q`
-Expected: 11 passed（TestQueryRunStatus 5 + TestModulePhase 6）
+Expected: 14 passed（TestQueryRunStatus 6 + TestModulePhase 8）
 
 - [ ] **Step 5: Commit**
 
