@@ -1,6 +1,7 @@
 # module_harness/tests/test_graph_builder.py
 """Tests for TasklistTranslator (graph_builder.py)."""
 
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -125,6 +126,22 @@ class TestConstantTokens:
         await runner.run_until_idle(max_ticks=5)
         prompt = mock_llm_async.complete.call_args.kwargs["prompt"]
         assert "spec={}" in prompt
+
+    @pytest.mark.asyncio
+    async def test_non_serializable_spec_raises_clear_error(self, mock_llm_async, reg):
+        """spec 含不可 JSON 序列化值时 {spec} token 抛清晰 ValueError（含 task key）。"""
+        reg.harness("probe", HarnessConfig(prompt_core="spec={spec}"))
+        tl = Tasklist(
+            tasks={"A": TaskDefinition(
+                type="harness", harness="probe", inputs={"spec": "{spec}"},
+            )},
+            flow="[A]",
+        )
+        builder = TasklistTranslator(reg, module_id="m1")
+        with pytest.raises(ValueError, match="不可 JSON 序列化") as excinfo:
+            builder.build(tl, spec=Spec({"created_at": datetime.now()}))
+        assert "Task 'A'" in str(excinfo.value)
+        assert "{spec}" in str(excinfo.value)
 
 
 class TestTasklistTranslator:

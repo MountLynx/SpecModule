@@ -141,10 +141,15 @@ class TasklistTranslator:
                           tasklist_dict: dict[str, Any]) -> Any:
         """解析常量 token：{spec} → spec JSON，{tasklist} → tasklist JSON，
         {node} → 当前节点 key。未知 token 抛 ValueError。"""
-        if token == "{spec}":
-            return json.dumps(spec_dict, ensure_ascii=False)
-        if token == "{tasklist}":
-            return json.dumps(tasklist_dict, ensure_ascii=False)
+        try:
+            if token == "{spec}":
+                return json.dumps(spec_dict, ensure_ascii=False)
+            if token == "{tasklist}":
+                return json.dumps(tasklist_dict, ensure_ascii=False)
+        except TypeError as e:
+            raise ValueError(
+                f"Task '{node_key}': token {token} 含不可 JSON 序列化的值: {e}"
+            ) from e
         if token == "{node}":
             return node_key
         raise ValueError(f"未知常量 token: {token}")
