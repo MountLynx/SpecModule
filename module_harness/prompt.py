@@ -8,10 +8,10 @@ from typing import Any
 
 from tickflow.views import DictView, Missing
 
-# C5：常量正则模块级编译一次（render 每 harness 节点每 tick 调用）。
-_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
-
 from .config import HarnessConfig
+
+# 常量正则模块级编译一次（render 每 harness 节点每 tick 调用）。
+_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
 
 class PromptRenderer:
