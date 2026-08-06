@@ -8,7 +8,6 @@ so modules with overlapping task keys do not collide.
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from typing import Any
 
@@ -60,12 +59,7 @@ class TasklistTranslator:
         isolated body entries).
         """
         spec_dict = spec.to_dict() if spec is not None else {}
-        tasklist_dict = {
-            "Tasks": {
-                key: dataclasses.asdict(task) for key, task in tasklist.tasks.items()
-            },
-            "Flow": tasklist.flow,
-        }
+        tasklist_dict = tasklist.to_dict()
 
         # 1.  Register every task's body under an isolated name.
         for key, task in tasklist.tasks.items():

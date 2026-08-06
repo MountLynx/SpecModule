@@ -38,11 +38,8 @@ def _run_db_path(module_id: str, base_dir: Path | None = None) -> Path:
 
 
 def tasklist_to_dict(tl: Tasklist) -> dict[str, Any]:
-    """Tasklist → JSON 可序列化 dict（与 ``Tasklist.from_json`` 对称）。"""
-    return {
-        "Tasks": {k: asdict(v) for k, v in tl.tasks.items()},
-        "Flow": tl.flow,
-    }
+    """Tasklist → JSON 可序列化 dict（``Tasklist.to_dict`` 薄封装，导出兼容）。"""
+    return tl.to_dict()
 
 
 def tasklist_from_dict(d: dict[str, Any]) -> Tasklist:

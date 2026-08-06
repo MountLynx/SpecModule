@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -79,13 +78,7 @@ class ConsistencyReviewer:
             )
         body = self.reg.get_body(self.harness_name)
 
-        tasklist_dict = {
-            "Tasks": {
-                key: dataclasses.asdict(task)
-                for key, task in tasklist.tasks.items()
-            },
-            "Flow": tasklist.flow,
-        }
+        tasklist_dict = tasklist.to_dict()
         state: dict[str, Any] = {}
         view = DictView(
             {

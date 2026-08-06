@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -100,6 +101,13 @@ class Tasklist:
             for key, td in data["Tasks"].items()
         }
         return cls(tasks=tasks, flow=data["Flow"])
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON 可序列化 dict（与 ``from_json`` 对称）——唯一实现（S4）。"""
+        return {
+            "Tasks": {k: dataclasses.asdict(v) for k, v in self.tasks.items()},
+            "Flow": self.flow,
+        }
 
 
 @dataclass

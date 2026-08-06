@@ -169,3 +169,22 @@ class TestSpecSchema:
 
     def test_default_empty_schema(self):
         assert SpecSchema().validate({}) == []
+
+
+class TestTasklistToDict:
+    def test_matches_tasklist_to_dict(self):
+        from module_harness.checkpoint import tasklist_to_dict
+        tl = Tasklist(
+            tasks={"A": TaskDefinition(type="script", script="echo",
+                                       inputs={"x": "B"})},
+            flow="[A] --> B",
+        )
+        assert tl.to_dict() == tasklist_to_dict(tl) == {
+            "Tasks": {"A": {"type": "script", "script": "echo",
+                            "harness": None, "command": None, "timeout": None,
+                            "cwd": None, "promptmode": None, "prompt": None,
+                            "outputformat": None, "notdo": None, "model": None,
+                            "temperature": None, "think": None,
+                            "api_params": None, "inputs": {"x": "B"}}},
+            "Flow": "[A] --> B",
+        }
