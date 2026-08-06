@@ -185,6 +185,8 @@ def register_align_check_harness(reg: HarnessRegistry, name: str = "align_check"
 - `test_run_status.py`（新）：status.json 写入时机与内容、原子写、`query_run_status` 全字段、无 DB 降级、None 返回、损坏 JSON 容错、DB 读失败降级
 - `test_graph_builder.py`：三 token 解析为 spec_inputs、不进入图输入/别名
 - `test_align.py`（新）：注册、配置形状、端到端（mock LLM 返回 `{"aligned":...}` → 节点输出 dict、prompt 含 spec/tasklist/位置）
+- `smoke/test_align_check.py`（新）：真实 LLM 端到端——align_check 节点输出结构化 `{"aligned": bool, "suggestions": str}`
+- `smoke/test_run_status.py`（新）：真实 LLM 端到端——运行中轮询观察到 `phase=running`，运行后 `phase=done` + tick 级快照完整（outputs/审计链），status.json 字段完整
 - 既有测试全量回归（`python -m pytest module_harness/tests/ -q`）
 
 ## 文档更新
