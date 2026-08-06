@@ -1,14 +1,16 @@
 # module_harness/checkpoint.py
-"""Module 层快照/回滚：自动检查点存储 + 兼容性校验（roadmap #5）。
+"""Module 层快照/回滚：运行输入存档 + 兼容性校验（roadmap #5）。
 
-- ``AutoCheckpointStore``：run.sqlite 内 ``auto_checkpoints`` 表（每 tick 一个
-  自动检查点，环形保留最近 20）与 ``module_inputs`` 表（本次运行使用的
+- ``ModuleInputStore``：run.sqlite 内 ``module_inputs`` 表（本次运行使用的
   spec/tasklist 存档，供兼容性对比与跨进程查询）。
 - ``check_resume_compat``：新 tasklist 与已执行节点的兼容性校验。
 
-零修改 tickflow：全部实现位于 module_harness 层；自动检查点表独立于
+零修改 tickflow：全部实现位于 module_harness 层；module_inputs 表独立于
 SqliteBackend 的 snapshots/firings/checkpoints 表，通过独立 sqlite3 连接
 打开同一 run.sqlite（WAL 模式多连接安全）。
+
+注：自动检查点（auto_checkpoints 表）已退役（S2）——每 tick 快照由
+tickflow 的 _persist_tick 直接写入 snapshots 表（最小快照，D1）。
 """
 
 from __future__ import annotations
@@ -47,29 +49,19 @@ def tasklist_from_dict(d: dict[str, Any]) -> Tasklist:
     return Tasklist.from_json(d)
 
 
-class AutoCheckpointStore:
-    """run.sqlite 内自动检查点与运行输入存档的存取。
+class ModuleInputStore:
+    """run.sqlite 内运行输入存档（module_inputs 表）。
 
-    自动检查点：``auto_checkpoints(label TEXT PK, tick INT, snap TEXT,
-    created_at REAL)``——每 tick 一个命名快照，环形保留最近 ``max_auto`` 个
-    （超出按 created_at 淘汰最旧）。
-
-    运行输入存档：``module_inputs(id INT PK CHECK(id=1), spec TEXT,
-    tasklist TEXT, saved_at REAL)``——单行，覆盖式，供兼容性校验与
-    跨进程查询"这次 run 用了什么输入"。
+    ``module_inputs(id INT PK CHECK(id=1), spec TEXT, tasklist TEXT,
+    saved_at REAL)``——单行，覆盖式，供兼容性校验（警告 1）与跨进程查询
+    "这次 run 用了什么输入"。
 
     连接策略：构造时打开独立连接（WAL 模式，与 SqliteBackend 并存安全）；
     写失败仅 log 不阻断（对齐 status.json 容错哲学）。
     """
 
-    def __init__(
-        self,
-        module_id: str,
-        max_auto: int = 20,
-        base_dir: Path | None = None,
-    ) -> None:
+    def __init__(self, module_id: str, base_dir: Path | None = None) -> None:
         self.module_id = module_id
-        self.max_auto = max_auto
         self.db_path = _run_db_path(module_id, base_dir)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path))
@@ -79,12 +71,6 @@ class AutoCheckpointStore:
     def _init_tables(self) -> None:
         self._conn.executescript(
             """
-            CREATE TABLE IF NOT EXISTS auto_checkpoints (
-                label      TEXT PRIMARY KEY,
-                tick       INTEGER NOT NULL,
-                snap       TEXT    NOT NULL,
-                created_at REAL    NOT NULL
-            );
             CREATE TABLE IF NOT EXISTS module_inputs (
                 id        INTEGER PRIMARY KEY CHECK (id = 1),
                 spec      TEXT NOT NULL,
@@ -100,73 +86,6 @@ class AutoCheckpointStore:
             self._conn.close()
         except sqlite3.Error:
             pass
-
-    # ------------------------------------------------------------------
-    # 自动检查点
-    # ------------------------------------------------------------------
-
-    def save(self, label: str, snap: dict) -> None:
-        """保存一个自动检查点，同名覆盖；超出 max_auto 淘汰最旧。"""
-        try:
-            self._conn.execute(
-                "INSERT OR REPLACE INTO auto_checkpoints(label, tick, snap, created_at) "
-                "VALUES (?, ?, ?, ?)",
-                (label, int(snap["tick"]), json.dumps(snap), time.time()),
-            )
-            self._prune()
-            self._conn.commit()
-        except (sqlite3.Error, OSError, KeyError, TypeError):
-            log.exception("自动检查点保存失败（不阻断）: %s", self.db_path)
-
-    def _prune(self) -> None:
-        """环形保留：删除 created_at 最旧的超出部分（仅影响本表自动检查点）。"""
-        self._conn.execute(
-            "DELETE FROM auto_checkpoints WHERE label NOT IN ("
-            "  SELECT label FROM auto_checkpoints"
-            "  ORDER BY created_at DESC LIMIT ?"
-            ")",
-            (self.max_auto,),
-        )
-
-    def load(self, label: str) -> dict | None:
-        """按 label 读取自动检查点；不存在或损坏返回 None。"""
-        try:
-            row = self._conn.execute(
-                "SELECT snap FROM auto_checkpoints WHERE label = ?", (label,)
-            ).fetchone()
-        except sqlite3.Error:
-            log.exception("自动检查点读取失败: %s", self.db_path)
-            return None
-        if row is None:
-            return None
-        try:
-            return json.loads(row[0])
-        except json.JSONDecodeError:
-            log.warning("自动检查点 %r 数据损坏，忽略", label)
-            return None
-
-    def list(self) -> list[tuple[str, int]]:
-        """全部自动检查点 (label, tick)，按 tick 升序；snap 损坏的行跳过。"""
-        try:
-            rows = self._conn.execute(
-                "SELECT label, tick, snap FROM auto_checkpoints ORDER BY tick"
-            ).fetchall()
-        except sqlite3.Error:
-            log.exception("自动检查点列表读取失败: %s", self.db_path)
-            return []
-        result: list[tuple[str, int]] = []
-        for label, tick, snap in rows:
-            try:
-                json.loads(snap)
-            except json.JSONDecodeError:
-                log.warning("自动检查点 %r 数据损坏，忽略", label)
-                continue
-            result.append((label, tick))
-        return result
-
-    # ------------------------------------------------------------------
-    # 运行输入存档（module_inputs 表）
-    # ------------------------------------------------------------------
 
     def save_module_inputs(self, spec: dict[str, Any], tasklist: dict[str, Any]) -> None:
         """覆盖式存档本次运行的 spec/tasklist（JSON 深拷贝语义）。"""
@@ -415,3 +334,8 @@ def check_resume_compat(
             )
 
     return ResumeCheck(hard_errors=hard_errors, warnings=warnings)
+
+
+# 兼容别名：module.py 仍在导入 AutoCheckpointStore（Task 10 随 module.py
+# 改写一并移除，届时删除本行）。
+AutoCheckpointStore = ModuleInputStore
