@@ -527,7 +527,7 @@ class SqliteBackend:
 
         Monitoring queries (query_run_status) read latest outputs/state from
         firings now that snapshots no longer carry edges/state (S3) --
-        O(nodes), via the idx_firings_node index.
+        O(firings in session), scoped by the idx_firings_node index.
         """
         with self._lock:
             rows = self._conn.execute(
