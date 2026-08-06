@@ -1,5 +1,9 @@
 # 快照/回滚 Module 封装 设计文档
 
+> **退役标注（2026-08-06）**：`auto_checkpoints` 表已退役（冗余清理设计 S2）——
+> 每 tick 快照由 tickflow `_persist_tick` 直接写入 snapshots 表（最小快照）。
+> 本设计的自动检查点/环形保留部分不再适用。
+
 > 日期：2026-08-06 | 状态：已确认，待实现
 > 对应 roadmap：#5 快照/回滚 Module 封装
 
