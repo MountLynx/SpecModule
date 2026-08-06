@@ -239,6 +239,58 @@ def _is_transitive_upstream(graph: Graph, producer: str, consumer: str) -> bool:
     return False
 
 
+def _reachable_from_marking(
+    graph: Graph, executed_nodes: set[str], marking_slots: dict[str, bool]
+) -> set[str]:
+    """不动点模拟：从检查点 marking 出发，判定哪些未执行非 start 节点最终会 fire。
+
+    警告 3 的核心问题：只看节点自身入边在检查点的 slot 直接值，会误报
+    深回退（回退到 ≥2 层上游）场景——入边已满足的上游节点尚未执行，它
+    一旦 fire 就会产出下游节点的入边 slot。此处模拟"将 fire"的传播：
+
+    1. 初始 ``satisfied`` = 检查点 marking 中值为 True 的边键集合
+       （键格式 ``"dst|src"``，与 Marking.to_json 一致）。
+    2. 迭代：对每个未执行且非 start 的节点 M，若 M 的所有入边（AND join）
+       或任一入边（OR join）都在 ``satisfied`` 中（与
+       ``engine._join_satisfied`` 的语义一致）→ M 将 fire → M 的所有出边
+       加入 ``satisfied``。
+    3. 循环至 ``satisfied`` 不再增长（不动点）。
+
+    guard 边（``e.guard is not None``）**乐观加入**：guard 结果运行时才知，
+    此处假定为 True。取舍：警告语义是"可能不会执行"的提示性警告——乐观
+    会减少误报（深回退是核心工作流，上游重跑后 guard 通常复现原结果，如
+    loop 的 guard）；代价是 guard 实际为 False 时可能漏报（节点确实不执行
+    但没警告）。提示性警告宁可少误报，故乐观传播。
+
+    返回判定为"将 fire"的节点集合（已执行节点与 start 永不参与）。
+    """
+    satisfied = {k for k, v in marking_slots.items() if v}
+    reachable: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for n in graph.nodes:
+            if n in executed_nodes or n in graph.starts or n in reachable:
+                continue
+            in_edges = [f"{e.dst}|{e.src}" for e in graph.edges if e.dst == n]
+            if not in_edges:
+                # 无入边的非 start 节点永不 fire（engine 空 producer 规则），跳过
+                continue
+            if graph.nodes[n].join == "OR":
+                fire = any(k in satisfied for k in in_edges)
+            else:
+                fire = all(k in satisfied for k in in_edges)
+            if not fire:
+                continue
+            reachable.add(n)
+            for e in graph.out_edges(n):
+                key = f"{e.dst}|{e.src}"
+                if key not in satisfied:
+                    satisfied.add(key)
+                    changed = True
+    return reachable
+
+
 def check_resume_compat(
     new_tasklist: Tasklist,
     graph: Graph,
@@ -263,11 +315,13 @@ def check_resume_compat(
       修改对已执行部分不生效）。
     - 警告 2：inputs 引用的 producer 未执行、且不是 consumer 的拓扑上游
       （运行时 resolve 为 Missing，prompt 占位符保留字面量）。
-    - 警告 3：未执行且非 start 的节点，其所有入边在检查点 marking 中均未
-      满足——该节点永远不会 fire。``remap_graph`` 移植 slot 时新边取
+    - 警告 3：未执行且非 start 的节点，从检查点 marking 出发经不动点模拟
+      仍不可达——该节点永远不会 fire。``remap_graph`` 移植 slot 时新边取
       ``old_slots.get(key, False)``（runner.py:405）：新节点/改名节点的入边
-      在旧 marking 中不存在 → False；旧边已消费也是 False。需回退到更早
-      检查点让其上游重新执行，或设为 start。``marking_slots`` 为检查点
+      在旧 marking 中不存在 → False；旧边已消费也是 False。不动点模拟考虑
+      "入边已满足的节点将 fire 并产出下游 slot"（深回退场景上游将重跑），
+      guard 边乐观传播（见 ``_reachable_from_marking`` 的取舍说明）。需回退
+      到更早检查点让其上游重新执行，或设为 start。``marking_slots`` 为检查点
       snapshot 的 ``marking.slots``，键格式 ``"dst|src"``（与
       ``Marking.to_json`` 一致，engine.py:71）；为 None 时跳过本检查。
 
@@ -322,19 +376,21 @@ def check_resume_compat(
                     f"需回退到更早的检查点"
                 )
 
-    # 警告 3：未执行非 start 节点，入边在检查点 marking 均未满足 → 永不 fire
+    # 警告 3：未执行非 start 节点，从检查点 marking 出发经不动点模拟仍不可达
+    # → 永不 fire。模拟考虑"入边已满足的上游节点将 fire 并产出下游 slot"，
+    # 消除深回退（回退到 ≥2 层上游）场景的误报——那是核心工作流。
     if marking_slots is not None:
+        reachable = _reachable_from_marking(graph, executed_nodes, marking_slots)
         for n in graph.nodes:
-            if n in executed_nodes or n in graph.starts:
+            if n in executed_nodes or n in graph.starts or n in reachable:
                 continue
             in_edges = [f"{e.dst}|{e.src}" for e in graph.edges if e.dst == n]
-            if in_edges and not any(
-                marking_slots.get(key, False) for key in in_edges
-            ):
-                warnings.append(
-                    f"Node '{n}' 的入边在检查点均未满足（新边或已消费）——"
-                    f"该节点不会自动执行。需回退到更早检查点使其上游重新执行，"
-                    f"或将其设为 start。"
-                )
+            if not in_edges:
+                continue
+            warnings.append(
+                f"Node '{n}' 的入边在检查点均未满足（新边或已消费）——"
+                f"该节点不会自动执行。需回退到更早检查点使其上游重新执行，"
+                f"或将其设为 start。"
+            )
 
     return ResumeCheck(hard_errors=hard_errors, warnings=warnings)

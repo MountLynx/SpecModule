@@ -360,6 +360,66 @@ class TestCheckResumeCompat:
         assert check.hard_errors == []
         assert check.warnings == []
 
+    def test_no_warning_deep_rollback_chain(self):
+        # 深回退（resume 到 auto:tick:0，A 刚执行完）：B 的入边 (B,A)=True
+        # 将 fire，C 的入边 (C,B) 虽在检查点为 False（B 未执行），但 B fire
+        # 后会产出——不动点模拟下 B、C 均可达 → 不得误报警告 3。
+        # （旧实现只看节点自身入边在检查点的直接值，C 会被误报）
+        old_tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s", "inputs": {"data": "A"}},
+             "C": {"type": "script", "script": "s", "inputs": {"data": "B"}}},
+            "[A] --> B\nB --> C",
+        )
+        tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s", "inputs": {"data": "A"}},
+             "C": {"type": "script", "script": "s", "inputs": {"data": "B"}}},
+            "[A] --> B\nB --> C",
+        )
+        graph = _graph_for(tl)
+        # auto:tick:0 检查点（A 刚执行完）：(B,A)=True，(C,B)=False
+        check = check_resume_compat(
+            tl, graph, executed_nodes={"A"}, old_tasklist=old_tl,
+            marking_slots={"B|A": True, "C|B": False},
+        )
+        assert check.hard_errors == []
+        assert check.warnings == []
+
+    def test_no_warning_deep_rollback_guarded_edge(self):
+        # guard 出边乐观传播：B --|g|--> C 的 slot 在检查点为 False（B 未
+        # 执行），但 B 将 fire 并重写该 slot——乐观传播下 C 可达 → 不误报。
+        # （保守处理会重新引入深回退误报；取舍说明见 _reachable_from_marking）
+        def _guarded_graph(tl):
+            reg = HarnessRegistry(llm_client=object(), event_bus=EventBus())
+            reg.harness("h", HarnessConfig(
+                prompt_core="p", output_format=OutputFormat(type="text"),
+            ))
+            reg.script("s")(lambda view: {"ok": True})
+            reg.guard("g")(lambda view: True)
+            graph, _ = TasklistTranslator(reg, "mod_test").build(tl)
+            return graph
+
+        old_tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s", "inputs": {"data": "A"}},
+             "C": {"type": "script", "script": "s", "inputs": {"data": "B"}}},
+            "[A] --> B\nB --|g|--> C",
+        )
+        tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s", "inputs": {"data": "A"}},
+             "C": {"type": "script", "script": "s", "inputs": {"data": "B"}}},
+            "[A] --> B\nB --|g|--> C",
+        )
+        graph = _guarded_graph(tl)
+        check = check_resume_compat(
+            tl, graph, executed_nodes={"A"}, old_tasklist=old_tl,
+            marking_slots={"B|A": True, "C|B": False},
+        )
+        assert check.hard_errors == []
+        assert check.warnings == []
+
     def test_no_warning_markslot_none(self):
         # marking_slots=None 时跳过入边检查（单元测试不带 snapshot 的用法）
         old_tl = _tl(
@@ -407,10 +467,18 @@ def _chain_tasklist():
 
 
 class TestModuleSnapshotAPI:
+    @pytest.fixture(autouse=True)
+    def _close_created_modules(self):
+        """teardown 关闭本类测试创建的 Module（释放懒创建的 store 连接）。"""
+        self._created_modules: list[Module] = []
+        yield
+        for mod in self._created_modules:
+            mod.close()
+
     def _make_module(self, mock_llm, tmp_path, monkeypatch, tasklist=None, spec=None, **kw):
         monkeypatch.chdir(tmp_path)
         kw.setdefault("registry", _script_reg(mock_llm))
-        return Module(
+        mod = Module(
             spec={"x": 1} if spec is None else spec,
             tasklist=tasklist or _chain_tasklist(),
             llm_client=mock_llm,
@@ -418,6 +486,8 @@ class TestModuleSnapshotAPI:
             module_id="mod_test",
             **kw,
         )
+        self._created_modules.append(mod)
+        return mod
 
     def test_snapshot_requires_runner(self, mock_llm, tmp_path, monkeypatch):
         mod = self._make_module(mock_llm, tmp_path, monkeypatch)
@@ -511,9 +581,22 @@ class TestModuleSnapshotAPI:
 
 
 class TestAutoCheckpointHook:
+    @pytest.fixture(autouse=True)
+    def _close_created_modules(self):
+        """teardown 关闭本类测试创建的 Module（释放懒创建的 store 连接）。
+
+        Module.close() 是显式 API；测试内实例局部创建、fixture 拿不到引用，
+        由 _make_module 记录后统一在 teardown 关闭——避免 -W error 下
+        unclosed database 计数随 persist 测试数量线性增长。
+        """
+        self._created_modules: list[Module] = []
+        yield
+        for mod in self._created_modules:
+            mod.close()
+
     def _make_module(self, mock_llm, tmp_path, monkeypatch, persist=True, tasklist=None):
         monkeypatch.chdir(tmp_path)
-        return Module(
+        mod = Module(
             spec={"x": 1},
             tasklist=tasklist or _chain_tasklist(),
             llm_client=mock_llm,
@@ -522,6 +605,8 @@ class TestAutoCheckpointHook:
             module_id="mod_test",
             registry=_script_reg(mock_llm),
         )
+        self._created_modules.append(mod)
+        return mod
 
     @pytest.mark.asyncio
     async def test_run_writes_auto_checkpoints(self, mock_llm, tmp_path, monkeypatch):
@@ -598,11 +683,37 @@ class TestAutoCheckpointHook:
         auto = [c for c in mod.list_checkpoints() if c[2] == "auto"]
         assert len(auto) == 5
 
+    @pytest.mark.asyncio
+    async def test_module_close_releases_store(self, mock_llm, tmp_path, monkeypatch):
+        """Module.close() 释放懒创建的 _checkpoint_store 连接；幂等。"""
+        import sqlite3
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
+        await mod.run()
+        assert mod._checkpoint_store is not None      # run() 后 store 已懒创建
+        conn = mod._checkpoint_store._conn            # 实证：连接真实关闭
+        mod.close()
+        assert mod._checkpoint_store is None
+        with pytest.raises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")                  # 已关闭的连接不可再操作
+        mod.close()                                   # 幂等：重复调用不抛异常
+        # close 后再 run()：store 懒重建，自动检查点照常写入
+        await mod.run()
+        auto = [c for c in mod.list_checkpoints() if c[2] == "auto"]
+        assert auto
+
 
 class TestResume:
+    @pytest.fixture(autouse=True)
+    def _close_created_modules(self):
+        """teardown 关闭本类测试创建的 Module（释放懒创建的 store 连接）。"""
+        self._created_modules: list[Module] = []
+        yield
+        for mod in self._created_modules:
+            mod.close()
+
     def _make_module(self, mock_llm, tmp_path, monkeypatch, tasklist=None, persist=True, spec=None):
         monkeypatch.chdir(tmp_path)
-        return Module(
+        mod = Module(
             spec=spec if spec is not None else {"x": 1},
             tasklist=tasklist or _chain_tasklist(),
             llm_client=mock_llm,
@@ -611,6 +722,8 @@ class TestResume:
             module_id="mod_test",
             registry=_script_reg(mock_llm),
         )
+        self._created_modules.append(mod)
+        return mod
 
     def _read_status(self):
         """读取 status.json（当前 cwd 下该 module 最近写入的 phase）。"""
@@ -651,6 +764,25 @@ class TestResume:
         assert self._read_status()["phase"] == "done"
 
     @pytest.mark.asyncio
+    async def test_resume_deep_rollback_no_false_warning(self, mock_llm, tmp_path, monkeypatch, caplog):
+        """深回退到 auto:tick:0（A 刚执行完）：B、C 续跑，且无警告 3 误报。
+
+        I2 回归：旧实现只查节点自身入边在检查点的 slot 值，C 的 (C,B)=False
+        会被误报"不会自动执行"——实际 B 将 fire 并产出该 slot，C 正常执行。
+        """
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch)
+        await mod.run()
+        # 注：DB tick 列 = snapshot.tick（label+1），auto:tick:0 的 tick 列是 1
+        assert any(c[2] == "auto" and c[0] == "auto:tick:0" for c in mod.list_checkpoints())
+
+        mod2 = self._make_module(mock_llm, tmp_path, monkeypatch)
+        import logging
+        with caplog.at_level(logging.WARNING, logger="module_harness.module"):
+            firings = await mod2.resume(rollback_to="auto:tick:0")
+        assert [f.node for f in firings] == ["B", "C"]
+        assert not any("不会自动执行" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
     async def test_resume_preserves_executed_outputs(self, mock_llm, tmp_path, monkeypatch):
         """resume 后已执行节点的输出保留，可被新节点通过 inputs 消费。"""
         mod = self._make_module(mock_llm, tmp_path, monkeypatch)
@@ -677,6 +809,7 @@ class TestResume:
             module_id="mod_test",
             registry=reg,
         )
+        self._created_modules.append(mod2)   # 直接构造的实例也纳入 teardown 关闭
         firings = await mod2.resume(rollback_to="auto:tick:1")
         assert [f.node for f in firings] == ["C"]
         # C 读到的 B 输出是 resume 前已执行的结果 {"ok": True}
@@ -801,6 +934,14 @@ class TestResumeLoop:
         from tickflow import registry as default_registry
         default_registry._guards.pop("until3", None)
 
+    @pytest.fixture(autouse=True)
+    def _close_created_modules(self):
+        """teardown 关闭本类测试创建的 Module（释放懒创建的 store 连接）。"""
+        self._created_modules: list[Module] = []
+        yield
+        for mod in self._created_modules:
+            mod.close()
+
     def _loop_module(self, mock_llm, tmp_path, monkeypatch):
         """counter 节点自循环：n 从 0 递增，n<3 时 guard 放行继续。
 
@@ -831,7 +972,7 @@ class TestResumeLoop:
             tasks={"counter": TaskDefinition(type="script", script="counter")},
             flow="[counter] --|until3|--> counter",
         )
-        return Module(
+        mod = Module(
             spec={"x": 1},
             tasklist=tl,
             llm_client=mock_llm,
@@ -840,6 +981,8 @@ class TestResumeLoop:
             module_id="mod_loop",
             registry=reg,
         )
+        self._created_modules.append(mod)
+        return mod
 
     @pytest.mark.asyncio
     async def test_loop_runs_until_guard_opens(self, mock_llm, tmp_path, monkeypatch):

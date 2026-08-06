@@ -209,6 +209,20 @@ class Module:
             raise RuntimeError("尚未构建 runner——请先 build_runner() 或 run()")
         return self._runner
 
+    def close(self) -> None:
+        """释放 Module 持有的 SQLite 连接（``_checkpoint_store``，懒创建）。
+
+        run()/resume() 结束后可调用；幂等（重复调用安全）。再次 run()/resume()
+        会按需重新创建 store（``_register_auto_checkpoint`` 懒重建）。
+
+        注：runner 持有的 SqliteBackend 连接属于 runner 生命周期，由调用方
+        管理（与既有行为一致），本方法只关闭 Module 自己创建的
+        AutoCheckpointStore 连接，不触碰 runner。
+        """
+        if self._checkpoint_store is not None:
+            self._checkpoint_store.close()
+            self._checkpoint_store = None
+
     def snapshot(self) -> dict:
         """进程内全量快照：{spec, tasklist, runner_snapshot} 三件套。
 
