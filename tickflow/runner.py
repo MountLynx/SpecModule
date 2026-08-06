@@ -287,9 +287,18 @@ class _BaseRunner:
     # Snapshot / restore
     # ------------------------------------------------------------------
 
-    def snapshot(self) -> dict:
-        """JSON-able snapshot of (marking, run_state, tick, status, fireable)."""
-        run_data = self.run_state.to_snapshot_data()
+    def snapshot(
+        self, include_records: bool = True, minimal: bool = False
+    ) -> dict:
+        """JSON-able snapshot of (marking, run_state, tick, status, fireable).
+
+        ``include_records``/``minimal`` are forwarded to
+        :meth:`RunState.to_snapshot_data` -- ``minimal`` produces the small
+        per-tick snapshot persisted by ``_persist_tick`` (S1/S3).
+        """
+        run_data = self.run_state.to_snapshot_data(
+            include_records=include_records, minimal=minimal
+        )
         return {
             "tick": self.tick_count,
             "marking": self.marking.to_json(),

@@ -338,22 +338,27 @@ class RunState:
     # Snapshot data
     # ------------------------------------------------------------------
 
-    def to_snapshot_data(self) -> dict:
+    def to_snapshot_data(
+        self, include_records: bool = True, minimal: bool = False
+    ) -> dict:
         """JSON-able dict for ``Runner.snapshot()``.
 
-        ``edges`` + ``state`` are always included; ``records`` only when
-        ``keep_records=True``.
+        ``edges``/``fire_counts``/``state`` are included unless ``minimal``;
+        ``records`` only when ``keep_records=True`` and ``include_records``.
+        ``minimal`` (the persistent per-tick snapshot) keeps only
+        ``keep_records`` -- the window/counts/state are dead data (S3:
+        restore's truncate_after rebuilds them from firings), and records
+        live in the firings table (S1).
         """
-        data: dict[str, Any] = {
-            "edges": {
+        data: dict[str, Any] = {"keep_records": self._keep_records}
+        if not minimal:
+            data["edges"] = {
                 n: [[t, _jsonable(v)] for (t, v) in lst]
                 for n, lst in self._edges.items()
-            },
-            "fire_counts": dict(self._fire_counts),
-            "state": {n: dict(s) for n, s in self._state.items()},
-            "keep_records": self._keep_records,
-        }
-        if self._keep_records:
+            }
+            data["fire_counts"] = dict(self._fire_counts)
+            data["state"] = {n: dict(s) for n, s in self._state.items()}
+        if self._keep_records and include_records and not minimal:
             data["records"] = [ns.to_json() for ns in self._records]
         return data
 
