@@ -267,8 +267,12 @@ class _BaseRunner:
     # Persistence helper
     # ------------------------------------------------------------------
 
-    def _persist_tick(self) -> None:
-        """Persist this tick's queued firings + snapshot to the backend."""
+    def _persist_tick(self, fired: list[str]) -> None:
+        """Persist this tick's queued firings + lightweight snapshot to the backend.
+
+        ``fired``: names of the nodes that fired this tick (history-review
+        trace; ``[]`` for an empty tick).
+        """
         # Defensive: __init__ guarantees a backend and session_id.
         if self._backend is None or self._session_id is None:
             return
@@ -278,9 +282,10 @@ class _BaseRunner:
                 # Per-tick snapshots are minimal (S1/S3): records live in the
                 # firings table, and the window/counts/state are rebuilt by
                 # truncate_after from firings on restore -- the snapshot only
-                # carries marking + status + fireable (+ fired, Task 5).
+                # carries marking + status + fireable + fired.
                 # Fast mode (NullBackend) skips per-tick snapshots (D7).
                 snap = self.snapshot(include_records=False, minimal=True)
+                snap["fired"] = list(fired)
                 self._backend.save_snapshot(self._session_id, self.tick_count, snap)
         except Exception:
             log.exception("backend persistence failed; swallowed")
@@ -546,7 +551,7 @@ class Runner(_BaseRunner):
         else:
             self.status = RunStatus.RUNNING
         self._run_tick_end_hooks(self.tick_count - 1, firings)
-        self._persist_tick()
+        self._persist_tick([f.node for f in firings])
         return firings
 
     def run_until_idle(
