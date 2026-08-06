@@ -1,0 +1,67 @@
+"""AutoCheckpointStore 单元测试。"""
+
+import json
+
+import pytest
+
+from module_harness.checkpoint import AutoCheckpointStore, _run_db_path
+
+
+@pytest.fixture
+def store(tmp_path):
+    s = AutoCheckpointStore("mod_test", base_dir=tmp_path)
+    yield s
+    s.close()
+
+
+class TestAutoCheckpointStore:
+    def test_save_load_roundtrip(self, store):
+        store.save("auto:tick:3", {"tick": 3, "marking": {"x": 1}})
+        snap = store.load("auto:tick:3")
+        assert snap == {"tick": 3, "marking": {"x": 1}}
+
+    def test_load_missing_returns_none(self, store):
+        assert store.load("nope") is None
+
+    def test_list_sorted_by_tick(self, store):
+        store.save("auto:tick:5", {"tick": 5})
+        store.save("auto:tick:1", {"tick": 1})
+        store.save("auto:tick:3", {"tick": 3})
+        assert store.list() == [("auto:tick:1", 1), ("auto:tick:3", 3), ("auto:tick:5", 5)]
+
+    def test_ring_keeps_newest_20(self, store):
+        for t in range(25):
+            store.save(f"auto:tick:{t}", {"tick": t})
+        items = store.list()
+        assert len(items) == 20
+        # 保留最新 20 个 tick：5..24
+        assert items[0] == ("auto:tick:5", 5)
+        assert items[-1] == ("auto:tick:24", 24)
+
+    def test_save_same_label_replaces(self, store):
+        store.save("auto:tick:3", {"tick": 3, "v": 1})
+        store.save("auto:tick:3", {"tick": 3, "v": 2})
+        assert store.load("auto:tick:3") == {"tick": 3, "v": 2}
+
+    def test_cross_instance_shares_db(self, tmp_path):
+        a = AutoCheckpointStore("mod_test", base_dir=tmp_path)
+        a.save("auto:tick:7", {"tick": 7})
+        a.close()
+        b = AutoCheckpointStore("mod_test", base_dir=tmp_path)
+        assert b.load("auto:tick:7") == {"tick": 7}
+        b.close()
+
+    def test_corrupt_row_ignored(self, store, tmp_path):
+        store.save("auto:tick:1", {"tick": 1})
+        # 手动写一条损坏 JSON 的行
+        import sqlite3
+        conn = sqlite3.connect(_run_db_path("mod_test", tmp_path))
+        conn.execute(
+            "INSERT INTO auto_checkpoints(label, tick, snap, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            ("bad", 99, "{not json", 0.0),
+        )
+        conn.commit()
+        conn.close()
+        assert store.load("bad") is None
+        assert store.list() == [("auto:tick:1", 1)]
