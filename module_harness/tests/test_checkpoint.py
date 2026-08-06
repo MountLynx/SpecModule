@@ -788,6 +788,19 @@ class TestResumeLoop:
     tick0→n=1、tick1→n=2、tick2→n=3（guard n<3 在 n=3 时放行退出）。
     """
 
+    @pytest.fixture(autouse=True)
+    def _cleanup_default_registry(self):
+        """测试后清理默认 registry 上注册的 until3 guard。
+
+        _loop_module 为通过 TasklistValidator 语法预检，把 guard 注册进了
+        tickflow 模块级默认 registry（单例）——这里在 teardown 时 pop，
+        防止 guard 泄漏到其他测试。_guards 是 Registry 的私有 dict
+        （tickflow/registry.py:42）。
+        """
+        yield
+        from tickflow import registry as default_registry
+        default_registry._guards.pop("until3", None)
+
     def _loop_module(self, mock_llm, tmp_path, monkeypatch):
         """counter 节点自循环：n 从 0 递增，n<3 时 guard 放行继续。
 
@@ -832,9 +845,13 @@ class TestResumeLoop:
     async def test_loop_runs_until_guard_opens(self, mock_llm, tmp_path, monkeypatch):
         mod = self._loop_module(mock_llm, tmp_path, monkeypatch)
         await mod.run()
-        # n 从 0 递增：tick0→1, tick1→2, tick2→3（guard n<3 在 n=3 时放行退出）
+        # n 从 0 递增：tick0→1, tick1→2, tick2→3（guard n<3 在 n=3 时放行退出），
+        # tick3 空 → auto:tick:0..3 共 4 个
         auto = [c for c in mod.list_checkpoints() if c[2] == "auto"]
-        assert auto, "应有自动检查点"
+        assert len(auto) == 4
+        # 自循环正常终止（guard 放行退出），而非 max_ticks 截断
+        from tickflow.runner import RunStatus
+        assert mod._runner.status == RunStatus.IDLE
 
     @pytest.mark.asyncio
     async def test_resume_mid_loop_continues_state(self, mock_llm, tmp_path, monkeypatch):
