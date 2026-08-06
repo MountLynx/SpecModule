@@ -275,11 +275,13 @@ class _BaseRunner:
         try:
             self.run_state.flush_firings()
             if self._persistent:
-                # Fast mode (NullBackend) skips per-tick snapshots: they embed
-                # the full in-memory audit (O(n^2) serialization over the run)
-                # and have no consumer in a zero-persistence run (D7).
-                # checkpoint()/rollback_to() still work via explicit labels.
-                self._backend.save_snapshot(self._session_id, self.tick_count, self.snapshot())
+                # Per-tick snapshots are minimal (S1/S3): records live in the
+                # firings table, and the window/counts/state are rebuilt by
+                # truncate_after from firings on restore -- the snapshot only
+                # carries marking + status + fireable (+ fired, Task 5).
+                # Fast mode (NullBackend) skips per-tick snapshots (D7).
+                snap = self.snapshot(include_records=False, minimal=True)
+                self._backend.save_snapshot(self._session_id, self.tick_count, snap)
         except Exception:
             log.exception("backend persistence failed; swallowed")
 
