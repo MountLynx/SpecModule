@@ -234,3 +234,20 @@ class TestModulePhase:
         assert st.tick is not None
         assert st.outputs == {"A": {"ok": True}}
         assert st.node_states == {"A": {}}
+
+    def test_status_file_false_no_residue(self, tmp_path, monkeypatch, mock_llm):
+        """status_file=False：不写 status.json（零残留）。"""
+        self._make_module(mock_llm, tmp_path, monkeypatch, status_file=False)
+        assert not (tmp_path / ".specmodule").exists()
+
+    @pytest.mark.asyncio
+    async def test_persist_false_status_file_true_phase_only(self, tmp_path, monkeypatch, mock_llm):
+        """persist=False + status_file=True：只写 status.json，phase 可查、tick 降级。"""
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=False)
+        await mod.run()
+        assert self._read_status(tmp_path)["phase"] == "done"
+        st = query_run_status("mod_test", base_dir=tmp_path)
+        assert st.phase == "done"
+        assert st.tick is None          # 无 DB
+        assert st.outputs == {}
+        assert not (tmp_path / ".specmodule" / "runs" / "mod_test" / "run.sqlite").exists()

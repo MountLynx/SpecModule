@@ -152,6 +152,7 @@ class SubModule:
             review_harness=review,
             keep_records=audit,
             persist=(self.mode != "fast"),
+            status_file=(self.mode != "fast"),
         )
         return await module.run(max_ticks=max_ticks)
 

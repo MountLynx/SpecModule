@@ -60,6 +60,7 @@ class Module:
         review_harness: str | None = "spec_tasklist_review",
         keep_records: bool = True,
         persist: bool = True,
+        status_file: bool = True,
     ) -> None:
         if (template_name is None) == (tasklist is None):
             raise ValueError("template_name 与 tasklist 必须且只能传一个")
@@ -71,6 +72,9 @@ class Module:
         # True（默认）：构造 .specmodule/runs/<run_id>/run.sqlite 持久 backend（D9）
         # False：快速模式——NullBackend 全内存，零落盘零 I/O（D7 语义正式化）
         self.persist = persist
+        # True（默认）：写 .specmodule/runs/<module_id>/status.json
+        # （阶段级，跨进程查询通道）；False：零残留（快速模式可用）
+        self.status_file = status_file
         self.review_result: ConsistencyReport | None = None
         self.module_id = module_id or f"mod_{uuid.uuid4().hex[:8]}"
 
@@ -93,10 +97,9 @@ class Module:
         """原子写 status.json（tmp + os.replace）。失败仅 log，不阻断运行。
 
         phase 取值：idle/translating/reviewing/building/ready/running/
-        done/aborted/cancelled。快速模式（persist=False）不写盘——保持
-        D7 语义：零落盘零 I/O。
+        done/aborted/cancelled。status_file=False 时不写盘（零残留）。
         """
-        if not self.persist:
+        if not self.status_file:
             return
         path = _status_path(self.module_id)
         tmp = path.with_suffix(".json.tmp")

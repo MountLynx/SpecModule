@@ -78,6 +78,7 @@ async def test_persist_false_fast_mode_no_files(tmp_path, mock_llm, monkeypatch)
         review_harness=None,
         module_id="fast_mod",
         persist=False,
+        status_file=False,   # 关闭所有落盘：DB + status.json
     )
     firings = await mod.run(max_ticks=10)
     assert len(firings) >= 1
