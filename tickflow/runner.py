@@ -271,7 +271,10 @@ class _BaseRunner:
         """Persist this tick's queued firings + lightweight snapshot to the backend.
 
         ``fired``: names of the nodes that fired this tick (history-review
-        trace; ``[]`` for an empty tick).
+        trace; ``[]`` for an empty tick). The snapshot is saved at the
+        post-increment ``tick_count`` (per the backend protocol, snapshot
+        tick N = state after ticks 0..N-1), so snapshot tick N carries the
+        fired trace of tick N-1.
         """
         # Defensive: __init__ guarantees a backend and session_id.
         if self._backend is None or self._session_id is None:
