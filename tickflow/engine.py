@@ -144,7 +144,9 @@ def tick(
     ``fireable``: precomputed fireable set for ``marking`` (the Runner already
     computes it for tick-start hooks -- passing it avoids recomputing the
     identical value, C1). Default None computes internally; direct callers
-    are unaffected.
+    are unaffected. Caller responsibility: the list must match ``marking``
+    exactly and must not be mutated afterwards -- an inconsistent set
+    silently changes firing behaviour.
 
     Body/guard callables here are *synchronous*. For async bodies use
     :mod:`tickflow.async_runner` which mirrors this logic with ``await`` +

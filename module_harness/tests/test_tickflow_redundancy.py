@@ -186,3 +186,30 @@ class TestFireablePassthrough:
         m_b, f_b, _ = tick(g, m0, rs_b, 0, reg, fireable=fireable)
         assert m_a == m_b
         assert [f.node for f in f_a] == [f.node for f in f_b]
+
+    def test_async_tick_with_and_without_fireable_equal(self):
+        import asyncio
+        from tickflow.async_runner import async_tick
+        g = Graph(
+            nodes={
+                "S1": Node(name="S1", is_start=True),
+                "A": Node(name="A"), "B": Node(name="B"),
+            },
+            edges=[Edge("S1", "A", None), Edge("A", "B", None)],
+        )
+        reg = self._registry()
+        for n in g.nodes:
+            g.nodes[n].body = "echo"
+            g.nodes[n].inputs = {p: InputPolicy.latest() for p in g.producers(n)}
+        m0 = bootstrap(g)
+
+        async def run_with(fireable):
+            from tickflow.state import RunState
+            rs = RunState(keep_records=False)
+            return await async_tick(g, m0, rs, 0, reg, fireable=fireable)
+
+        m_a, f_a, _ = asyncio.run(run_with(None))
+        fireable = [n for n in g.nodes if _join_satisfied(g, n, m0)]
+        m_b, f_b, _ = asyncio.run(run_with(fireable))
+        assert m_a == m_b
+        assert [f.node for f in f_a] == [f.node for f in f_b]

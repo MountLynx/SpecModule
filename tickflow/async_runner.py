@@ -72,7 +72,10 @@ async def async_tick(
     """Async counterpart of :func:`tickflow.engine.tick`.
 
     ``fireable``: precomputed fireable set for ``marking`` (see
-    :func:`tickflow.engine.tick`); default None computes internally.
+    :func:`tickflow.engine.tick`); default None computes internally. Caller
+    responsibility: the list must match ``marking`` exactly and must not be
+    mutated afterwards -- an inconsistent set silently changes firing
+    behaviour.
     """
     from typing import Literal
 
