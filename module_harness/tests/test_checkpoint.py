@@ -775,3 +775,75 @@ class TestResume:
             store.close()
         assert inputs is not None
         assert inputs["tasklist"]["Tasks"]["C"]["prompt"] == "微调后的 prompt"
+
+
+class TestResumeLoop:
+    """loop（自循环）场景的检查点/resume 集成测试。
+
+    自循环语义（README retry_loop 惯例）：counter 节点每 tick fire 一次，
+    在 view.state 中计数并返回 {"n": n}；guard until3 读
+    view["counter"].value["n"]（firing 节点输出在自己名下可见，
+    engine._guard_view，engine.py:235-250）与 view.state
+    （_NodeStateView 有 .get，engine.py:285）。
+    tick0→n=1、tick1→n=2、tick2→n=3（guard n<3 在 n=3 时放行退出）。
+    """
+
+    def _loop_module(self, mock_llm, tmp_path, monkeypatch):
+        """counter 节点自循环：n 从 0 递增，n<3 时 guard 放行继续。
+
+        注 1：tickflow 的 guard 边语法是 ``--|guard|-->``（parser.py:67，
+        不是 ``-->|guard|``）；body 输出是 {"n": n} 字典，guard 需取下标的
+        "n" 再比较（dict 与 int 不能直接比较）。
+        注 2：guard 需同时注册到 tickflow 模块级默认 registry ——
+        TasklistValidator._check_flow 的语法预检用无 registry 的
+        parse_graph()（translator.py:129），只认默认 registry 里的 guard。
+        """
+        monkeypatch.chdir(tmp_path)
+
+        def counter(view):
+            n = view.state.get("n", 0) + 1
+            view.state["n"] = n
+            return {"n": n}
+
+        reg = _script_reg(mock_llm, counter=counter)
+
+        def until3(view):
+            return view["counter"].value["n"] < 3
+
+        reg.guard("until3")(until3)
+        from tickflow import registry as default_registry
+        default_registry.guard("until3")(until3)
+
+        tl = Tasklist(
+            tasks={"counter": TaskDefinition(type="script", script="counter")},
+            flow="[counter] --|until3|--> counter",
+        )
+        return Module(
+            spec={"x": 1},
+            tasklist=tl,
+            llm_client=mock_llm,
+            review_harness=None,
+            persist=True,
+            module_id="mod_loop",
+            registry=reg,
+        )
+
+    @pytest.mark.asyncio
+    async def test_loop_runs_until_guard_opens(self, mock_llm, tmp_path, monkeypatch):
+        mod = self._loop_module(mock_llm, tmp_path, monkeypatch)
+        await mod.run()
+        # n 从 0 递增：tick0→1, tick1→2, tick2→3（guard n<3 在 n=3 时放行退出）
+        auto = [c for c in mod.list_checkpoints() if c[2] == "auto"]
+        assert auto, "应有自动检查点"
+
+    @pytest.mark.asyncio
+    async def test_resume_mid_loop_continues_state(self, mock_llm, tmp_path, monkeypatch):
+        """回退到循环中途（n=2 处），重跑后 view.state 从该迭代继续。"""
+        mod = self._loop_module(mock_llm, tmp_path, monkeypatch)
+        await mod.run()
+        # auto:tick:1 的 snapshot.tick=2，truncate_after(1) 保留 n=1、n=2 记录
+        mod2 = self._loop_module(mock_llm, tmp_path, monkeypatch)
+        firings = await mod2.resume(rollback_to="auto:tick:1")
+        assert [f.node for f in firings] == ["counter"]
+        # 重跑的 counter 输出应为 n=3（state 从 2 继续），而非从 1 重来
+        assert firings[0].output == {"n": 3}
