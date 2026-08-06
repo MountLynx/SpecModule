@@ -39,6 +39,7 @@ from .consistency import (
     REVIEW_HARNESS_CONFIG,
     register_review_harness,
 )
+from .align import ALIGN_CHECK_CONFIG, register_align_check_harness
 from .translator import TasklistValidator, TemplateLoader, Translator
 from .graph_builder import TasklistTranslator
 from .module import Module
@@ -97,6 +98,9 @@ __all__ = [
     "ConsistencyReviewer",
     "REVIEW_HARNESS_CONFIG",
     "register_review_harness",
+    # 对齐检查
+    "ALIGN_CHECK_CONFIG",
+    "register_align_check_harness",
     # submodule
     "SubModule",
     "script",

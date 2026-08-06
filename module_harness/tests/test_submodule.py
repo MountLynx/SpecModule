@@ -24,7 +24,9 @@ def mock_llm():
 
 class TestBuiltins:
     def test_names(self):
-        assert BUILTIN_HARNESS_NAMES == frozenset({"spec_to_tasklist", "spec_tasklist_review"})
+        assert BUILTIN_HARNESS_NAMES == frozenset(
+            {"spec_to_tasklist", "spec_tasklist_review", "align_check"}
+        )
 
     def test_register_builtins(self, mock_llm):
         reg = HarnessRegistry(llm_client=mock_llm, event_bus=EventBus())
