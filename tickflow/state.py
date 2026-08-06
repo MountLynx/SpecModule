@@ -344,7 +344,8 @@ class RunState:
         """JSON-able dict for ``Runner.snapshot()``.
 
         ``edges``/``fire_counts``/``state`` are included unless ``minimal``;
-        ``records`` only when ``keep_records=True`` and ``include_records``.
+        ``records`` only when ``keep_records=True`` and ``include_records``
+        and not ``minimal`` (minimal implies no records).
         ``minimal`` (the persistent per-tick snapshot) keeps only
         ``keep_records`` -- the window/counts/state are dead data (S3:
         restore's truncate_after rebuilds them from firings), and records
