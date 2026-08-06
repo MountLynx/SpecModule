@@ -334,7 +334,7 @@ class TestFireablePassthrough:
         m_a, f_a, _ = tick(g, m0, rs_a, 0, reg)
         # 传预计算 fireable（同一 marking 下与内部计算同值）
         rs_b = RunState(keep_records=False)
-        fireable = [n for n in g.nodes if _join_satisfied(g, m0, n)]
+        fireable = [n for n in g.nodes if _join_satisfied(g, n, m0)]
         m_b, f_b, _ = tick(g, m0, rs_b, 0, reg, fireable=fireable)
         assert m_a == m_b
         assert [f.node for f in f_a] == [f.node for f in f_b]
