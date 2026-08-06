@@ -149,7 +149,8 @@ def check(graph: Graph) -> list[DeadlockSuggestion]:
     out: list[DeadlockSuggestion] = []
     # Branch reachability depends only on the splitter, not on the candidate
     # AND-join m -- precompute once and look up (C3): O(S·(V+E)) instead of
-    # O(K·S·(V+E)).
+    # O(K·S·(V+E)).  Same-splitter suggestions share one branches dict (the
+    # only consumer, DeadlockSuggestion.msg, is read-only).
     splitters: dict[str, dict[str, list[str]]] = {
         b: _branches_of(graph, b) for b in graph.nodes if graph.is_xor_splitter(b)
     }

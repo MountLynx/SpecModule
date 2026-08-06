@@ -76,7 +76,7 @@ class TestGraphAdjacencyIndex:
 
 class TestCheckerBranchCache:
     def test_check_unchanged_with_prior_impl(self):
-        """缓存重构后 check() 输出与逐对重算实现逐项相等。"""
+        """缓存重构后 check() 输出与逐对重算实现逐项相等（差分测试）。"""
         g = _graph()
         sugs = check(g)
         # M1（A∈g1 分支、B∈g2 分支 → 互斥）+ M3（D∈g3、E∈g4）各一条；
@@ -86,12 +86,71 @@ class TestCheckerBranchCache:
         assert {s.splitter for s in sugs} == {"S1", "S2"}
         by_node = {s.node: s for s in sugs}
         assert set(by_node["M1"].producers) == {"A", "B"}
-        # branches 内容与逐对实现一致：S1 的 g1 分支 = {A, M1, M2}（A 向下
-        # 扩展，M1/M2 是 merge 节点、含入但不继续展开），g2 分支 = {B, M1}
+        # 差分对照：与内嵌的旧逐对重算实现逐项相等
+        naive = _naive_check(g)
+        assert [(s.node, s.producers, s.splitter, s.branches) for s in sugs] == naive
+        # branches 内容与逐对实现一致：_branches_of 用 setdefault 只保留每个
+        # guard 首条边的 reach（不合并同 guard 多边），_reachable_until_merge
+        # 包含合并点但不继续展开，splitter 自身被 discard。
         assert by_node["M1"].branches == {"g1": ["A", "M1", "M2"], "g2": ["B", "M1"]}
+
+    def test_differential_many_graphs(self):
+        """多张拓扑图上的差分对照（等价性可复现，不依赖离线验证）。"""
+        graphs = [_graph()]
+        # 无 AND-join 的图（冷路径快退场景）
+        g2 = Graph(
+            nodes={"S": Node(name="S", is_start=True), "A": Node(name="A")},
+            edges=[Edge("S", "A", "g1")],
+        )
+        graphs.append(g2)
+        # 单 splitter 单 join 的图
+        g3 = Graph(
+            nodes={
+                "S": Node(name="S", is_start=True),
+                "X": Node(name="X"), "Y": Node(name="Y"), "M": Node(name="M"),
+            },
+            edges=[Edge("S", "X", "ga"), Edge("S", "Y", "gb"),
+                   Edge("X", "M", None), Edge("Y", "M", None)],
+        )
+        graphs.append(g3)
+        for g in graphs:
+            assert [(s.node, s.producers, s.splitter, s.branches) for s in check(g)] \
+                == _naive_check(g)
 
     def test_check_does_not_mutate(self):
         g = _graph()
-        before = (g.nodes["M1"].join, g.nodes["M2"].join, g.nodes["M3"].join)
+        snapshot = g.copy()
         check(g)
-        assert (g.nodes["M1"].join, g.nodes["M2"].join, g.nodes["M3"].join) == before
+        assert g == snapshot
+
+
+def _naive_check(graph: Graph) -> list:
+    """旧实现（逐对重算）：每个 AND-join × 每个 splitter 重算分支 BFS。
+
+    与 tickflow.checker.check 重构前语义逐项等价——差分测试的参照实现。
+    """
+    from tickflow.checker import _branches_of, _producers_on_distinct_branches
+    out = []
+    for m, node in graph.nodes.items():
+        if node.join != "AND":
+            continue
+        prods = graph.producers(m)
+        if len(prods) < 2:
+            continue
+        for b in graph.nodes:
+            if not graph.is_xor_splitter(b):
+                continue
+            branches = _branches_of(graph, b)
+            res = _producers_on_distinct_branches(graph, m, branches)
+            if res is not None:
+                pair = res[0]
+                out.append((m, pair, b, branches))
+    seen: set[tuple[str, str]] = set()
+    deduped = []
+    for s in out:
+        key = (s[0], s[2])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(s)
+    return deduped
