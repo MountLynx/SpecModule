@@ -387,11 +387,11 @@ class Module:
                     f"回退目标 {rollback_to!r} 不存在"
                     f"（可用 tick: {ticks or '无'}；manual: {manual or '无'}）"
                 )
-            # 已执行节点：firings 表中 tick < 快照 tick 的去重节点
-            # （S3 后快照不再含 edges 窗口）。快照 tick N = 第 N-1 tick 结束时
-            # 落盘（_persist_tick 在 tick_count 自增后保存）——执行过的 firing
-            # 记 tick ≤ N-1，即严格小于 N；tick == N 的记录属于快照之后才
-            # 发生的 tick，restore 后会被重跑，不算"已执行"。
+            # 已执行节点：firings 表中 tick < 快照 tick 的去重节点（S3 后
+            # 快照不再含 edges 窗口）。快照 tick N 在 tick N-1 结束后落盘，
+            # tick == N 的 firing 属于 restore 后会被重跑的部分，不算已执行。
+            # 注：firings 表按 module_id 累积（跨多次 run），前一轮 run 的
+            # 记录也会计入——仅影响提示性警告 1/3 的准确性，不影响硬错误。
             executed_nodes = {
                 d["node"] for d in backend.list_firings(self.module_id)
                 if d.get("node") and int(d.get("tick", 0)) < int(snap.get("tick", 0))

@@ -297,7 +297,7 @@ def check_resume_compat(
             if old_tasklist is not None and n not in old_starts:
                 hard_errors.append(
                     f"Node '{n}' 新成为 start 但已有执行历史——armed_starts "
-                    f"一次性，永不重跑。请回退到 tick 0 或改回非 start。"
+                    f"一次性，永不重跑。请回退到更早的 tick 或改回非 start。"
                 )
             elif old_tasklist is None:
                 warnings.append(
