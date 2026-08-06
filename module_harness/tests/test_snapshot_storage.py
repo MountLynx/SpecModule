@@ -118,3 +118,32 @@ class TestMinimalSnapshotRoundtrip:
         r2.restore(snap)
         assert r2.tick_count == 1
         assert "B" in r2.fireable()
+
+
+class TestLatestFirings:
+    def test_last_firing_per_node_dedup_replay(self, tmp_path):
+        backend = SqliteBackend(tmp_path / "t.sqlite")
+        try:
+            # A 两次 firing + B 一次；再模拟 restore-replay 写入同 (tick,node)
+            for ns in [
+                NodeState(tick=1, node="A", output="a1"),
+                NodeState(tick=2, node="A", output="a2"),
+                NodeState(tick=2, node="B", output="b1"),
+            ]:
+                backend.save_firing("s", ns)
+            replay = NodeState(tick=2, node="A", output="a2_replay")
+            backend.save_firing("s", replay)   # 重放重复行：keep-first
+            rows = backend.latest_firings("s")
+            by_node = {d["node"]: d for d in rows}
+            assert set(by_node) == {"A", "B"}
+            assert by_node["A"]["output"] == "a2"      # 最新 tick + keep-first
+            assert by_node["B"]["output"] == "b1"
+        finally:
+            backend.close()
+
+    def test_empty_session(self, tmp_path):
+        backend = SqliteBackend(tmp_path / "t.sqlite")
+        try:
+            assert backend.latest_firings("s") == []
+        finally:
+            backend.close()
