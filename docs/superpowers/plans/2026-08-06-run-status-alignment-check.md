@@ -808,6 +808,7 @@ git commit -m "feat(status): cross-process query_run_status over status.json + l
 - `__init__` 末尾写 `idle`；`_build_runner_async` 写 `reviewing`/`translating` → `building` → `ready`；`run()` 写 `running` → `done`/`aborted`/`cancelled`
 - RunStatus 映射：IDLE → done；ABORTED → aborted；CANCELLED → cancelled；FAILED → aborted（非正常结束统一归中止）
 - **异常路径（终态必达，杜绝假 done）**：run 中 body/guard 抛普通异常 → `aborted`（error=str(e)）后 re-raise；`asyncio.CancelledError` → `cancelled` 后 re-raise；`_build_runner_async` 抛错（校验失败/ConsistencyError/模板缺失，`run()` 与同步 `build_runner()` 均包住）→ `aborted`（error=str(e)）后 re-raise
+- **max_ticks 截断不算 done**：`run_until_idle` 因 tick_count >= max_ticks 退出时 runner.status 仍 RUNNING——else 分支先判 RUNNING → 写 `running`（仍在运行），仅 IDLE 才写 `done`
 
 - [ ] **Step 1: 编写失败测试**（追加到 `test_run_status.py`）
 
@@ -998,12 +999,32 @@ class TestModulePhase:
         st = self._read_status(tmp_path)
         assert st["phase"] == "aborted"
         assert "nope" in st["error"]
+
+    @pytest.mark.asyncio
+    async def test_max_ticks_cutoff_not_done(self, tmp_path, monkeypatch, mock_llm):
+        """max_ticks 截断（status 仍 RUNNING）→ phase 保持 running，不写 done。"""
+
+        def echo(view):
+            return {"ok": True}
+
+        mod = self._make_module(
+            mock_llm, tmp_path, monkeypatch,
+            registry=self._script_reg(mock_llm, echo=echo),
+            tasklist=Tasklist(
+                tasks={"A": TaskDefinition(type="script", script="echo")},
+                flow="[A]",
+            ),
+        )
+        # 单节点 + max_ticks=1：tick 0 跑 A 后 tick_count=1 >= max_ticks，
+        # run_until_idle 退出但 status 仍 RUNNING → 截断不算 done
+        await mod.run(max_ticks=1)
+        assert self._read_status(tmp_path)["phase"] == "running"
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
 
 Run: `python -m pytest module_harness/tests/test_run_status.py::TestModulePhase -q`
-Expected: 10 failed — `FileNotFoundError: status.json` / `.specmodule` 不存在（Module 尚未写）
+Expected: 11 failed — `FileNotFoundError: status.json` / `.specmodule` 不存在（Module 尚未写）
 
 - [ ] **Step 3: 实现**（修改 `module_harness/module.py`）
 
@@ -1132,9 +1153,11 @@ else 分支开头加：
             if runner.status == RunStatus.ABORTED:
                 self._write_phase("aborted", error=runner.cancel_reason or "aborted")
             elif runner.status == RunStatus.CANCELLED:
-                self._write_phase("cancelled", error=runner.cancel_reason)
+                self._write_phase("cancelled", error=runner.cancel_reason or "cancelled")
             elif runner.status == RunStatus.FAILED:
                 self._write_phase("aborted", error="all nodes failed")
+            elif runner.status == RunStatus.RUNNING:
+                self._write_phase("running")   # max_ticks 截断：仍在运行
             else:
                 self._write_phase("done")
         return firings
@@ -1158,7 +1181,7 @@ else 分支开头加：
 - [ ] **Step 4: 运行测试确认通过**
 
 Run: `python -m pytest module_harness/tests/test_run_status.py -q`
-Expected: 16 passed（TestQueryRunStatus 6 + TestModulePhase 10）
+Expected: 17 passed（TestQueryRunStatus 6 + TestModulePhase 11）
 
 - [ ] **Step 5: Commit**
 
