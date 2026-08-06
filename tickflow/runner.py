@@ -521,7 +521,8 @@ class Runner(_BaseRunner):
         fireable = self.fireable()
         self._run_tick_start_hooks(self.tick_count, fireable)
         next_marking, firings, aborted = tick(
-            self.graph, self.marking, self.run_state, self.tick_count, self.registry
+            self.graph, self.marking, self.run_state, self.tick_count, self.registry,
+            fireable=fireable,
         )
         self.marking = next_marking
         for f in firings:

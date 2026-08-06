@@ -67,11 +67,17 @@ async def async_tick(
     run_state: RunState,
     t: int,
     registry: Registry,
+    fireable: list[str] | None = None,
 ) -> tuple[Marking, list[NodeState], bool]:
-    """Async counterpart of :func:`tickflow.engine.tick`."""
+    """Async counterpart of :func:`tickflow.engine.tick`.
+
+    ``fireable``: precomputed fireable set for ``marking`` (see
+    :func:`tickflow.engine.tick`); default None computes internally.
+    """
     from typing import Literal
 
-    fireable = [n for n in graph.nodes if _join_satisfied(graph, n, marking)]
+    if fireable is None:
+        fireable = [n for n in graph.nodes if _join_satisfied(graph, n, marking)]
     if not fireable:
         return marking.copy(), [], False
 
@@ -197,7 +203,8 @@ class AsyncRunner(_BaseRunner):
         fireable = self.fireable()
         await self._run_tick_start_hooks(self.tick_count, fireable)
         next_marking, firings, aborted = await async_tick(
-            self.graph, self.marking, self.run_state, self.tick_count, self.registry
+            self.graph, self.marking, self.run_state, self.tick_count, self.registry,
+            fireable=fireable,
         )
         self.marking = next_marking
         for f in firings:

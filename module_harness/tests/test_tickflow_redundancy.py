@@ -154,3 +154,35 @@ def _naive_check(graph: Graph) -> list:
         seen.add(key)
         deduped.append(s)
     return deduped
+
+
+class TestFireablePassthrough:
+    def _registry(self):
+        from tickflow.registry import Registry
+        reg = Registry()
+        reg.body("echo")(lambda view: {"ok": True})
+        return reg
+
+    def test_engine_tick_with_and_without_fireable_equal(self):
+        from tickflow.state import RunState
+        g = Graph(
+            nodes={
+                "S1": Node(name="S1", is_start=True),
+                "A": Node(name="A"), "B": Node(name="B"),
+            },
+            edges=[Edge("S1", "A", None), Edge("A", "B", None)],
+        )
+        reg = self._registry()
+        for n in g.nodes:
+            g.nodes[n].body = "echo"
+            g.nodes[n].inputs = {p: InputPolicy.latest() for p in g.producers(n)}
+        m0 = bootstrap(g)
+        # 不传 fireable：引擎内部计算
+        rs_a = RunState(keep_records=False)
+        m_a, f_a, _ = tick(g, m0, rs_a, 0, reg)
+        # 传预计算 fireable（同一 marking 下与内部计算同值）
+        rs_b = RunState(keep_records=False)
+        fireable = [n for n in g.nodes if _join_satisfied(g, n, m0)]
+        m_b, f_b, _ = tick(g, m0, rs_b, 0, reg, fireable=fireable)
+        assert m_a == m_b
+        assert [f.node for f in f_a] == [f.node for f in f_b]
