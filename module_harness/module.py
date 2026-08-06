@@ -203,9 +203,11 @@ class Module:
             if runner.status == RunStatus.ABORTED:
                 self._write_phase("aborted", error=runner.cancel_reason or "aborted")
             elif runner.status == RunStatus.CANCELLED:
-                self._write_phase("cancelled", error=runner.cancel_reason)
+                self._write_phase("cancelled", error=runner.cancel_reason or "cancelled")
             elif runner.status == RunStatus.FAILED:
                 self._write_phase("aborted", error="all nodes failed")
+            elif runner.status == RunStatus.RUNNING:
+                self._write_phase("running")   # max_ticks 截断：仍在运行
             else:
                 self._write_phase("done")
         return firings

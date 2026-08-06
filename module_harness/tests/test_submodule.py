@@ -133,6 +133,28 @@ class TestSubModule:
         assert got == []
 
     @pytest.mark.asyncio
+    async def test_submodule_mode_fast_zero_residue(self, tmp_path, monkeypatch, mock_llm):
+        """SubModule(mode="fast")：不写 DB 也不写 status.json（完全零残留）。"""
+        monkeypatch.chdir(tmp_path)
+
+        class FastMod(SubModule):
+            name = "fast_mod"
+            mode = "fast"
+            tasklist = Tasklist(
+                tasks={"A": TaskDefinition(type="script", script="echo")},
+                flow="[A]",
+            )
+
+            @script("echo")
+            def echo(view):
+                return {"ok": True}
+
+        mod = FastMod(llm_client=mock_llm)
+        firings = await mod.run({"x": 1}, max_ticks=10)
+        assert len(firings) >= 1
+        assert not (tmp_path / ".specmodule").exists()
+
+    @pytest.mark.asyncio
     async def test_custom_tasklist_with_review(self, mock_llm):
         async def fake_complete(*args, **kwargs):
             return LLMResponse(
