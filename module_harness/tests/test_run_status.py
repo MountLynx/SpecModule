@@ -197,7 +197,11 @@ class TestModulePhase:
             ),
         )
         task = asyncio.create_task(mod.run())
-        await asyncio.sleep(0.05)
+        deadline = asyncio.get_event_loop().time() + 2.0
+        while asyncio.get_event_loop().time() < deadline:
+            if self._read_status(tmp_path)["phase"] == "running":
+                break
+            await asyncio.sleep(0.01)
         assert self._read_status(tmp_path)["phase"] == "running"
         await task
         assert self._read_status(tmp_path)["phase"] == "done"
@@ -251,3 +255,46 @@ class TestModulePhase:
         assert st.tick is None          # 无 DB
         assert st.outputs == {}
         assert not (tmp_path / ".specmodule" / "runs" / "mod_test" / "run.sqlite").exists()
+
+    @pytest.mark.asyncio
+    async def test_run_exception_writes_aborted(self, tmp_path, monkeypatch, mock_llm):
+        """body 抛普通异常（非 Failure）→ phase=aborted + error 记录，异常继续传播。"""
+
+        def boom(view):
+            raise RuntimeError("boom")
+
+        mod = self._make_module(
+            mock_llm, tmp_path, monkeypatch,
+            registry=self._script_reg(mock_llm, boom=boom),
+            tasklist=Tasklist(
+                tasks={"A": TaskDefinition(type="script", script="boom")},
+                flow="[A]",
+            ),
+        )
+        with pytest.raises(RuntimeError, match="boom"):
+            await mod.run()
+        st = self._read_status(tmp_path)
+        assert st["phase"] == "aborted"
+        assert st["error"] == "boom"
+
+    @pytest.mark.asyncio
+    async def test_build_failure_writes_aborted(self, tmp_path, monkeypatch, mock_llm):
+        """构建失败（tasklist 引用了未注册 harness）→ phase=aborted + error。"""
+        monkeypatch.chdir(tmp_path)
+        mod = Module(
+            spec={"x": 1},
+            tasklist=Tasklist(
+                tasks={"A": TaskDefinition(type="harness", harness="nope")},
+                flow="[A]",
+            ),
+            llm_client=mock_llm,
+            registry=self._script_reg(mock_llm),
+            review_harness=None,
+            persist=False,
+            module_id="mod_test",
+        )
+        with pytest.raises(ValueError):
+            await mod.run()
+        st = self._read_status(tmp_path)
+        assert st["phase"] == "aborted"
+        assert "nope" in st["error"]

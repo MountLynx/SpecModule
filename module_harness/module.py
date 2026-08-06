@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -124,11 +125,12 @@ class Module:
         Note: 这是一个同步方法。在 async 上下文中直接使用
         await module._build_runner_async() 或 await module.run()。
         """
-        import asyncio
-
         loop = asyncio.new_event_loop()
         try:
             return loop.run_until_complete(self._build_runner_async())
+        except Exception as e:
+            self._write_phase("aborted", error=str(e))
+            raise
         finally:
             loop.close()
 
@@ -182,11 +184,22 @@ class Module:
         """执行翻译 → 构建 → 运行。一步跑完。"""
         from tickflow.runner import RunStatus
 
-        runner = await self._build_runner_async()
+        try:
+            runner = await self._build_runner_async()
+        except Exception as e:
+            self._write_phase("aborted", error=str(e))
+            raise
         self._write_phase("running")
         try:
             firings = await runner.run_until_idle(max_ticks=max_ticks)
-        finally:
+        except asyncio.CancelledError:
+            self._write_phase("cancelled", error="cancelled")
+            raise
+        except Exception as e:
+            self._write_phase("aborted", error=str(e))
+            raise
+        else:
+            # 正常返回：按 runner.status 映射终态
             if runner.status == RunStatus.ABORTED:
                 self._write_phase("aborted", error=runner.cancel_reason or "aborted")
             elif runner.status == RunStatus.CANCELLED:
