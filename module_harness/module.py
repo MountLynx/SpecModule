@@ -277,6 +277,25 @@ class Module:
                 backend.close()
         return sorted(out, key=lambda item: item[1])
 
+    def _load_checkpoint(self, label: str) -> dict | None:
+        """查找检查点：先 auto 表（AutoCheckpointStore），后手动表（backend）。
+
+        两个表都没有 → None（调用方决定如何报错）。两表连接均显式关闭
+        （手动表查找曾泄漏 SqliteBackend 连接）。
+        """
+        store = AutoCheckpointStore(self.module_id)
+        try:
+            snap = store.load(label)
+            if snap is not None:
+                return snap
+            backend = SqliteBackend(_persist_dir(self.module_id))
+            try:
+                return backend.load_checkpoint(self.module_id, label)
+            finally:
+                backend.close()
+        finally:
+            store.close()
+
     async def run(self, max_ticks: int = 100):
         """执行翻译 → 构建 → 运行。一步跑完。
 
@@ -288,6 +307,10 @@ class Module:
         except Exception as e:
             self._write_phase("aborted", error=str(e))
             raise
+        return await self._run_with_phases(runner, max_ticks)
+
+    async def _run_with_phases(self, runner: AsyncRunner, max_ticks: int) -> list:
+        """注册自动检查点 → 运行 → 按结果映射终态 phase（run/resume 共用）。"""
         self._register_auto_checkpoint()
         self._write_phase("running")
         try:
@@ -347,26 +370,26 @@ class Module:
         注册自动检查点 hook → 续跑。
 
         要求 persist=True（自动检查点依赖 SQLite backend）。
+
+        max_ticks 是绝对 tick 上限：从 restore 的 tick 起继续计数（如
+        restore 于 tick 95，则默认 100 只剩 5 个 tick 可跑）。
         """
         if not self.persist:
             raise RuntimeError(
                 "resume 需要 persist=True（自动检查点依赖 SQLite backend）"
             )
 
-        # 1. 检查点查找：auto 表 → 手动表
+        # 1. 检查点查找：auto 表 → 手动表（_load_checkpoint 内连接显式关闭）
+        snap = self._load_checkpoint(rollback_to)
+        if snap is None:
+            available = ", ".join(
+                label for label, _, _ in self.list_checkpoints()
+            ) or "（无）"
+            raise KeyError(
+                f"检查点 {rollback_to!r} 不存在（可用: {available}）"
+            )
         store = AutoCheckpointStore(self.module_id)
         try:
-            snap = store.load(rollback_to)
-            if snap is None:
-                backend = SqliteBackend(_persist_dir(self.module_id))
-                snap = backend.load_checkpoint(self.module_id, rollback_to)
-            if snap is None:
-                available = ", ".join(
-                    label for label, _, _ in self.list_checkpoints()
-                ) or "（无）"
-                raise KeyError(
-                    f"检查点 {rollback_to!r} 不存在（可用: {available}）"
-                )
             old_inputs = store.load_module_inputs()
         finally:
             store.close()
@@ -382,7 +405,7 @@ class Module:
         executed_nodes = set(
             snap.get("run_state", {}).get("edges", {}).keys()
         )
-        marking_slots = snap.get("marking", {}).get("slots")
+        marking_slots = (snap.get("marking") or {}).get("slots")
         old_tl = tasklist_from_dict(old_inputs["tasklist"]) if old_inputs else None
         check = check_resume_compat(
             self._last_tasklist, runner.graph, executed_nodes,
@@ -392,23 +415,12 @@ class Module:
         for w in check.warnings:
             log.warning("resume 兼容性警告: %s", w)
         if check.hard_errors:
+            self._write_phase("aborted", error="resume 兼容性校验失败")
             raise ResumeError(check.hard_errors)
 
         # 4. restore + remap：移植检查点 marking 到新图
         runner.restore(snap)
         runner.remap_graph(runner.graph)
 
-        # 5. 注册自动检查点 + 续跑
-        self._register_auto_checkpoint()
-        self._write_phase("running")
-        try:
-            firings = await runner.run_until_idle(max_ticks=max_ticks)
-        except asyncio.CancelledError:
-            self._write_phase("cancelled", error="cancelled")
-            raise
-        except Exception as e:
-            self._write_phase("aborted", error=str(e))
-            raise
-        else:
-            self._finalize_phase(runner)
-        return firings
+        # 5. 注册自动检查点 + 续跑（phase 写盘与 run() 共用）
+        return await self._run_with_phases(runner, max_ticks)

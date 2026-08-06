@@ -612,6 +612,14 @@ class TestResume:
             registry=_script_reg(mock_llm),
         )
 
+    def _read_status(self):
+        """读取 status.json（当前 cwd 下该 module 最近写入的 phase）。"""
+        from pathlib import Path
+        return json.loads(
+            Path.cwd().joinpath(".specmodule", "runs", "mod_test", "status.json")
+            .read_text(encoding="utf-8")
+        )
+
     @pytest.mark.asyncio
     async def test_resume_continues_from_checkpoint(self, mock_llm, tmp_path, monkeypatch):
         """第一轮跑完 3 节点链；新实例微调后 resume 到 auto:tick:1。
@@ -639,6 +647,8 @@ class TestResume:
         # 运行结束状态
         from tickflow.runner import RunStatus
         assert mod2._runner.status == RunStatus.IDLE
+        # resume 期间 phase 写盘（running → done），跨进程消费者可查询
+        assert self._read_status()["phase"] == "done"
 
     @pytest.mark.asyncio
     async def test_resume_preserves_executed_outputs(self, mock_llm, tmp_path, monkeypatch):
@@ -724,6 +734,10 @@ class TestResume:
             await mod2.resume(rollback_to="auto:tick:1")
         # runner 未被触碰：仍为构建后初始状态（tick 0）
         assert mod2._runner.tick_count == 0
+        # 硬错误路径 phase 写盘为 aborted（M4：跨进程消费者不会误读 "ready"）
+        status = self._read_status()
+        assert status["phase"] == "aborted"
+        assert "resume 兼容性校验失败" in status["error"]
 
     @pytest.mark.asyncio
     async def test_resume_manual_checkpoint(self, mock_llm, tmp_path, monkeypatch):
@@ -737,3 +751,27 @@ class TestResume:
         mod2 = self._make_module(mock_llm, tmp_path, monkeypatch)
         firings = await mod2.resume(rollback_to="manual:before")
         assert [f.node for f in firings] == ["A", "B", "C"]
+
+    @pytest.mark.asyncio
+    async def test_resume_overwrites_module_inputs(self, mock_llm, tmp_path, monkeypatch):
+        """resume 后 module_inputs 存档被新输入覆盖（后续 resume 以新 tasklist 为准）。"""
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch)
+        await mod.run()
+        new_tl = Tasklist(
+            tasks={
+                "A": TaskDefinition(type="script", script="echo"),
+                "B": TaskDefinition(type="script", script="echo", inputs={"data": "A"}),
+                "C": TaskDefinition(type="script", script="echo",
+                                    inputs={"data": "B"}, prompt="微调后的 prompt"),
+            },
+            flow="[A] --> B\nB --> C",
+        )
+        mod2 = self._make_module(mock_llm, tmp_path, monkeypatch, tasklist=new_tl)
+        await mod2.resume(rollback_to="auto:tick:1")
+        store = AutoCheckpointStore("mod_test")
+        try:
+            inputs = store.load_module_inputs()
+        finally:
+            store.close()
+        assert inputs is not None
+        assert inputs["tasklist"]["Tasks"]["C"]["prompt"] == "微调后的 prompt"
