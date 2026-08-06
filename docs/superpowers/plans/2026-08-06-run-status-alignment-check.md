@@ -13,7 +13,7 @@
 - tickflow 零修改 — 查询侧只用 `SqliteBackend` 公开 API，不手写 SQL
 - 不做新数据容器 — 查询数据唯一真相源是 status.json + RunState 快照
 - 原子写 status.json（tmp + os.replace），写失败仅 log 不阻断运行
-- `persist=False` 快速模式也写 status.json（阶段级，不随 tick 增长）
+- status.json 写入由独立开关 status_file 控制（默认 True，与 persist 正交）；快速模式（persist=False + status_file=False）零残留
 - prompt 占位符缺值保留字面量（渲染器现有行为，不隐藏问题）
 - 测试用 mock LLM（`AsyncMock`），跑 runner 用 `NullBackend()`（零 IO）
 
