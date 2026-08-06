@@ -176,16 +176,34 @@ class TestCheckResumeCompat:
         assert any("GHOST" in e for e in check.hard_errors)
 
     def test_hard_error_new_start_with_history(self):
-        # A 旧图不是 start（旧 flow 无 [A]），新图成为 start 且有历史 → 硬错误
-        old_tl = _tl({"A": {"type": "script", "script": "s"}}, "A")
-        tl = _tl({"A": {"type": "script", "script": "s"}}, "[A]")
+        # B 旧图不是 start（旧 flow 无 [B]），新图用裸行 [B] 声明为 start
+        # 且有历史 → 硬错误
+        old_tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s"}},
+            "[A] --> B",
+        )
+        tl = _tl(
+            {"A": {"type": "script", "script": "s"},
+             "B": {"type": "script", "script": "s"}},
+            "[A] --> B\n[B]",
+        )
         graph = _graph_for(tl)
-        check = check_resume_compat(tl, graph, executed_nodes={"A"}, old_tasklist=old_tl)
+        check = check_resume_compat(tl, graph, executed_nodes={"A", "B"}, old_tasklist=old_tl)
         assert any("start" in e.lower() for e in check.hard_errors)
 
     def test_no_hard_error_when_start_unchanged(self):
         # A 新旧图都是 start 且有历史 = 正常 resume 场景 → 不误报
         old_tl = _tl({"A": {"type": "script", "script": "s"}}, "[A]")
+        tl = _tl({"A": {"type": "script", "script": "s"}}, "[A]")
+        graph = _graph_for(tl)
+        check = check_resume_compat(tl, graph, executed_nodes={"A"}, old_tasklist=old_tl)
+        assert check.hard_errors == []
+
+    def test_bracketless_flow_no_false_new_start(self):
+        # 旧 flow "A" 无 [A] 标记——prepare_flow 会包成 [A]，与新 flow "[A]"
+        # 是同一 tasklist → 不应误报"新成为 start"
+        old_tl = _tl({"A": {"type": "script", "script": "s"}}, "A")
         tl = _tl({"A": {"type": "script", "script": "s"}}, "[A]")
         graph = _graph_for(tl)
         check = check_resume_compat(tl, graph, executed_nodes={"A"}, old_tasklist=old_tl)
@@ -263,6 +281,20 @@ class TestCheckResumeCompat:
             {
                 "A": {"type": "script", "script": "s",
                       "inputs": {"text": "{spec.title}", "data": "A"}},
+            },
+            "[A]",
+        )
+        graph = _graph_for(tl)
+        check = check_resume_compat(tl, graph, executed_nodes=set())
+        assert check.hard_errors == []
+
+    def test_bare_constant_token_skipped(self):
+        # {node} 裸常量 token 与 {spec.xxx} 一样在注册时解析为字面值，
+        # 不应被硬错误 1 误判为"不在新图中"
+        tl = _tl(
+            {
+                "A": {"type": "script", "script": "s",
+                      "inputs": {"self": "{node}", "data": "A"}},
             },
             "[A]",
         )

@@ -24,7 +24,9 @@ from typing import Any
 
 from tickflow import Graph
 
+from .graph_builder import _is_constant_ref
 from .spec import TaskDefinition, Tasklist
+from .translator import prepare_flow
 
 log = logging.getLogger(__name__)
 
@@ -247,12 +249,15 @@ def check_resume_compat(
     """新 tasklist 与已执行节点的兼容性校验。
 
     - 硬错误 1：新 task 的 inputs 引用的 producer 不在新图节点集合中
-      （``{spec.xxx}`` 常量引用跳过——graph_builder 解析为 spec_inputs）。
+      （常量引用跳过：``{spec.xxx}`` 与裸 token ``{spec}``/``{tasklist}``/
+      ``{node}``——graph_builder 注册时解析为 spec_inputs，此处复用
+      ``_is_constant_ref`` 保持单一事实源）。
     - 硬错误 2：新图中**新成为** start 且有历史输出的节点（armed_starts
       一次性，永不重跑；底层 ``_warn_graph_changes`` 在 remap old==new 时
       不触发，此处补上）。"新成为"判定：与旧 tasklist flow 的 start 集合
-      对比（flow 中 ``[A]`` 标记 start，正则 ``\\[(\\w+)\\]`` 提取）——
-      正常 resume 里旧图 start 有历史是常态，不能误报。无存档
+      对比（flow 先经 ``prepare_flow`` 规范化——无 ``[`` 标记时自动把首
+      token 包成 start，与 graph 构建一致——再正则 ``\\[(\\w+)\\]`` 提取
+      start 集合）——正常 resume 里旧图 start 有历史是常态，不能误报。无存档
       （old_tasklist=None）时降级为警告（保守）。
     - 警告 1：已执行节点在新 tasklist 中被修改（对比 module_inputs 存档，
       修改对已执行部分不生效）。
@@ -274,7 +279,7 @@ def check_resume_compat(
 
     for key, task in tasks.items():
         for field, producer in (task.inputs or {}).items():
-            if isinstance(producer, str) and producer.startswith("{spec."):
+            if _is_constant_ref(producer):
                 continue
             if producer not in graph.nodes:
                 hard_errors.append(
@@ -290,10 +295,11 @@ def check_resume_compat(
 
     # 硬错误 2：新图中"新成为" start 且有历史输出。旧图 start 有历史是正常
     # resume 场景（如回退到中途，A 是 start 且已执行），不能误报——用旧
-    # tasklist flow 的 start 集合（flow 中 [A] 标记）判定"新成为"。
+    # tasklist flow 的 start 集合判定"新成为"。flow 先经 prepare_flow 规范化
+    # （无 [ 标记时首 token 自动包成 start，与 graph 构建一致），再提取 [A]。
     old_starts: set[str] = set()
     if old_tasklist is not None:
-        old_starts = set(re.findall(r"\[(\w+)\]", old_tasklist.flow))
+        old_starts = set(re.findall(r"\[(\w+)\]", prepare_flow(old_tasklist.flow)))
     for n in graph.starts:
         if n in executed_nodes:
             if old_tasklist is not None and n not in old_starts:
