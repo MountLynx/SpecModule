@@ -8,7 +8,7 @@
 
 ## 完成度速览
 
-已实现：**17** / 待实现：**2**
+已实现：**18** / 待实现：**1**
 
 ---
 
@@ -45,25 +45,11 @@
 | **submodule — 类式定义 + 打包发布** | `SubModule`（类式声明 + `@script` + `pack()` 导出）+ `ModuleLoader`（加载 + requires 校验）+ 内置 harness 集 | `submodule.py`, `loader.py`, `builtins.py` |
 | **运行状态查询** — 跨进程查询 Module 当前运行状态：status.json 阶段机（9 阶段原子写，status_file 独立开关）+ run.sqlite 最新快照叠加 | `Module._write_phase` + `query_run_status` | `module.py`, `status.py` |
 | **对齐检查** — 内置 `align_check` harness 节点，`{spec}`/`{tasklist}`/`{node}` 常量 token 注入，输出对齐/偏离 + 建议 | `ALIGN_CHECK_CONFIG` + graph_builder 常量 token | `align.py`, `graph_builder.py` |
+| **快照/回滚封装** — 自动检查点（每 tick 环形保留 20）+ 跨进程 `resume()` 续跑 + 进程内 `snapshot()`/`restore()`/`checkpoint()`/`rollback_to()` + 兼容性校验（2 硬错误 + 3 警告） | `AutoCheckpointStore` + `check_resume_compat` + `Module.resume` | `checkpoint.py`, `module.py` |
 
 ---
 
 ## 待实现 🔲
-
-### 5. 快照/回滚 Module 封装
-
-**说明**：tickflow 底层已有 `snapshot()` / `restore()` / `checkpoint()` / `rollback_to()`。Module 层需要封装这些，并支持"回滚时调整 spec 和 tasklist 未执行部分"——对应文档中的"回滚时可以调整 spec 和 tasklist 中未执行的部分"。
-
-**实现方向**：
-- `Module.snapshot() → dict` — 包含 spec、tasklist、tickflow snapshot
-- `Module.restore(snapshot)` — 回滚 runner + 可选更新 spec/tasklist
-- `Module.rollback_to(checkpoint_label)` — 回退到命名检查点
-- 回滚后更新未执行的 task 节点时，需校验新 task 与已执行节点的兼容性
-- 具体设计留到实现阶段细化
-
-**依赖**：spec + tasklist 输入通道（#1）
-
----
 
 ### 6. 数据暴露 SDK
 
@@ -109,7 +95,7 @@
 ├─────────────────────────┤
 │ 5. submodule + 打包/发布│  ✅ 已完成
 ├─────────────────────────┤
-│ 6. 快照/回滚封装        │  ← 依赖 #1
+│ 6. 快照/回滚封装        │  ✅ 已完成
 ├─────────────────────────┤
 │ 7. SDK 数据暴露层       │  ← 可与其他并行，渐进生长
 └─────────────────────────┘

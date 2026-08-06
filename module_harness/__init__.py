@@ -47,6 +47,12 @@ from .submodule import SubModule, SpecValidationError, script
 from .loader import ModuleLoader, ModuleManifestError, ModuleRequirementError
 from .spec import SpecSchema
 from .status import ModuleStatus, query_run_status
+from .checkpoint import (
+    AutoCheckpointStore,
+    ResumeCheck,
+    ResumeError,
+    check_resume_compat,
+)
 
 __all__ = [
     # 配置
@@ -113,4 +119,9 @@ __all__ = [
     "ModuleLoader",
     "ModuleManifestError",
     "ModuleRequirementError",
+    # 快照/回滚（roadmap #5）
+    "AutoCheckpointStore",
+    "ResumeCheck",
+    "ResumeError",
+    "check_resume_compat",
 ]
