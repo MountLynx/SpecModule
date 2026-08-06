@@ -507,3 +507,63 @@ class TestModuleSnapshotAPI:
             mod.checkpoint("x")
         with pytest.raises(RuntimeError, match="persist"):
             mod.rollback_to("x")
+
+
+class TestAutoCheckpointHook:
+    def _make_module(self, mock_llm, tmp_path, monkeypatch, persist=True, tasklist=None):
+        monkeypatch.chdir(tmp_path)
+        return Module(
+            spec={"x": 1},
+            tasklist=tasklist or _chain_tasklist(),
+            llm_client=mock_llm,
+            review_harness=None,
+            persist=persist,
+            module_id="mod_test",
+            registry=_script_reg(mock_llm),
+        )
+
+    @pytest.mark.asyncio
+    async def test_run_writes_auto_checkpoints(self, mock_llm, tmp_path, monkeypatch):
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
+        await mod.run()
+        checkpoints = mod.list_checkpoints()
+        auto = [c for c in checkpoints if c[2] == "auto"]
+        # 三节点链：tick 0/1/2 各一次 firing，tick 3 空 → 自动检查点 auto:tick:0..3
+        assert auto, "应有自动检查点"
+        # 注：DB tick 列 = snap["tick"] = 捕获时的 tick_count（label+1）——resume
+        # 语义依赖该值（计划 test_resume_mid_loop_continues_state 要求
+        # auto:tick:1 的 snapshot.tick=2），故按 label 取"刚完成的 tick"断言轨迹。
+        ticks = sorted(int(label.split(":")[-1]) for label, _, _ in auto)
+        assert ticks == [0, 1, 2, 3]
+
+    @pytest.mark.asyncio
+    async def test_run_archives_module_inputs(self, mock_llm, tmp_path, monkeypatch):
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
+        await mod.run()
+        store = AutoCheckpointStore("mod_test")
+        inputs = store.load_module_inputs()
+        store.close()
+        assert inputs is not None
+        assert inputs["spec"] == {"x": 1}
+        assert inputs["tasklist"]["Flow"] == "[A] --> B\nB --> C"
+
+    @pytest.mark.asyncio
+    async def test_fast_mode_no_auto_checkpoints(self, mock_llm, tmp_path, monkeypatch):
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=False)
+        await mod.run()
+        assert mod.list_checkpoints() == []
+
+    @pytest.mark.asyncio
+    async def test_auto_ring_caps_at_20(self, mock_llm, tmp_path, monkeypatch):
+        # 长链 25 个节点 → 25+ ticks → 环形保留 20
+        tasks = {
+            f"N{i}": TaskDefinition(type="script", script="echo",
+                                    inputs={"data": f"N{i-1}"} if i > 0 else None)
+            for i in range(25)
+        }
+        flow = "[N0] --> N1\n" + "\n".join(f"N{i} --> N{i+1}" for i in range(1, 24))
+        tl = Tasklist(tasks=tasks, flow=flow)
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True, tasklist=tl)
+        await mod.run()
+        auto = [c for c in mod.list_checkpoints() if c[2] == "auto"]
+        assert len(auto) <= 20

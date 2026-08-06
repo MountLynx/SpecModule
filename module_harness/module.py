@@ -102,6 +102,7 @@ class Module:
         self._runner: AsyncRunner | None = None
         self._last_tasklist: Tasklist | None = None
         self._checkpoint_store: AutoCheckpointStore | None = None
+        self._auto_cp_hooked = False
 
     # ------------------------------------------------------------------
     # 运行状态（roadmap #7）
@@ -275,7 +276,11 @@ class Module:
         return sorted(out, key=lambda item: item[1])
 
     async def run(self, max_ticks: int = 100):
-        """执行翻译 → 构建 → 运行。一步跑完。"""
+        """执行翻译 → 构建 → 运行。一步跑完。
+
+        persist=True 时：注册自动检查点 hook（每 tick 存一个，环形保留 20），
+        并归档本次 spec/tasklist 到 module_inputs 表。
+        """
         from tickflow.runner import RunStatus
 
         try:
@@ -283,6 +288,7 @@ class Module:
         except Exception as e:
             self._write_phase("aborted", error=str(e))
             raise
+        self._register_auto_checkpoint()
         self._write_phase("running")
         try:
             firings = await runner.run_until_idle(max_ticks=max_ticks)
@@ -293,15 +299,42 @@ class Module:
             self._write_phase("aborted", error=str(e))
             raise
         else:
-            # 正常返回：按 runner.status 映射终态
-            if runner.status == RunStatus.ABORTED:
-                self._write_phase("aborted", error=runner.cancel_reason or "aborted")
-            elif runner.status == RunStatus.CANCELLED:
-                self._write_phase("cancelled", error=runner.cancel_reason or "cancelled")
-            elif runner.status == RunStatus.FAILED:
-                self._write_phase("aborted", error="all nodes failed")
-            elif runner.status == RunStatus.RUNNING:
-                self._write_phase("running")   # max_ticks 截断：仍在运行
-            else:
-                self._write_phase("done")
+            self._finalize_phase(runner)
         return firings
+
+    def _register_auto_checkpoint(self) -> None:
+        """persist=True 时：注册 on_tick_end hook 存自动检查点 + 归档 module_inputs。
+
+        幂等：重复调用只注册一次（hook 存于 Module 状态，run/resume 复用）。
+        """
+        if not self.persist or self._runner is None:
+            return
+        if self._checkpoint_store is None:
+            self._checkpoint_store = AutoCheckpointStore(self.module_id)
+        store = self._checkpoint_store
+        assert self._last_tasklist is not None
+        store.save_module_inputs(
+            self.spec.to_dict(), tasklist_to_dict(self._last_tasklist)
+        )
+        if not getattr(self, "_auto_cp_hooked", False):
+            runner = self._runner
+
+            def _hook(tick: int, firings) -> None:
+                store.save(f"auto:tick:{tick}", runner.snapshot())
+
+            runner.on_tick_end(_hook)
+            self._auto_cp_hooked = True
+
+    def _finalize_phase(self, runner) -> None:
+        """按 runner.status 映射终态 phase（run/resume 共用）。"""
+        from tickflow.runner import RunStatus
+        if runner.status == RunStatus.ABORTED:
+            self._write_phase("aborted", error=runner.cancel_reason or "aborted")
+        elif runner.status == RunStatus.CANCELLED:
+            self._write_phase("cancelled", error=runner.cancel_reason or "cancelled")
+        elif runner.status == RunStatus.FAILED:
+            self._write_phase("aborted", error="all nodes failed")
+        elif runner.status == RunStatus.RUNNING:
+            self._write_phase("running")   # max_ticks 截断：仍在运行
+        else:
+            self._write_phase("done")
