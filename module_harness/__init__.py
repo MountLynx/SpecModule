@@ -46,6 +46,7 @@ from .module import Module
 from .submodule import SubModule, SpecValidationError, script
 from .loader import ModuleLoader, ModuleManifestError, ModuleRequirementError
 from .spec import SpecSchema
+from .status import ModuleStatus, query_run_status
 
 __all__ = [
     # 配置
@@ -101,6 +102,9 @@ __all__ = [
     # 对齐检查
     "ALIGN_CHECK_CONFIG",
     "register_align_check_harness",
+    # 运行状态查询
+    "ModuleStatus",
+    "query_run_status",
     # submodule
     "SubModule",
     "script",
