@@ -195,6 +195,8 @@ class Module:
             session_id=self.module_id,
         )
         self._runner = runner
+        # 新 runner 需要重新注册自动检查点 hook（二次 run()/build 场景）
+        self._auto_cp_hooked = False
         return runner
 
     # ------------------------------------------------------------------
@@ -281,8 +283,6 @@ class Module:
         persist=True 时：注册自动检查点 hook（每 tick 存一个，环形保留 20），
         并归档本次 spec/tasklist 到 module_inputs 表。
         """
-        from tickflow.runner import RunStatus
-
         try:
             runner = await self._build_runner_async()
         except Exception as e:
@@ -316,16 +316,16 @@ class Module:
         store.save_module_inputs(
             self.spec.to_dict(), tasklist_to_dict(self._last_tasklist)
         )
-        if not getattr(self, "_auto_cp_hooked", False):
+        if not self._auto_cp_hooked:
             runner = self._runner
 
-            def _hook(tick: int, firings) -> None:
+            def _hook(tick: int, firings: list) -> None:
                 store.save(f"auto:tick:{tick}", runner.snapshot())
 
             runner.on_tick_end(_hook)
             self._auto_cp_hooked = True
 
-    def _finalize_phase(self, runner) -> None:
+    def _finalize_phase(self, runner: AsyncRunner) -> None:
         """按 runner.status 映射终态 phase（run/resume 共用）。"""
         from tickflow.runner import RunStatus
         if runner.status == RunStatus.ABORTED:

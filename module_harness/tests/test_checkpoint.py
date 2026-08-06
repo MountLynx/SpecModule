@@ -535,6 +535,13 @@ class TestAutoCheckpointHook:
         # auto:tick:1 的 snapshot.tick=2），故按 label 取"刚完成的 tick"断言轨迹。
         ticks = sorted(int(label.split(":")[-1]) for label, _, _ in auto)
         assert ticks == [0, 1, 2, 3]
+        # Task 5 resume 依赖的精确值：auto:tick:1 的 snapshot tick == 2
+        # （hook 捕获时 tick_count 已自增，DB tick 列 = label+1）
+        store = AutoCheckpointStore("mod_test")
+        try:
+            assert store.load("auto:tick:1")["tick"] == 2
+        finally:
+            store.close()
 
     @pytest.mark.asyncio
     async def test_run_archives_module_inputs(self, mock_llm, tmp_path, monkeypatch):
@@ -567,3 +574,25 @@ class TestAutoCheckpointHook:
         await mod.run()
         auto = [c for c in mod.list_checkpoints() if c[2] == "auto"]
         assert len(auto) <= 20
+
+    @pytest.mark.asyncio
+    async def test_second_run_rehooks_auto_checkpoints(self, mock_llm, tmp_path, monkeypatch):
+        # I1 回归：同一实例二次 run()（_build_runner_async 换了新 runner）必须
+        # 重新注册自动检查点 hook——否则第二轮零写入（陈旧 hook 静默失效，
+        # list_checkpoints() 仍显示第一轮行，无法区分新旧）。
+        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
+        await mod.run()
+        auto = [c for c in mod.list_checkpoints() if c[2] == "auto"]
+        assert len(auto) == 4          # 首轮三节点链：auto:tick:0..3
+        # 换 4 节点链二次 run：新 runner 应写入 auto:tick:0..4（5 行）
+        tasks = {
+            f"N{i}": TaskDefinition(type="script", script="echo",
+                                    inputs={"data": f"N{i-1}"} if i > 0 else None)
+            for i in range(4)
+        }
+        mod.tasklist = Tasklist(
+            tasks=tasks, flow="[N0] --> N1\nN1 --> N2\nN2 --> N3"
+        )
+        await mod.run()
+        auto = [c for c in mod.list_checkpoints() if c[2] == "auto"]
+        assert len(auto) == 5
