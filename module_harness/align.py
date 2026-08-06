@@ -3,6 +3,11 @@
 
 普通 harness 节点：模板设计者在 flow 中自行插入（通常放在关键产出节点之后），
 框架不额外调度。不插入即不执行。
+
+前置输出注入：prompt_core 不含 {字段} 占位符（无隐式行为）；模板设计者通过
+task.prompt（Layer 3）注入前置节点输出，例如模板中
+"inputs": {"output_a": "A"} + "prompt": "节点 A 输出：{output_a}"
+（input_aliases 机制，运行时把 A 的输出渲染进 {output_a}）。
 """
 
 from __future__ import annotations
@@ -19,7 +24,7 @@ ALIGN_CHECK_CONFIG = HarnessConfig(
         "spec: {spec}\n"
         "tasklist: {tasklist}\n"
         "当前位置: {node}\n"
-        "结合前置节点输出判断，输出 JSON："
+        "结合已提供的前置节点输出判断（若有），输出 JSON："
         '{"aligned": true/false, "suggestions": "..."}'
     ),
     output_format=OutputFormat(type="json_object"),

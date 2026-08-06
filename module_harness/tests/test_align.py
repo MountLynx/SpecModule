@@ -46,6 +46,8 @@ class TestRegisterAlignCheck:
     def test_config_shape(self):
         assert ALIGN_CHECK_CONFIG.name == "align_check"
         assert ALIGN_CHECK_CONFIG.temperature == 0.1
+        # prompt_core 不误导：前置输出由 task.prompt 注入（input_aliases），措辞为「若有」
+        assert "已提供的前置节点输出判断（若有）" in ALIGN_CHECK_CONFIG.prompt_core
 
 
 class TestAlignCheckEndToEnd:
@@ -66,6 +68,7 @@ class TestAlignCheckEndToEnd:
                 ),
                 "C": TaskDefinition(
                     type="harness", harness="align_check",
+                    prompt="前置输出：{output_a}",
                     inputs={
                         "spec": "{spec}", "tasklist": "{tasklist}", "node": "{node}",
                         "output_a": "A",
@@ -87,6 +90,8 @@ class TestAlignCheckEndToEnd:
         assert '"source_text": "你好"' in prompt
         assert '"Tasks"' in prompt
         assert "当前位置: C" in prompt
+        # {output_a} 经 input_aliases 注入 A 节点原始输出（task.prompt Layer 3）
+        assert '前置输出：{"aligned": true, "suggestions": "ok"}' in prompt
 
     @pytest.mark.asyncio
     async def test_aligned_false_does_not_block(self, mock_llm):
@@ -105,6 +110,7 @@ class TestAlignCheckEndToEnd:
                 ),
                 "C": TaskDefinition(
                     type="harness", harness="align_check",
+                    prompt="前置输出：{output_a}",
                     inputs={
                         "spec": "{spec}", "tasklist": "{tasklist}", "node": "{node}",
                         "output_a": "A",
@@ -122,3 +128,6 @@ class TestAlignCheckEndToEnd:
         assert runner.run_state.last_output("C") == {
             "aligned": False, "suggestions": "偏离目标",
         }
+        # 与 test_align_check_node_outputs_dict 一致：前置输出注入链路生效
+        prompt = mock_llm.complete.call_args_list[1].kwargs["prompt"]
+        assert '前置输出：{"aligned": false, "suggestions": "偏离目标"}' in prompt
