@@ -22,7 +22,7 @@ from .graph_builder import TasklistTranslator
 from .registry import HarnessRegistry
 from .events import EventBus, ConsistencyReviewed
 from .checkpoint import (
-    AutoCheckpointStore,
+    ModuleInputStore,
     ResumeError,
     check_resume_compat,
     tasklist_from_dict,
@@ -101,8 +101,7 @@ class Module:
         # roadmap #5：runner 由 _build_runner_async 持有；快照/回滚 API 依赖它
         self._runner: AsyncRunner | None = None
         self._last_tasklist: Tasklist | None = None
-        self._checkpoint_store: AutoCheckpointStore | None = None
-        self._auto_cp_hooked = False
+        self._input_store: ModuleInputStore | None = None
 
     # ------------------------------------------------------------------
     # 运行状态（roadmap #7）
@@ -195,8 +194,6 @@ class Module:
             session_id=self.module_id,
         )
         self._runner = runner
-        # 新 runner 需要重新注册自动检查点 hook（二次 run()/build 场景）
-        self._auto_cp_hooked = False
         return runner
 
     # ------------------------------------------------------------------
@@ -210,18 +207,18 @@ class Module:
         return self._runner
 
     def close(self) -> None:
-        """释放 Module 持有的 SQLite 连接（``_checkpoint_store``，懒创建）。
+        """释放 Module 持有的 SQLite 连接（``_input_store``，懒创建）。
 
         run()/resume() 结束后可调用；幂等（重复调用安全）。再次 run()/resume()
-        会按需重新创建 store（``_register_auto_checkpoint`` 懒重建）。
+        会按需重新创建 store（``_archive_module_inputs`` 懒重建）。
 
         注：runner 持有的 SqliteBackend 连接属于 runner 生命周期，由调用方
         管理（与既有行为一致），本方法只关闭 Module 自己创建的
-        AutoCheckpointStore 连接，不触碰 runner。
+        ModuleInputStore 连接，不触碰 runner。
         """
-        if self._checkpoint_store is not None:
-            self._checkpoint_store.close()
-            self._checkpoint_store = None
+        if self._input_store is not None:
+            self._input_store.close()
+            self._input_store = None
 
     def snapshot(self) -> dict:
         """进程内全量快照：{spec, tasklist, runner_snapshot} 三件套。
@@ -264,57 +261,51 @@ class Module:
             raise RuntimeError("检查点需要 persist=True（fast mode 零持久化）")
         runner.rollback_to(label)
 
-    def list_checkpoints(self) -> list[tuple[str, int, str]]:
-        """全部检查点 (label, tick, kind)，按 tick 升序。kind ∈ {"auto", "manual"}。
+    def list_checkpoints(self) -> list[tuple[int, str | list[str], str]]:
+        """全部检查点 (tick, fired 或 label, kind)，按 tick 升序。
 
-        auto：Module 自动检查点（环形保留 20）；manual：checkpoint() 手动检查点。
-        不依赖 runner——跨进程场景（新 Module 实例）也可查询。
+        kind ∈ {"tick", "manual"}：tick = snapshots 表每 tick 最小快照
+        （fired 节点列表，历史审阅雏形）；manual = checkpoint() 手动检查点
+        （label）。不依赖 runner——跨进程场景（新 Module 实例）也可查询。
         """
-        out: list[tuple[str, int, str]] = []
-        store = AutoCheckpointStore(self.module_id)
-        try:
-            out.extend((label, tick, "auto") for label, tick in store.list())
-        finally:
-            store.close()
+        out: list[tuple[int, str | list[str], str]] = []
         if self.persist:
             backend = SqliteBackend(_persist_dir(self.module_id))
             try:
+                for tick in backend.list_snapshots(self.module_id):
+                    snap = backend.load_snapshot(self.module_id, tick)
+                    if snap is None:
+                        continue
+                    out.append((tick, list(snap.get("fired", [])), "tick"))
                 out.extend(
-                    (label, tick, "manual")
+                    (tick, label, "manual")
                     for label, tick in backend.list_checkpoints(self.module_id)
                 )
             except Exception:
-                log.exception("手动检查点列表读取失败（忽略）")
+                log.exception("检查点列表读取失败（忽略）")
             finally:
-                # 显式释放连接（WAL PRAGMA + 建表 + 迁移检查的独立连接），
-                # 与 AutoCheckpointStore 的显式 close 一致，不依赖 GC。
                 backend.close()
-        return sorted(out, key=lambda item: item[1])
+        return sorted(out, key=lambda item: item[0])
 
-    def _load_checkpoint(self, label: str) -> dict | None:
-        """查找检查点：先 auto 表（AutoCheckpointStore），后手动表（backend）。
+    @staticmethod
+    def _resolve_target(backend: SqliteBackend, module_id: str, rollback_to: int | str) -> dict | None:
+        """解析回退目标：tick 号 → snapshots 表；manual:xxx → checkpoints 表。
 
-        两个表都没有 → None（调用方决定如何报错）。两表连接均显式关闭
-        （手动表查找曾泄漏 SqliteBackend 连接）。
+        其他（非数字、非 manual 前缀）返回 None——调用方抛 KeyError。
         """
-        store = AutoCheckpointStore(self.module_id)
-        try:
-            snap = store.load(label)
-            if snap is not None:
-                return snap
-            backend = SqliteBackend(_persist_dir(self.module_id))
-            try:
-                return backend.load_checkpoint(self.module_id, label)
-            finally:
-                backend.close()
-        finally:
-            store.close()
+        if isinstance(rollback_to, int) or (
+            isinstance(rollback_to, str) and rollback_to.isdigit()
+        ):
+            return backend.load_snapshot(module_id, int(rollback_to))
+        if isinstance(rollback_to, str) and rollback_to.startswith("manual:"):
+            return backend.load_checkpoint(module_id, rollback_to)
+        return None
 
     async def run(self, max_ticks: int = 100):
         """执行翻译 → 构建 → 运行。一步跑完。
 
-        persist=True 时：注册自动检查点 hook（每 tick 存一个，环形保留 20），
-        并归档本次 spec/tasklist 到 module_inputs 表。
+        persist=True 时：每 tick 由 tickflow ``_persist_tick`` 落盘最小快照，
+        并归档本次 spec/tasklist 到 module_inputs 表（``_archive_module_inputs``）。
         """
         try:
             runner = await self._build_runner_async()
@@ -324,8 +315,8 @@ class Module:
         return await self._run_with_phases(runner, max_ticks)
 
     async def _run_with_phases(self, runner: AsyncRunner, max_ticks: int) -> list:
-        """注册自动检查点 → 运行 → 按结果映射终态 phase（run/resume 共用）。"""
-        self._register_auto_checkpoint()
+        """归档本次输入 → 运行 → 按结果映射终态 phase（run/resume 共用）。"""
+        self._archive_module_inputs()
         self._write_phase("running")
         try:
             firings = await runner.run_until_idle(max_ticks=max_ticks)
@@ -339,28 +330,20 @@ class Module:
             self._finalize_phase(runner)
         return firings
 
-    def _register_auto_checkpoint(self) -> None:
-        """persist=True 时：注册 on_tick_end hook 存自动检查点 + 归档 module_inputs。
+    def _archive_module_inputs(self) -> None:
+        """归档本次运行的 spec/tasklist 到 module_inputs 表（警告 1 对比源）。
 
-        幂等：重复调用只注册一次（hook 存于 Module 状态，run/resume 复用）。
+        run()/resume() 共用（_run_with_phases 开头调用）；resume 中位于
+        兼容性校验与 restore 之后——先读旧存档再覆盖，顺序正确。
         """
-        if not self.persist or self._runner is None:
+        if not self.persist:
             return
-        if self._checkpoint_store is None:
-            self._checkpoint_store = AutoCheckpointStore(self.module_id)
-        store = self._checkpoint_store
+        if self._input_store is None:
+            self._input_store = ModuleInputStore(self.module_id)
         assert self._last_tasklist is not None
-        store.save_module_inputs(
-            self.spec.to_dict(), tasklist_to_dict(self._last_tasklist)
+        self._input_store.save_module_inputs(
+            self.spec.to_dict(), self._last_tasklist.to_dict()
         )
-        if not self._auto_cp_hooked:
-            runner = self._runner
-
-            def _hook(tick: int, firings: list) -> None:
-                store.save(f"auto:tick:{tick}", runner.snapshot())
-
-            runner.on_tick_end(_hook)
-            self._auto_cp_hooked = True
 
     def _finalize_phase(self, runner: AsyncRunner) -> None:
         """按 runner.status 映射终态 phase（run/resume 共用）。"""
@@ -376,59 +359,68 @@ class Module:
         else:
             self._write_phase("done")
 
-    async def resume(self, rollback_to: str, max_ticks: int = 100):
-        """跨进程续跑：从检查点恢复 + 用当前 spec/tasklist 重建未执行部分。
+    async def resume(self, rollback_to: int | str, max_ticks: int = 100):
+        """跨进程续跑：从 tick 号/手动检查点恢复 + 用当前 spec/tasklist 重建未执行部分。
 
-        流程：检查点查找（auto 表 → 手动表）→ 新图全量重建 → 兼容性校验
-        （硬错误拒绝，不触碰 runner）→ restore + remap_graph 移植 marking →
-        注册自动检查点 hook → 续跑。
+        流程：回退目标解析（tick 号 → snapshots 表；manual:xxx → checkpoints
+        表）→ 新图全量重建 → 兼容性校验（硬错误拒绝，不触碰 runner）→
+        restore → 归档新输入 → 续跑。
 
-        要求 persist=True（自动检查点依赖 SQLite backend）。
+        要求 persist=True（快照依赖 SQLite backend）。
 
         max_ticks 是绝对 tick 上限：从 restore 的 tick 起继续计数（如
         restore 于 tick 95，则默认 100 只剩 5 个 tick 可跑）。
         """
         if not self.persist:
             raise RuntimeError(
-                "resume 需要 persist=True（自动检查点依赖 SQLite backend）"
+                "resume 需要 persist=True（快照依赖 SQLite backend）"
             )
 
-        # 1. 检查点查找：auto 表 → 手动表（_load_checkpoint 内连接显式关闭）
-        snap = self._load_checkpoint(rollback_to)
-        if snap is None:
-            available = ", ".join(
-                label for label, _, _ in self.list_checkpoints()
-            ) or "（无）"
-            raise KeyError(
-                f"检查点 {rollback_to!r} 不存在（可用: {available}）"
-            )
-        store = AutoCheckpointStore(self.module_id)
+        # 1. 回退目标解析 + 已执行节点（同一连接，避免多次打开 run.sqlite）
+        backend = SqliteBackend(_persist_dir(self.module_id))
+        try:
+            snap = self._resolve_target(backend, self.module_id, rollback_to)
+            if snap is None:
+                ticks = backend.list_snapshots(self.module_id)
+                manual = [label for label, _ in backend.list_checkpoints(self.module_id)]
+                raise KeyError(
+                    f"回退目标 {rollback_to!r} 不存在"
+                    f"（可用 tick: {ticks or '无'}；manual: {manual or '无'}）"
+                )
+            # 已执行节点：firings 表中 tick < 快照 tick 的去重节点
+            # （S3 后快照不再含 edges 窗口）。快照 tick N = 第 N-1 tick 结束时
+            # 落盘（_persist_tick 在 tick_count 自增后保存）——执行过的 firing
+            # 记 tick ≤ N-1，即严格小于 N；tick == N 的记录属于快照之后才
+            # 发生的 tick，restore 后会被重跑，不算"已执行"。
+            executed_nodes = {
+                d["node"] for d in backend.list_firings(self.module_id)
+                if d.get("node") and int(d.get("tick", 0)) < int(snap.get("tick", 0))
+            }
+        finally:
+            backend.close()
+
+        # 2. 旧输入存档（警告 1 对比源；覆盖前读取）
+        store = ModuleInputStore(self.module_id)
         try:
             old_inputs = store.load_module_inputs()
         finally:
             store.close()
 
-        # 2. 新 spec/tasklist 全量重建（含校验 + 一致性审核）
+        # 3. 新 spec/tasklist 全量重建（含校验 + 一致性审核）
         try:
             runner = await self._build_runner_async()
         except Exception as e:
             self._write_phase("aborted", error=str(e))
             raise
 
-        # 3. 兼容性校验（构造 runner 后、restore 前；硬错误拒绝且不触碰状态）
-        executed_nodes = set(
-            snap.get("run_state", {}).get("edges", {}).keys()
-        )
+        # 4. 兼容性校验（构造 runner 后、restore 前；硬错误拒绝且不触碰状态）
         marking = snap.get("marking") or {}
-        marking_slots = marking.get("slots")
-        # snapshot 的 marking.armed_starts 是排序 list（engine.py:72）
-        armed_starts = marking.get("armed_starts")
         old_tl = tasklist_from_dict(old_inputs["tasklist"]) if old_inputs else None
         check = check_resume_compat(
             self._last_tasklist, runner.graph, executed_nodes,
             old_tasklist=old_tl,
-            marking_slots=marking_slots,
-            armed_starts=armed_starts,
+            marking_slots=marking.get("slots"),
+            armed_starts=marking.get("armed_starts"),
         )
         for w in check.warnings:
             log.warning("resume 兼容性警告: %s", w)
@@ -436,9 +428,7 @@ class Module:
             self._write_phase("aborted", error="resume 兼容性校验失败")
             raise ResumeError(check.hard_errors)
 
-        # 4. restore + remap：移植检查点 marking 到新图
+        # 5. restore + 续跑（phase 写盘与 run() 共用；不再 remap_graph——
+        #    restore 已设好 marking，同图 remap 是 no-op，C2）
         runner.restore(snap)
-        runner.remap_graph(runner.graph)
-
-        # 5. 注册自动检查点 + 续跑（phase 写盘与 run() 共用）
         return await self._run_with_phases(runner, max_ticks)

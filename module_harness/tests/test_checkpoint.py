@@ -546,11 +546,12 @@ class TestModuleSnapshotAPI:
         mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
         mod.build_runner()
         mod.checkpoint("manual:start")
+        # manual 条目形状 (tick, label, "manual")
         assert ("manual:start", 0) in [
-            (l, t) for l, t, _ in mod.list_checkpoints()
+            (t, l) for l, t, _ in mod.list_checkpoints()
         ]
         # 手动检查点 kind 为 manual
-        assert ("manual:start", 0, "manual") in mod.list_checkpoints()
+        assert (0, "manual:start", "manual") in mod.list_checkpoints()
         mod.rollback_to("manual:start")
         assert mod._runner.tick_count == 0
 
@@ -592,15 +593,10 @@ class TestModuleSnapshotAPI:
             mod.rollback_to("x")
 
 
-class TestAutoCheckpointHook:
+class TestPerTickSnapshotPersistence:
     @pytest.fixture(autouse=True)
     def _close_created_modules(self):
-        """teardown 关闭本类测试创建的 Module（释放懒创建的 store 连接）。
-
-        Module.close() 是显式 API；测试内实例局部创建、fixture 拿不到引用，
-        由 _make_module 记录后统一在 teardown 关闭——避免 -W error 下
-        unclosed database 计数随 persist 测试数量线性增长。
-        """
+        """teardown 关闭本类测试创建的 Module（释放懒创建的 store 连接）。"""
         self._created_modules: list[Module] = []
         yield
         for mod in self._created_modules:
@@ -621,31 +617,28 @@ class TestAutoCheckpointHook:
         return mod
 
     @pytest.mark.asyncio
-    async def test_run_writes_auto_checkpoints(self, mock_llm, tmp_path, monkeypatch):
+    async def test_run_writes_per_tick_snapshots(self, mock_llm, tmp_path, monkeypatch):
+        """每 tick 落盘最小快照：snapshots 表含 tick 1..4，含 fired 轨迹。
+
+        tick 编号：_persist_tick 在 tick_count 自增后落盘（快照 tick = 刚
+        完成的 tick + 1）——三节点链 tick 0/1/2 各一次 firing + tick 3 空 →
+        快照 tick 1..4，fired 分别为 [A]/[B]/[C]/[]。
+        """
         mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
         await mod.run()
-        checkpoints = mod.list_checkpoints()
-        auto = [c for c in checkpoints if c[2] == "auto"]
-        # 三节点链：tick 0/1/2 各一次 firing，tick 3 空 → 自动检查点 auto:tick:0..3
-        assert auto, "应有自动检查点"
-        # 注：DB tick 列 = snap["tick"] = 捕获时的 tick_count（label+1）——resume
-        # 语义依赖该值（计划 test_resume_mid_loop_continues_state 要求
-        # auto:tick:1 的 snapshot.tick=2），故按 label 取"刚完成的 tick"断言轨迹。
-        ticks = sorted(int(label.split(":")[-1]) for label, _, _ in auto)
-        assert ticks == [0, 1, 2, 3]
-        # Task 5 resume 依赖的精确值：auto:tick:1 的 snapshot tick == 2
-        # （hook 捕获时 tick_count 已自增，DB tick 列 = label+1）
-        store = AutoCheckpointStore("mod_test")
-        try:
-            assert store.load("auto:tick:1")["tick"] == 2
-        finally:
-            store.close()
+        cps = mod.list_checkpoints()
+        ticks = [c for c in cps if c[2] == "tick"]
+        assert [t for t, _, _ in ticks] == [1, 2, 3, 4]
+        # fired 轨迹：快照 tick 2 = tick 1 完成的 B
+        assert (2, ["B"], "tick") in cps
+        # 空 tick 的 fired 为 []
+        assert (4, [], "tick") in cps
 
     @pytest.mark.asyncio
     async def test_run_archives_module_inputs(self, mock_llm, tmp_path, monkeypatch):
         mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
         await mod.run()
-        store = AutoCheckpointStore("mod_test")
+        store = ModuleInputStore("mod_test")
         inputs = store.load_module_inputs()
         store.close()
         assert inputs is not None
@@ -653,36 +646,19 @@ class TestAutoCheckpointHook:
         assert inputs["tasklist"]["Flow"] == "[A] --> B\nB --> C"
 
     @pytest.mark.asyncio
-    async def test_fast_mode_no_auto_checkpoints(self, mock_llm, tmp_path, monkeypatch):
+    async def test_fast_mode_no_checkpoints(self, mock_llm, tmp_path, monkeypatch):
         mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=False)
         await mod.run()
         assert mod.list_checkpoints() == []
 
     @pytest.mark.asyncio
-    async def test_auto_ring_caps_at_20(self, mock_llm, tmp_path, monkeypatch):
-        # 长链 25 个节点 → 25+ ticks → 环形保留 20
-        tasks = {
-            f"N{i}": TaskDefinition(type="script", script="echo",
-                                    inputs={"data": f"N{i-1}"} if i > 0 else None)
-            for i in range(25)
-        }
-        flow = "[N0] --> N1\n" + "\n".join(f"N{i} --> N{i+1}" for i in range(1, 24))
-        tl = Tasklist(tasks=tasks, flow=flow)
-        mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True, tasklist=tl)
-        await mod.run()
-        auto = [c for c in mod.list_checkpoints() if c[2] == "auto"]
-        assert len(auto) <= 20
-
-    @pytest.mark.asyncio
-    async def test_second_run_rehooks_auto_checkpoints(self, mock_llm, tmp_path, monkeypatch):
-        # I1 回归：同一实例二次 run()（_build_runner_async 换了新 runner）必须
-        # 重新注册自动检查点 hook——否则第二轮零写入（陈旧 hook 静默失效，
-        # list_checkpoints() 仍显示第一轮行，无法区分新旧）。
+    async def test_second_run_overwrites_snapshots(self, mock_llm, tmp_path, monkeypatch):
+        """同一实例二次 run()（新 runner）：快照按 (session, tick) 覆盖，新链扩展。"""
         mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
         await mod.run()
-        auto = [c for c in mod.list_checkpoints() if c[2] == "auto"]
-        assert len(auto) == 4          # 首轮三节点链：auto:tick:0..3
-        # 换 4 节点链二次 run：新 runner 应写入 auto:tick:0..4（5 行）
+        ticks1 = sorted(t for t, _, k in mod.list_checkpoints() if k == "tick")
+        assert ticks1 == [1, 2, 3, 4]
+        # 换 4 节点链二次 run：新 runner 快照 tick 1..5（1..4 覆盖 + 5 新增）
         tasks = {
             f"N{i}": TaskDefinition(type="script", script="echo",
                                     inputs={"data": f"N{i-1}"} if i > 0 else None)
@@ -692,26 +668,29 @@ class TestAutoCheckpointHook:
             tasks=tasks, flow="[N0] --> N1\nN1 --> N2\nN2 --> N3"
         )
         await mod.run()
-        auto = [c for c in mod.list_checkpoints() if c[2] == "auto"]
-        assert len(auto) == 5
+        ticks2 = sorted(t for t, _, k in mod.list_checkpoints() if k == "tick")
+        assert ticks2 == [1, 2, 3, 4, 5]
 
     @pytest.mark.asyncio
     async def test_module_close_releases_store(self, mock_llm, tmp_path, monkeypatch):
-        """Module.close() 释放懒创建的 _checkpoint_store 连接；幂等。"""
+        """Module.close() 释放懒创建的 _input_store 连接；幂等。"""
         import sqlite3
         mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
         await mod.run()
-        assert mod._checkpoint_store is not None      # run() 后 store 已懒创建
-        conn = mod._checkpoint_store._conn            # 实证：连接真实关闭
+        assert mod._input_store is not None        # run() 后 store 已懒创建
+        conn = mod._input_store._conn              # 实证：连接真实关闭
         mod.close()
-        assert mod._checkpoint_store is None
+        assert mod._input_store is None
         with pytest.raises(sqlite3.ProgrammingError):
-            conn.execute("SELECT 1")                  # 已关闭的连接不可再操作
-        mod.close()                                   # 幂等：重复调用不抛异常
-        # close 后再 run()：store 懒重建，自动检查点照常写入
+            conn.execute("SELECT 1")               # 已关闭的连接不可再操作
+        mod.close()                                # 幂等：重复调用不抛异常
+        # close 后再 run()：store 懒重建，module_inputs 照常写入
         await mod.run()
-        auto = [c for c in mod.list_checkpoints() if c[2] == "auto"]
-        assert auto
+        store = ModuleInputStore("mod_test")
+        try:
+            assert store.load_module_inputs() is not None
+        finally:
+            store.close()
 
 
 class TestResume:
@@ -747,13 +726,13 @@ class TestResume:
 
     @pytest.mark.asyncio
     async def test_resume_continues_from_checkpoint(self, mock_llm, tmp_path, monkeypatch):
-        """第一轮跑完 3 节点链；新实例微调后 resume 到 auto:tick:1。
+        """第一轮跑完 3 节点链；新实例微调后 resume 到 tick 2。
 
-        auto:tick:1 = B 已执行、C 未执行。resume 后只应重跑 C（用新定义）。
+        tick 2 快照 = B 已执行、C 未执行。resume 后只应重跑 C（用新定义）。
         """
         mod = self._make_module(mock_llm, tmp_path, monkeypatch)
         await mod.run()
-        assert any(c[2] == "auto" and c[1] == 1 for c in mod.list_checkpoints())
+        assert any(c[2] == "tick" and c[0] == 2 for c in mod.list_checkpoints())
 
         # 新 Module 实例（模拟跨进程）：微调 C 的 prompt
         new_tl = Tasklist(
@@ -766,7 +745,7 @@ class TestResume:
             flow="[A] --> B\nB --> C",
         )
         mod2 = self._make_module(mock_llm, tmp_path, monkeypatch, tasklist=new_tl)
-        firings = await mod2.resume(rollback_to="auto:tick:1")
+        firings = await mod2.resume(rollback_to=2)
         nodes = [f.node for f in firings]
         assert nodes == ["C"], f"resume 应只重跑 C，实际 {nodes}"
         # 运行结束状态
@@ -777,20 +756,20 @@ class TestResume:
 
     @pytest.mark.asyncio
     async def test_resume_deep_rollback_no_false_warning(self, mock_llm, tmp_path, monkeypatch, caplog):
-        """深回退到 auto:tick:0（A 刚执行完）：B、C 续跑，且无警告 3 误报。
+        """深回退到 tick 1（A 刚执行完）：B、C 续跑，且无警告 3 误报。
 
         I2 回归：旧实现只查节点自身入边在检查点的 slot 值，C 的 (C,B)=False
         会被误报"不会自动执行"——实际 B 将 fire 并产出该 slot，C 正常执行。
         """
         mod = self._make_module(mock_llm, tmp_path, monkeypatch)
         await mod.run()
-        # 注：DB tick 列 = snapshot.tick（label+1），auto:tick:0 的 tick 列是 1
-        assert any(c[2] == "auto" and c[0] == "auto:tick:0" for c in mod.list_checkpoints())
+        # tick 1 快照（fired=[A]）= A 刚执行完
+        assert any(c[2] == "tick" and c[0] == 1 for c in mod.list_checkpoints())
 
         mod2 = self._make_module(mock_llm, tmp_path, monkeypatch)
         import logging
         with caplog.at_level(logging.WARNING, logger="module_harness.module"):
-            firings = await mod2.resume(rollback_to="auto:tick:0")
+            firings = await mod2.resume(rollback_to=1)
         assert [f.node for f in firings] == ["B", "C"]
         assert not any("不会自动执行" in r.message for r in caplog.records)
 
@@ -822,7 +801,7 @@ class TestResume:
             registry=reg,
         )
         self._created_modules.append(mod2)   # 直接构造的实例也纳入 teardown 关闭
-        firings = await mod2.resume(rollback_to="auto:tick:1")
+        firings = await mod2.resume(rollback_to=2)
         assert [f.node for f in firings] == ["C"]
         # C 读到的 B 输出是 resume 前已执行的结果 {"ok": True}
         assert firings[0].output == {"echo": {"ok": True}}
@@ -844,7 +823,7 @@ class TestResume:
         mod2 = self._make_module(mock_llm, tmp_path, monkeypatch, tasklist=new_tl)
         import logging
         with caplog.at_level(logging.WARNING, logger="module_harness.module"):
-            firings = await mod2.resume(rollback_to="auto:tick:2")
+            firings = await mod2.resume(rollback_to=3)
         assert "D" not in [f.node for f in firings]
         assert any("D" in r.message for r in caplog.records)
 
@@ -853,14 +832,16 @@ class TestResume:
         mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=False)
         await mod.run()
         with pytest.raises(RuntimeError, match="persist=True"):
-            await mod.resume(rollback_to="auto:tick:1")
+            await mod.resume(rollback_to=2)
 
     @pytest.mark.asyncio
     async def test_resume_missing_checkpoint_raises_keyerror(self, mock_llm, tmp_path, monkeypatch):
         mod = self._make_module(mock_llm, tmp_path, monkeypatch, persist=True)
         await mod.run()
-        with pytest.raises(KeyError, match="nope"):
-            await mod.resume(rollback_to="nope")
+        with pytest.raises(KeyError, match="999"):
+            await mod.resume(rollback_to=999)
+        with pytest.raises(KeyError, match="abc"):
+            await mod.resume(rollback_to="abc")
 
     @pytest.mark.asyncio
     async def test_resume_hard_error_rejects(self, mock_llm, tmp_path, monkeypatch):
@@ -876,7 +857,7 @@ class TestResume:
         )
         mod2 = self._make_module(mock_llm, tmp_path, monkeypatch, tasklist=bad_tl)
         with pytest.raises(ResumeError, match="GHOST"):
-            await mod2.resume(rollback_to="auto:tick:1")
+            await mod2.resume(rollback_to=2)
         # runner 未被触碰：仍为构建后初始状态（tick 0）
         assert mod2._runner.tick_count == 0
         # 硬错误路径 phase 写盘为 aborted（M4：跨进程消费者不会误读 "ready"）
@@ -932,8 +913,8 @@ class TestResume:
             flow="[A] --> B\nB --> C",
         )
         mod2 = self._make_module(mock_llm, tmp_path, monkeypatch, tasklist=new_tl)
-        await mod2.resume(rollback_to="auto:tick:1")
-        store = AutoCheckpointStore("mod_test")
+        await mod2.resume(rollback_to=2)
+        store = ModuleInputStore("mod_test")
         try:
             inputs = store.load_module_inputs()
         finally:
@@ -1021,9 +1002,9 @@ class TestResumeLoop:
         mod = self._loop_module(mock_llm, tmp_path, monkeypatch)
         await mod.run()
         # n 从 0 递增：tick0→1, tick1→2, tick2→3（guard n<3 在 n=3 时放行退出），
-        # tick3 空 → auto:tick:0..3 共 4 个
-        auto = [c for c in mod.list_checkpoints() if c[2] == "auto"]
-        assert len(auto) == 4
+        # tick3 空 → 每 tick 快照 tick 1..4 共 4 个
+        tick_cps = [c for c in mod.list_checkpoints() if c[2] == "tick"]
+        assert len(tick_cps) == 4
         # 自循环正常终止（guard 放行退出），而非 max_ticks 截断
         from tickflow.runner import RunStatus
         assert mod._runner.status == RunStatus.IDLE
@@ -1033,9 +1014,10 @@ class TestResumeLoop:
         """回退到循环中途（n=2 处），重跑后 view.state 从该迭代继续。"""
         mod = self._loop_module(mock_llm, tmp_path, monkeypatch)
         await mod.run()
-        # auto:tick:1 的 snapshot.tick=2，truncate_after(1) 保留 n=1、n=2 记录
+        # tick 2 快照（fired=[counter]）= n=2 处；restore → truncate_after(1)
+        # 保留 n=1、n=2 记录
         mod2 = self._loop_module(mock_llm, tmp_path, monkeypatch)
-        firings = await mod2.resume(rollback_to="auto:tick:1")
+        firings = await mod2.resume(rollback_to=2)
         assert [f.node for f in firings] == ["counter"]
         # 重跑的 counter 输出应为 n=3（state 从 2 继续），而非从 1 重来
         assert firings[0].output == {"n": 3}

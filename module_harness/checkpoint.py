@@ -334,8 +334,3 @@ def check_resume_compat(
             )
 
     return ResumeCheck(hard_errors=hard_errors, warnings=warnings)
-
-
-# 兼容别名：module.py 仍在导入 AutoCheckpointStore（Task 10 随 module.py
-# 改写一并移除，届时删除本行）。
-AutoCheckpointStore = ModuleInputStore
