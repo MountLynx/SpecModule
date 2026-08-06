@@ -3,16 +3,16 @@
 > 最后更新：2026-08-06
 
 本文档追踪 SpecModule module 核心功能的开发状态与实现方向。
-范围限定：module 内核（harness / script / command / spec / tasklist / submodule / 编排 / 状态数据）。
-不包含：前端可视化、外部 agent 交互（MCP / 斜杠指令）、独立进程部署。
+
+**战略定位（2026-08-06 更新）**：框架能力（第一级：开发者层面）基本完成——执行元件、编排、状态数据、快照/回滚均已就绪。下一阶段聚焦**第二级：使用者层面**——让使用者能方便地运行、观察、审阅、接续工作流。实现方式遵循 **"每次新功能实现前先设计所需 SDK"** 的流程约定：数据查询接口先行，功能形态（CLI / AGENT / Web）作为 SDK 的消费方渐进叠加。
 
 ## 完成度速览
 
-已实现：**18** / 待实现：**1**
+已实现：**18** / 下一阶段：**4 个 Phase**（SDK → CLI → AGENT → Web）
 
 ---
 
-## 已实现 ✅
+## 已实现 ✅（第一级：框架能力）
 
 ### 执行元件
 
@@ -49,23 +49,56 @@
 
 ---
 
-## 待实现 🔲
+## 下一阶段 🔜（第二级：使用者层面）
 
-### 6. 数据暴露 SDK
+> 战略：框架能力已就绪，聚焦使用者体验。三个消费形态**渐进叠加**：
+> **CLI（终端）→ AGENT（MCP/ACP）→ Web（可视化）**。
+> 流程约定：**每个新功能实现前先设计所需 SDK**——SDK 是唯一数据查询层，形态只是它的消费方。
 
-**说明**：为状态监控、可视化、外部 agent 提供统一的数据查询接口。不是新数据容器，而是对 tickflow RunState + EventBus 的查询封装。随功能开发渐进生长。
+### Phase 0：数据暴露 SDK（#6）
+
+**说明**：统一数据查询接口，作为后续所有使用者形态的公共地基。不是新数据容器，而是对 tickflow RunState + EventBus + run.sqlite 的查询封装。进程内（注入 runner）与跨进程（读 run.sqlite）统一语义。
 
 **实现方向**：
-- `ModuleSDK` 类，构造时注入 runner + event_bus
-- 初始骨架预留接口，按需实现：
-  - `outputs_history()` → RunState._edges — 带来源标记的输出历史
-  - `audit_timeline()` → RunState._records — 可视化进度时间线
-  - `node_events(node)` → EventBus 录制 — 节点运行时详情（prompt、token 流、script 运行状态等）
-  - `current_state()` → RunState._state — 当前节点状态快照
-  - `snapshot()` / `restore_data()` — 预留回滚接口
-  - `alignment_status()` — 预留对齐检查结果
-- 非 Module 内部实现——独立模块，消费者按需使用
-- 核心原则：**不做新数据容器，只做查询封装**。数据唯一真相源是 tickflow RunState + EventBus
+- `ModuleSDK`：查询封装，接口先于功能定稿
+  - `outputs_history()` → 输出历史（带 tick/来源标记）——firings 表
+  - `audit_timeline()` → 每 tick 每节点的 inputs/output/status/error —— firings 表
+  - `node_events(node)` → EventBus 录制（prompt、token 流、script 运行状态）
+  - `current_state()` → 节点 mutable state
+  - `checkpoints()` / `snapshot()` / `restore_data()` → 快照/回滚查询
+  - `alignment_status()` → 对齐检查结果
+- 核心原则：**不做新数据容器，只做查询封装**。数据唯一真相源是 tickflow RunState + firings 表 + EventBus
+- 依赖：#5 快照/回滚（fired 轨迹、自包含快照）已就位
+
+### Phase 1：CLI 使用者界面 + 历史审阅
+
+**说明**：第一个消费形态。扩展 tickflow/cli.py 之外的 Module 层命令（`specmodule` CLI），覆盖使用者的完整工作流：运行、观察、审阅、接续。
+
+**实现方向**：
+- `specmodule run` — 从 spec/tasklist/模板运行工作流
+- `specmodule status` — 查询运行状态（对齐 `query_run_status`）
+- `specmodule review` — **历史审阅**（本阶段核心新功能）：按 tick 列出每节点产出/错误（tick ↔ 产出对应，fired 轨迹 + firings 表已铺好基础），定位问题 tick
+- `specmodule snapshot / resume / rollback` — 快照/回滚/续跑操作
+- `specmodule visualize` — mermaid/文本图导出（Graph.to_mermaid 已存在）
+- 依赖：Phase 0 SDK（review/status 等命令消费 SDK 查询）
+
+### Phase 2：AGENT 接口（MCP / ACP）
+
+**说明**：第二个消费形态。把 SDK 查询能力暴露给外部 agent（MCP 服务或 ACP），让 agent 能读取工作流数据、发起运行、审阅产出。
+
+**实现方向**：
+- MCP 服务：SDK 方法映射为 MCP 工具（run/status/review/snapshot/resume）
+- 或 ACP（Agent Client Protocol）——实现时二选一，以生态成熟度与目标 agent 环境为准
+- 依赖：Phase 0 SDK（MCP 薄层，零逻辑）
+
+### Phase 3：Web 可视化
+
+**说明**：第三个消费形态。浏览器面板：实时运行状态、历史审阅时间线、产出对比。独立前端，消费 SDK。
+
+**实现方向**：
+- 前端：实时 tick 流、节点状态图、审阅面板
+- 后端：SDK 的 HTTP 封装（或直接消费跨进程查询）
+- 依赖：Phase 0 SDK + Phase 1 历史审阅语义
 
 ---
 
@@ -73,32 +106,41 @@
 
 | 功能 | 说明 |
 |------|------|
-| 前端可视化 | 见可视化专项设计（未来） |
-| 外部 agent 调用 (MCP) | 见 MCP 专项设计（未来） |
 | 自建 agent (斜杠指令) | 见 agent 专项设计（未来） |
 | module 独立进程 | 多进程架构（未来） |
 | 框架自带 script 库 | 常用场景脚本集合（未来） |
+| 跨 session 快照重进/派生分支（issue #1） | 底层已就位（自包含快照 + fired），Module 层显式 API 待需求驱动 |
 
 ---
 
 ## 实现顺序建议
 
 ```
+第一阶段（已完成 ✅）：框架能力
 ┌─────────────────────────┐
-│ 1. spec+tasklist 输入   │  ✅ 已完成（含一致性审核 #4）
+│ 1. spec+tasklist 输入   │  ✅（含一致性审核）
 ├─────────────────────────┤
-│ 2. 运行状态查询         │  ✅ 已完成
+│ 2. 运行状态查询         │  ✅
 ├─────────────────────────┤
-│ 3. 对齐检查 harness     │  ✅ 已完成
+│ 3. 对齐检查 harness     │  ✅
 ├─────────────────────────┤
-│ 4. 一致性审核           │  ✅ 随 #1 完成
+│ 4. 一致性审核           │  ✅
 ├─────────────────────────┤
-│ 5. submodule + 打包/发布│  ✅ 已完成
+│ 5. submodule + 打包/发布│  ✅
 ├─────────────────────────┤
-│ 6. 快照/回滚封装        │  ✅ 已完成
+│ 6. 快照/回滚封装        │  ✅（含冗余清理、S3 自包含修正）
+└─────────────────────────┘
+
+第二阶段（进行中 🔜）：使用者层面
+┌─────────────────────────┐
+│ 0. 数据暴露 SDK (#6)    │  ← 地基先行（SDK 先行约定）
 ├─────────────────────────┤
-│ 7. SDK 数据暴露层       │  ← 可与其他并行，渐进生长
+│ 1. CLI + 历史审阅       │  ← 第一个形态（SDK 首个用例）
+├─────────────────────────┤
+│ 2. AGENT (MCP/ACP)      │  ← 第二个形态（SDK 薄封装）
+├─────────────────────────┤
+│ 3. Web 可视化           │  ← 第三个形态（独立前端）
 └─────────────────────────┘
 ```
 
-`#1 → #4 → #5 → #6` 有依赖链。#5 已随 submodule 系统完成。`#5` 是最大的任务——submodule + 打包发布合并实现，一次设计覆盖"嵌入式运行 + 自描述清单 + 模块发布"。`#3`（对齐检查）与 `#7`（运行状态查询）已独立完成。
+依赖链：Phase 0 → 1 → 2 → 3 顺序推进；每 Phase 独立 spec → plan → 实现。历史审阅（Phase 1 核心）依赖 fired 轨迹 + firings 表（已就位）。AGENT/Web 形态依赖 SDK 定稿（Phase 0 先行设计的价值所在）。
