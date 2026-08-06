@@ -1,9 +1,11 @@
 # 轻量快照（每 tick O(1)）设计文档
 
-> **范围扩展（2026-08-06）**：轻量快照进一步最小化——持久路径快照剥离
-> `run_state.edges/fire_counts/state`（S3 死数据：restore 的 truncate_after
-> 本就从 firings 重建）；`resume()` 改 tick 号回退；`list_checkpoints()` 显示
-> (tick, fired)。详见 `2026-08-06-redundancy-cleanup-design.md`。
+> **范围扩展（2026-08-06）**：本设计按计划落地——`_persist_tick` 存轻量快照
+> （剥离 records）+ `fired` 轨迹；`resume()` 改 tick 号回退；`list_checkpoints()`
+> 显示 (tick, fired)。曾尝试进一步剥离 `run_state.edges/fire_counts/state`
+> （最小快照），但 Graph 自有测试证明快照自包含契约（restore 到新 runner）
+> 需要它们，故保留（S3 修正，见冗余清理设计）。详见
+> `2026-08-06-redundancy-cleanup-design.md`。
 
 > 日期：2026-08-07 | 状态：已确认，待实现
 > 关联：roadmap #5 快照/回滚的存储演进；tickflow 跨仓库同步（Graph 仓库为源）

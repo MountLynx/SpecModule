@@ -20,7 +20,7 @@
 |---|------|------|------|
 | **S1** | 每 tick 快照内嵌完整审计 records（每份 O(t)，总量 O(n²)）；同一 records 已逐 tick 写入 firings 表 | `state.py` `to_snapshot_data`（records 分支）+ `runner.py` `_persist_tick` | 无性能必要（restore 从 firings 重建）；无功能必要（持久路径 audit() 也从 backend 查询）→ **剥离** |
 | **S2** | `auto_checkpoints` 表 = `snapshots` 表**每 tick 双写同一份快照**（同一 run.sqlite 两个表，`on_tick_end` hook 与 `_persist_tick` 各存一次） | `module.py` `_register_auto_checkpoint` hook + `checkpoint.py` `AutoCheckpointStore` | 无必要 → **删除表 + hook** |
-| **S3** | 持久路径快照的 `run_state.edges/fire_counts/state` 是**死数据**：`restore()` → `truncate_after()` 持久分支总是从 firings 全量重建（`state.py:423-460`），快照中存储的副本从不被读取 | `state.py` `to_snapshot_data` + `runner.py` `_persist_tick` | 无性能必要（重建本来就跑，快照副本不省任何 restore 成本）；无功能必要（唯一读方 `resume()` 的 executed_nodes 与 `query_run_status` 可迁移到 firings）→ **最小快照剥离**（比轻量快照文档的 O(节点+边) 再减半为 O(边)） |
+| **S3** | 持久路径快照的 `run_state.edges/fire_counts/state` 在**同 session restore** 下是死数据（`truncate_after` 从 firings 重建）；但快照**自包含契约**（Graph 库 branching / restore-into-new-runner，`test_persistence.py` 钉住）要求快照可 restore 到无 history 的 backend——此时重建无据，必须自带窗口/状态 | `state.py` `to_snapshot_data` + `runner.py` `_persist_tick` | **功能必要（自包含契约）→ 保留**。S3 曾误判为死数据并实现"最小快照"，Graph 自有测试逮到跨 session restore 回归后修正：快照 = **轻量**（剥离 records，O(节点+边)） |
 | **S4** | tasklist→dict 转换 3 处独立实现（内容逐行相同） | `checkpoint.py:40-45` `tasklist_to_dict`、`consistency.py:82-88` 内联、`graph_builder.py:63-68` 内联 | 无必要 → **统一为 `Tasklist.to_dict()`**（spec.py 单一事实源） |
 
 ## 二、重复计算 — 修复
@@ -62,23 +62,23 @@
 
 ## 四、修复设计
 
-### D1. 轻量 + 最小快照（tickflow: `state.py` / `runner.py` / `async_runner.py`）
+### D1. 轻量快照（tickflow: `state.py` / `runner.py` / `async_runner.py`）
 
-- `RunState.to_snapshot_data(include_records: bool = True, minimal: bool = False)`：
-  - `minimal=True`：run_state 只含 `{"keep_records": ...}`（**必须保持非空 dict**——`Runner.restore` 的 `if run_snap:` truthy 分支依赖它，空 dict 会误入 legacy 路径）
-  - `include_records=False`：剥离 records（S1）
-- `Runner.snapshot(include_records=True, minimal=False)` 透传两参数。`_persist_tick` 改为 `_persist_tick(fired: list[str])`，持久路径存**最小快照**：
+- `RunState.to_snapshot_data(include_records: bool = True)`：`include_records=False` 剥离 records（S1）
+- `Runner.snapshot(include_records=True)` 透传。`_persist_tick` 改为 `_persist_tick(fired: list[str])`，持久路径存**轻量快照**（含 edges/fire_counts/state 保证自包含，S3 修正后无 minimal 参数）：
 
   ```json
-  { "tick": N, "marking": {...}, "run_state": {"keep_records": true},
+  { "tick": N, "marking": {...},
+    "run_state": {"edges": {...}, "fire_counts": {...}, "state": {...},
+                  "keep_records": true, /* 无 records */},
     "status": "...", "cancel_reason": ..., "fireable": [...], "fired": [...] }
   ```
 
-  大小 O(边数)，不随运行 tick 增长，且无死数据（S3）。
+  大小 O(节点数 + 边数)，不随运行 tick 增长。
 - `Runner.tick()` / `AsyncRunner.tick()` 调用 `_persist_tick([f.node for f in firings])`；空 tick（无 fireable）为 `[]`，快照照存（轨迹连续性，与轻量快照文档一致）。
-- **restore 零改动**：`truncate_after` 持久分支已从 firings 重建 edges/fire_counts/state；`from_snapshot_data` 对缺 key 已容错。
+- **restore 零改动**：同 session 时 `truncate_after` 持久分支从 firings 重建；跨 session/新 runner 时快照自带 edges/state 兜底（自包含契约）。
 - **内存路径（NullBackend）不变**：`_persist_tick` 不存快照；`checkpoint()`/`to_json` 仍走全量 `snapshot()`（无法从空后端重建，功能必要）。
-- 旧快照（含 edges/state/records、无 fired）restore 兼容：`fired` 用 `.get("fired", [])` 容错。
+- 旧快照（含 records、无 fired）restore 兼容：`fired` 用 `.get("fired", [])` 容错。
 
 ### D2. 消费方迁移（tickflow: `persistence.py` + module_harness: `module.py` / `status.py`）
 
@@ -92,7 +92,7 @@
   - snapshots 表条目：`(tick, fired 节点列表, "tick")`（逐 tick `load_snapshot` 读 `fired`——历史审阅雏形，`fired` 的唯一消费方；条目量大时可后续加轻量查询，本设计不做）
   - manual checkpoints 条目：`(tick, label, "manual")`（沿用既有 `list_checkpoints`）
   - 环形 20 概念消失。
-- **`query_run_status`**：`status/tick/fireable/fired` 从最小快照读；`outputs/node_states` 改从 firings 读——新增 `SqliteBackend.latest_firings(session_id) -> list[dict]`：每节点最后一 firing（`(tick, node)` 去重 keep-first，语义与 `firings_of` 一致），O(会话内 firings)（`idx_firings_node` 索引限定 session 范围）。
+- **`query_run_status`**：`status/tick/fireable/fired` 从轻量快照读；`outputs/node_states` 改从 firings 读——新增 `SqliteBackend.latest_firings(session_id) -> list[dict]`：每节点最后一 firing（`(tick, node)` 去重 keep-first，语义与 `firings_of` 一致），O(会话内 firings)（`idx_firings_node` 索引限定 session 范围）。
 
 ### D3. auto_checkpoints 退役（module_harness: `checkpoint.py` / `module.py` / `__init__.py`）
 
@@ -136,8 +136,8 @@
 
 ### tickflow 侧（本仓库无独立 tickflow tests，经 module_harness 测试覆盖）
 
-- 最小快照落盘：`_persist_tick` 后直查 DB，snapshots.data 无 records/edges/state/fire_counts，含 `fired` 正确值
-- **restore 等价性**：最小快照 restore → 窗口/计数/state 从 firings 重建 → 续跑正确；与全量快照 restore 结果一致
+- 轻量快照落盘：`_persist_tick` 后直查 DB，snapshots.data 无 records（含 edges/fire_counts/state 与 `fired` 正确值）
+- **restore 等价性**：轻量快照 restore（同 session：从 firings 重建；跨 session/新 runner：快照自带窗口/状态兜底）→ 续跑正确；与全量快照 restore 结果一致
 - 旧快照（含 edges/state/records）restore 兼容
 - fireable 透传：engine.tick(fireable=...) 与不传结果一致
 - checker 缓存：`check()` 输出与改动前逐项相等（golden 断言）
@@ -154,8 +154,8 @@
 
 ## 六、实现顺序
 
-1. tickflow：ir 索引（D8）→ checker 缓存（D7）→ engine fireable（D4）→ state/runner 最小快照（D1）+ `latest_firings`（D2）
+1. tickflow：ir 索引（D8）→ checker 缓存（D7）→ engine fireable（D4）→ state/runner 轻量快照（D1）+ `latest_firings`（D2）
 2. module_harness：prompt 正则（C5）→ Tasklist.to_dict（D6）→ auto_checkpoints 退役（D3）→ resume/list_checkpoints/query_run_status 迁移（D2）
 3. 测试改写 + 新增 → 全量回归（`python -m pytest module_harness/tests/ -q`）
-4. 文档：roadmap #5 描述更新（自动检查点 → 轻量快照 + 最小快照）、旧 spec 标注 auto_checkpoints 退役、本设计标记已实现
+4. 文档：roadmap #5 描述更新（自动检查点 → 轻量快照）、旧 spec 标注 auto_checkpoints 退役、本设计标记已实现
 5. 提交；tickflow 改动清单备注随 sync 机制同步上游 Graph 仓库

@@ -10,6 +10,14 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-06-redundancy-cleanup-design.md`
 
+> **执行修订（2026-08-06，落地后）**：Task 4/5 的"最小快照"（剥离
+> edges/fire_counts/state）在同步到上游 Graph 仓库时被其自有测试
+> （`test_persistence.py` 跨 session restore 到新 runner）证伪——快照自包含
+> 契约需要窗口/状态，S3 判定修正为"功能必要 → 保留"。最终实现 = **轻量快照**
+> （仅剥离 records，含 `fired`）；`to_snapshot_data`/`snapshot` 无 `minimal`
+> 参数。本计划各 Task 中涉及 `minimal` 的代码以提交
+> `daddf9a`（SpecModule）为准。
+
 ---
 
 ## 文件结构
