@@ -2,13 +2,13 @@
 
 可审计、可调试、可完全掌控的 LLM 使用框架。
 
-将 LLM 调用拆分为可组合的 Petri 网节点，每个节点是最小执行单元——翻译、审查、shell 命令、Python 函数。节点通过有向边连接（支持 AND/OR 汇合、循环），引擎以同步步进执行，所有状态集中记录。快照、暂停、回退对单个 tick 粒度都是低开销的。
+将 LLM 调用拆分为可组合的 Petri 网节点，每个节点是最小执行单元——翻译、审查、shell 命令、Python 函数。节点通过有向边连接（支持 AND/OR 汇合、循环），引擎以同步步进执行，所有状态集中记录。**每 tick 落盘轻量快照**，快照、暂停、精确回退（tick 号）都是低开销的。
 
 ## 架构
 
 ```
 SpecModule/
-├── tickflow/              # Petri 网工作流引擎（独立子项目）
+├── tickflow/              # Petri 网工作流引擎（独立子项目，上游 Graph 仓库同步）
 │   ├── engine.py          #   纯函数 tick 引擎
 │   ├── runner.py          #   Runner / AsyncRunner
 │   ├── state.py           #   RunState — 唯一真相源
@@ -17,19 +17,26 @@ SpecModule/
 │   ├── client.py
 │   └── config.py
 ├── module_harness/        # Module 上层抽象
-│   ├── events.py          #   EventBus + 类型化事件
-│   ├── config.py          #   HarnessConfig
-│   ├── harness.py         #   Harness 类（LLM 调用节点）
+│   ├── module.py          #   Module 编排器（run/resume/snapshot/rollback）
 │   ├── registry.py        #   HarnessRegistry（harness / script / command 注册）
+│   ├── harness.py         #   Harness 类（LLM 调用节点，三层 prompt）
 │   ├── command.py         #   Command 节点（shell 子进程）
 │   ├── prompt.py          #   三层 prompt 渲染
 │   ├── outputfmt.py       #   输出格式校验 + 自动提取
 │   ├── spec.py            #   Spec, Tasklist, TasklistTemplate 数据模型
 │   ├── translator.py      #   spec → tasklist 翻译 + 校验 + 模板加载
 │   ├── graph_builder.py   #   tasklist → tickflow Graph
-│   ├── module.py          #   Module 编排器
-│   └── templates/         #   内置任务模板
-└── docs/                  # 设计文档、规范、路线图
+│   ├── consistency.py     #   spec + tasklist 一致性审核
+│   ├── align.py           #   对齐检查 harness
+│   ├── checkpoint.py      #   运行输入存档 + resume 兼容性校验
+│   ├── status.py          #   跨进程运行状态查询
+│   ├── submodule.py       #   类式 module 定义 + 打包发布
+│   ├── loader.py          #   module 加载 + 依赖校验
+│   ├── builtins.py        #   内置 harness 集
+│   ├── events.py          #   EventBus + 类型化事件
+│   ├── templates/         #   内置任务模板
+│   └── tests/             #   pytest 测试套件（含真实 LLM smoke）
+└── docs/                  # 设计文档、实现计划、路线图
 ```
 
 ## 快速开始
@@ -39,7 +46,7 @@ from module_harness import Module, HarnessRegistry, HarnessConfig, EventBus
 from module_harness import TemplateLoader, OutputFormat
 from llm import create_llm_client, LLMConfig
 
-# 1. 准备 LLM 客户端
+# 1. 准备 LLM 客户端（LLM_PROVIDER / API key 从环境或 .env 读取）
 config = LLMConfig.from_env()
 client = create_llm_client(config)
 bus = EventBus()
@@ -54,20 +61,16 @@ reg.harness("translate", HarnessConfig(
     temperature=0.3,
 ))
 
-reg.harness("spec_to_tasklist", HarnessConfig(
-    prompt_core="你是一个流程设计器。根据 spec 生成 tasklist JSON。",
-))
-
 @reg.script("format_output")
 def format_output(view):
     data = view.A.value
     return {"result": data["translation"].strip()}
 
-# 3. 加载模板
+# 3. 加载内置模板（spec only → 翻译通道）
 loader = TemplateLoader()
 loader.load_builtins()
 
-# 4. 运行
+# 4. 运行（persist=True 时每 tick 落盘轻量快照，可精确回退）
 module = Module(
     spec={"source_text": "Hello world", "style": "formal"},
     template_name="translate",
@@ -79,6 +82,10 @@ module = Module(
 firings = await module.run()
 for f in firings:
     print(f"{f.node}: {f.output}")
+
+# 5. 续跑与回退（跨进程）
+await module.resume(rollback_to=3)          # 精确回退到 tick 3 后重跑
+module.list_checkpoints()                    # [(tick, fired 节点列表, kind), ...]
 ```
 
 ## 核心概念
@@ -97,6 +104,44 @@ for f in firings:
 - **tasklist** — `{Tasks: {A: {...}, B: {...}}, Flow: "A --> B"}`。描述"如何做"，每个 Task 映射为一个 tickflow 节点。
 - **两种输入**：① 只传 spec（通过模板翻译为 tasklist）② 传 spec + tasklist（一致性审核后直入 graph builder）。
 
+### 快照与回滚（roadmap #5）
+
+- **每 tick 轻量快照**：persist=True 时由引擎逐 tick 落盘（剥离审计 records，O(节点+边) 恒定大小），任意 tick 可回退
+- **精确 tick 号回退**：`resume(tick)` 跨进程续跑，只重跑未执行部分（已执行节点输出保留）；手动检查点 `checkpoint("label")` / `rollback_to("label")` 永久保留
+- **`list_checkpoints()`**：显示 `(tick, fired 节点列表, kind)`——tick ↔ 节点轨迹，历史审阅的雏形
+- **进程内** `snapshot()` / `restore()` 全量快照，任意分支/回退
+
+### 运行状态查询（roadmap #7）
+
+跨进程查询：`status.json`（阶段机：idle → translating → reviewing → ... → done）+ `run.sqlite` 最新快照（tick 级：status/tick/fireable/fired + 每节点最新输出）。任何进程可查，不依赖 Module 实例。
+
+```python
+from module_harness import query_run_status
+st = query_run_status("my_module")     # ModuleStatus：phase/tick/fired/outputs/node_states
+```
+
+### submodule — 类式 module + 打包发布
+
+```python
+from module_harness import SubModule, script, SpecSchema
+
+class Dig(SubModule):
+    name = "dig"
+    spec_schema = SpecSchema(input={"url": "str"})
+    tasklist = Tasklist(tasks={...}, flow="...")
+
+    @script("fetch")
+    def fetch(view):
+        return {"html": ...}
+```
+
+`SubModule` 类式声明（含 `spec_schema` 输入契约）→ `pack()` 导出可发布清单 → `ModuleLoader` 加载（`requires` 依赖校验）。`mode = "fast"` 零落盘运行。
+
+### 一致性审核与对齐检查
+
+- **一致性审核** — 自定义 tasklist 通道默认经内置审核 harness（`spec_tasklist_review`）做 spec↔tasklist 语义一致性 LLM 审核，不通过抛 `ConsistencyError` 阻塞
+- **对齐检查** — 内置 `align_check` 节点，对比 spec 目标与产出，输出对齐/偏离分析 + 建议
+
 ### 事件系统
 
 EventBus 提供两层事件——流程级（tickflow hooks：`on_fire`、`on_tick_end`）和节点内部事件（EventBus：prompt 渲染、token 流、命令执行、校验结果）。消费者按需订阅。
@@ -107,13 +152,14 @@ EventBus 提供两层事件——流程级（tickflow hooks：`on_fire`、`on_ti
 
 ## 当前状态
 
-12 项核心功能已实现。完整进度与路线图见 [module-roadmap.md](docs/superpowers/progress/module-roadmap.md)。
+**18 项核心功能已实现**（框架能力阶段），进入第二阶段：使用者层面（数据暴露 SDK → CLI + 历史审阅 → AGENT 接口 → Web 可视化，以真实落地 module 为验收驱动）。完整进度与路线图见 [module-roadmap.md](docs/progress/module-roadmap.md)。
 
 ## 开发原则
 
 - **tickflow 零修改** — 所有 module 层功能通过 `Registry` 子类扩展
 - **完全掌控** — 无隐式行为，promptmode 选错直接 KeyError，框架不兜底
 - **审计即设计** — 所有状态记录在 RunState 中，快照与回滚是内置能力
+- **SDK 先行** — 新功能实现前先设计所需的数据查询接口，消费形态（CLI/agent/Web）只是 SDK 的薄封装
 - **YAGNI** — 每项功能有明确使用场景才加入
 
 ## 许可证
