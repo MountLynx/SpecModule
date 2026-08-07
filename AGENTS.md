@@ -30,7 +30,16 @@ Tests use `pytest` + `unittest.mock` (`MagicMock`, `AsyncMock`). Fixtures define
 
 ## Architecture Rules
 
-1. **tickflow is never modified.** All module-layer features extend via `Registry` subclass (`HarnessRegistry(Registry)`). The engine, runner, state, parser — all tickflow internals — are off-limits for module_harness changes.
+1. **tickflow is an independent project.** It has its own upstream repository
+   (`https://github.com/MountLynx/tickflow-`) — treat it as a library, not
+   workspace code. Before touching any tickflow internals, judge whether the
+   change has universal value / genuinely improves tickflow itself:
+   - **No universal value** → do NOT modify tickflow. Module-layer features
+     extend via `Registry` subclass (`HarnessRegistry(Registry)`) — the
+     engine, runner, state, parser are off-limits by default.
+   - **Has universal value** → make the change, then **sync it back to the
+     upstream repository**. Only the remote URL is recorded in docs/commits;
+     local repository paths are never written into remote-facing content.
 
 2. **Layer dependency order** (strict, no cycles):
    - `tickflow/` → no internal deps (zero external imports)
@@ -40,6 +49,16 @@ Tests use `pytest` + `unittest.mock` (`MagicMock`, `AsyncMock`). Fixtures define
 3. **Single source of truth:** `RunState` (tickflow) is the sole runtime state container. Three layers: `_edges` (fast input resolution, windowed to last 2 firings per node), `_state` (per-node mutable state), `_records` (full audit, gated by `keep_records`; persisted via backend when one is attached). Never create parallel state tracking.
 
 4. **Namespace isolation:** Multiple `Module` instances coexist in one process. Body names are prefixed `{module_id}:{key}` by `TasklistTranslator` — never hardcode bare names across modules.
+
+5. **Two user levels, two usage scenarios.** SpecModule serves two audiences:
+   - **Developer users** — author and publish modules (submodule / script /
+     harness / tasklist templates).
+   - **End users** — only write spec / tasklist and run workflows.
+   The boundary is intentionally soft: developers also consume modules, and
+   end users may customize them. What matters is which **scenario** a feature
+   serves — the *development scenario* (authoring, packaging, publishing) or
+   the *usage scenario* (running, observing, reviewing, resuming). New
+   features must state which scenario they primarily serve.
 
 ## Coding Conventions
 
@@ -63,7 +82,7 @@ Tests use `pytest` + `unittest.mock` (`MagicMock`, `AsyncMock`). Fixtures define
 
 Before modifying sensitive areas, read the relevant spec:
 
-- **Roadmap:** `docs/progress/module-roadmap.md` — 12/19 features done, implementation order with dependency chain
+- **Roadmap:** `docs/progress/module-roadmap.md` — 18/19 features done (stage one complete), stage two: user-facing layer (SDK → CLI → AGENT → Web) with practice-line modules
 - **Harness design:** `docs/superpowers/specs/2026-06-29-module-harness-design.md`
 - **Command node:** `docs/superpowers/specs/2026-06-30-command-node-design.md`
 - **Spec/Tasklist:** `docs/superpowers/specs/2026-06-30-spec-tasklist-design.md`

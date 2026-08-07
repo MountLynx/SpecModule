@@ -203,7 +203,8 @@ EventBus 提供两层事件——流程级（tickflow hooks：`on_fire`、`on_ti
 
 ## 开发原则
 
-- **tickflow 零修改** — 所有 module 层功能通过 `Registry` 子类扩展
+- **tickflow 零修改（有条件的）** — tickflow 是独立项目，有独立仓库（https://github.com/MountLynx/tickflow-）。修改前先判断：改动是否有普适性、是否真正有助于优化 tickflow 本身？**没有 → 不碰**（模块层功能一律通过 `Registry` 子类扩展）；**有 → 改**，并同步回其项目仓库（文档只记录远程仓库地址，不记录本地路径）
+- **两级用户定位** — 框架服务两类用户：**开发者用户**（写 module 并发布）与**使用者用户**（只写 spec/tasklist）。边界不硬——开发者也是使用者，使用者也能按需修改。本质是两个使用场景（**开发场景** vs **使用场景**），新功能开发时明确主要为哪个场景服务
 - **完全掌控** — 无隐式行为，promptmode 选错直接 KeyError，框架不兜底
 - **审计即设计** — 所有状态记录在 RunState 中，快照与回滚是内置能力
 - **SDK 先行** — 新功能实现前先设计所需的数据查询接口，消费形态（CLI/agent/Web）只是 SDK 的薄封装
