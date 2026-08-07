@@ -86,6 +86,53 @@ for f in firings:
 # 5. 续跑与回退（跨进程）
 await module.resume(rollback_to=3)          # 精确回退到 tick 3 后重跑
 module.list_checkpoints()                    # [(tick, fired 节点列表, kind), ...]
+
+# 6. 封装打包：类式定义 → pack 发布 → 加载运行
+from module_harness import SubModule, SpecSchema, TaskDefinition, ModuleLoader, script
+
+class Translator(SubModule):
+    """带风格选择的翻译 module（类式定义 + spec_schema 输入契约）。"""
+    name = "my_translator"
+    version = "1.0.0"
+    description = "带风格选择的翻译 module"
+    spec_schema = SpecSchema(
+        input={"source_text": "str", "style": "str"},
+        output={"translation": "str"},
+    )
+    harnesses = [HarnessConfig(
+        name="translate",
+        prompt_core="翻译：{text}",
+        prompt_modes={"formal": "正式", "casual": "随意"},
+        output_format=OutputFormat(type="json_object"),
+    )]
+    tasklist = Tasklist(
+        tasks={
+            "A": TaskDefinition(
+                type="harness", harness="translate",
+                promptmode="{spec.style}",          # spec 字段驱动 promptmode
+                inputs={"text": "{spec.source_text}"},
+                outputformat={"type": "json_object"},
+            ),
+            "B": TaskDefinition(
+                type="script", script="format_output", inputs={"data": "A"},
+            ),
+        },
+        flow="A --> B",
+    )
+
+    @script("format_output")
+    def format_output(view):
+        return {"translation": view.A.value["translation"].strip()}
+
+# 直接运行（spec 经 spec_schema 契约校验）
+await Translator(llm_client=client).run({"source_text": "Hello", "style": "formal"})
+
+# 打包发布：导出 module.json + harnesses/ + scripts/ + commands/
+dist = Translator().pack("dist/my_translator")
+
+# 另一进程/项目加载运行（requires 依赖校验，无需重新定义）
+loaded = ModuleLoader().load(dist)
+await loaded.run({"source_text": "Hello", "style": "casual"})
 ```
 
 ## 核心概念

@@ -91,6 +91,53 @@ for f in firings:
 # 5. Resume & rollback (cross-process)
 await module.resume(rollback_to=3)          # precise rewind to after tick 3
 module.list_checkpoints()                    # [(tick, fired node list, kind), ...]
+
+# 6. Package & publish: class-style definition → pack → load & run
+from module_harness import SubModule, SpecSchema, TaskDefinition, ModuleLoader, script
+
+class Translator(SubModule):
+    """Translation module with style selection (class-style + spec_schema contract)."""
+    name = "my_translator"
+    version = "1.0.0"
+    description = "Translation module with style selection"
+    spec_schema = SpecSchema(
+        input={"source_text": "str", "style": "str"},
+        output={"translation": "str"},
+    )
+    harnesses = [HarnessConfig(
+        name="translate",
+        prompt_core="Translate: {text}",
+        prompt_modes={"formal": "Formal style", "casual": "Casual style"},
+        output_format=OutputFormat(type="json_object"),
+    )]
+    tasklist = Tasklist(
+        tasks={
+            "A": TaskDefinition(
+                type="harness", harness="translate",
+                promptmode="{spec.style}",          # spec field drives promptmode
+                inputs={"text": "{spec.source_text}"},
+                outputformat={"type": "json_object"},
+            ),
+            "B": TaskDefinition(
+                type="script", script="format_output", inputs={"data": "A"},
+            ),
+        },
+        flow="A --> B",
+    )
+
+    @script("format_output")
+    def format_output(view):
+        return {"translation": view.A.value["translation"].strip()}
+
+# Run directly (spec validated against the spec_schema contract)
+await Translator(llm_client=client).run({"source_text": "Hello", "style": "formal"})
+
+# Pack & publish: exports module.json + harnesses/ + scripts/ + commands/
+dist = Translator().pack("dist/my_translator")
+
+# Load & run from another process/project (requires dependency validation)
+loaded = ModuleLoader().load(dist)
+await loaded.run({"source_text": "Hello", "style": "casual"})
 ```
 
 ## Core Concepts
