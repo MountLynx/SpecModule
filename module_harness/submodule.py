@@ -104,13 +104,21 @@ class SubModule:
     def _module_id(self) -> str:
         return f"{self.name}_{uuid.uuid4().hex[:6]}"
 
-    def _build_registry(self, audit: bool) -> HarnessRegistry:
+    def _build_registry(
+        self,
+        audit: bool,
+        harness_overrides: dict[str, Any] | None = None,
+    ) -> HarnessRegistry:
         bus = self._event_bus if audit else EventBus.null()
         reg = HarnessRegistry(llm_client=self._ensure_client(), event_bus=bus)
         for hc in self.harnesses:
             if not hc.name:
                 raise ValueError(f"harnesses 配置缺少 name: {hc}")
-            reg.harness(hc.name, hc)
+            cfg = (
+                self._apply_harness_overrides(hc, harness_overrides)
+                if harness_overrides else hc
+            )
+            reg.harness(cfg.name, cfg)
         for cc in self.commands:
             if not cc.name:
                 raise ValueError(f"commands 配置缺少 name: {cc}")
@@ -122,6 +130,26 @@ class SubModule:
         register_builtin_harnesses(reg)
         return reg
 
+    @staticmethod
+    def _apply_harness_overrides(
+        hc: HarnessConfig, overrides: dict[str, Any]
+    ) -> HarnessConfig:
+        """批量应用 LLM 覆盖（model/temperature/think/api_params）到单个 harness。"""
+        api_params = dict(hc.api_params)
+        if overrides.get("api_params"):
+            api_params.update(overrides["api_params"])
+        return HarnessConfig(
+            name=hc.name,
+            prompt_core=hc.prompt_core,
+            prompt_modes=dict(hc.prompt_modes),
+            output_format=hc.output_format,
+            notdo=list(hc.notdo),
+            model=overrides.get("model", hc.model),
+            temperature=overrides.get("temperature", hc.temperature),
+            think=overrides.get("think", hc.think),
+            api_params=api_params,
+        )
+
     async def run(
         self,
         spec: dict[str, Any],
@@ -129,14 +157,19 @@ class SubModule:
         tasklist: Tasklist | dict[str, Any] | None = None,
         audit: bool = False,
         max_ticks: int = 100,
+        harness_overrides: dict[str, Any] | None = None,
+        persist: bool | None = None,
     ) -> list[Any]:
         """执行 submodule。
 
         - tasklist=None：用自身固定 tasklist，不触发一致性审核（发布前已验证）
         - 传入自定义 tasklist：与 Module 一致，校验 + 一致性审核
+        - harness_overrides：{model/temperature/think/api_params} 覆盖，
+          构建 registry 时应用到全部 harness（submodule 节点 LLM 配置传播）
         - audit=False（默认）：嵌入模式，EventBus.null() + keep_records=False；
-          注意：除非 mode="fast"，嵌入模式同样落盘（内存不保留 + 落盘，
-          完整历史在 .specmodule/runs/ 可查，D11）
+          除非 mode="fast"，嵌入模式同样落盘（D11）
+        - persist：False = 快速模式（NullBackend 全内存 + 无 status.json，
+          零落盘零 I/O）；None = 按 mode 决定（"fast" → False，否则 True）
         - audit=True：keep_records 全开；订阅事件需在构造时传入 event_bus
         """
         errors = self.spec_schema.validate(spec)
@@ -148,7 +181,8 @@ class SubModule:
         if isinstance(use_tasklist, dict):
             use_tasklist = Tasklist.from_json(use_tasklist)
         review = None if tasklist is None else "spec_tasklist_review"
-        reg = self._build_registry(audit)
+        use_persist = persist if persist is not None else (self.mode != "fast")
+        reg = self._build_registry(audit, harness_overrides)
         module = Module(
             spec=spec,
             tasklist=use_tasklist,
@@ -158,8 +192,8 @@ class SubModule:
             registry=reg,
             review_harness=review,
             keep_records=audit,
-            persist=(self.mode != "fast"),
-            status_file=(self.mode != "fast"),
+            persist=use_persist,
+            status_file=use_persist,
         )
         return await module.run(max_ticks=max_ticks)
 

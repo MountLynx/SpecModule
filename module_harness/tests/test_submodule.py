@@ -243,6 +243,45 @@ class TestSubModule:
         with pytest.raises(ConsistencyError):
             await sm.run({"source_text": "Hello", "style": "formal"}, tasklist=custom, max_ticks=10)
 
+    @pytest.mark.asyncio
+    async def test_harness_overrides_propagate_to_all_harnesses(self, mock_llm):
+        mock_llm.complete.return_value = LLMResponse(
+            content='{"translation": "你好世界"}', usage={}, finish_reason="end_turn")
+        sm = Translator(llm_client=mock_llm)
+        await sm.run(
+            {"source_text": "Hello", "style": "formal"},
+            harness_overrides={"model": "model-x", "temperature": 0.7},
+            max_ticks=10,
+        )
+        calls = mock_llm.complete.await_args_list
+        assert calls
+        assert all(c.kwargs.get("model") == "model-x" for c in calls)
+        assert all(c.kwargs.get("temperature") == 0.7 for c in calls)
+
+    @pytest.mark.asyncio
+    async def test_harness_overrides_api_params_merge(self, mock_llm):
+        mock_llm.complete.return_value = LLMResponse(
+            content='{"translation": "你好世界"}', usage={}, finish_reason="end_turn")
+        sm = Translator(llm_client=mock_llm)
+        await sm.run(
+            {"source_text": "Hello", "style": "formal"},
+            harness_overrides={"api_params": {"max_tokens": 200}},
+            max_ticks=10,
+        )
+        calls = mock_llm.complete.await_args_list
+        assert calls
+        assert all(c.kwargs.get("api_params", {}).get("max_tokens") == 200 for c in calls)
+
+    @pytest.mark.asyncio
+    async def test_run_persist_false_zero_residue(self, tmp_path, monkeypatch, mock_llm):
+        monkeypatch.chdir(tmp_path)
+        mock_llm.complete.return_value = LLMResponse(
+            content='{"translation": "你好世界"}', usage={}, finish_reason="end_turn")
+        sm = Translator(llm_client=mock_llm)
+        await sm.run(
+            {"source_text": "Hello", "style": "formal"}, persist=False, max_ticks=10)
+        assert not (tmp_path / ".specmodule").exists()
+
 
 class TestPack:
     def test_pack_structure(self, tmp_path):
