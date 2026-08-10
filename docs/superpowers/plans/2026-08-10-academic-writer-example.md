@@ -484,19 +484,22 @@ class TestAcademicWriter:
 
         async def side_effect(**kwargs):
             prompt = kwargs.get("prompt", "")
-            if "灵感草稿" in prompt:
+            # 分发键必须是各 prompt_core 独有引导短语——不能选用户文本
+            # 可能出现的词（如"灵感草稿"），因为 {original} 占位符会把
+            # raw_text 渲染进 Review/Finalize 的 prompt
+            if "整理成逻辑通顺的英文文段" in prompt:
                 return _resp('{"text": "organized draft"}')
             if "原样转发" in prompt:
                 # 子模块 Seed 的 draft 是父节点输出 dict —— 转发其中的 text
                 return _resp('{"text": "child draft"}')
             if "修复者" in prompt:
                 return _resp('{"text": "child draft fixed"}')
-            if "学术英语" in prompt:
+            if "学术英语写作规范" in prompt:
                 return _resp('{"text": "polished draft"}')
-            if "最终版本" in prompt:
+            if "整合输出最终版本" in prompt:
                 return _resp('{"text": "final version", "notes": "将被动语态改为主动语态"}')
             # 审阅：按调用顺序区分 loop1 / loop2
-            if "事实审阅" in prompt:
+            if "逐句对比" in prompt:
                 if review_calls["loop1"] < len(review_plan["loop1"]):
                     return _next_review("loop1")
                 return _next_review("loop2")
@@ -523,7 +526,7 @@ class TestAcademicWriter:
         assert "被动语态改为主动语态" in notes  # finalize 的语言调整说明
         review_prompts = [
             c.kwargs.get("prompt", "") for c in mock_llm.complete.await_args_list
-            if "事实审阅" in c.kwargs.get("prompt", "")
+            if "逐句对比" in c.kwargs.get("prompt", "")
         ]
         assert len(review_prompts) == 2  # 同一 harness、两个节点各触发一次
 
@@ -736,7 +739,13 @@ academic_tasklist = Tasklist(
             inputs={"finalize": "Finalize", "loop1": "Loop1", "loop2": "Loop2"},
         ),
     },
-    flow="[Organize] --> Loop1 --> Polish --> Loop2 --> Finalize --> Report",
+    flow=(
+        "[Organize] --> Loop1\n"
+        "Loop1 --> Polish\n"
+        "Polish --> Loop2\n"
+        "Loop2 --> Finalize\n"
+        "Finalize --> Report"
+    ),
 )
 
 
