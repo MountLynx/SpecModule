@@ -10,6 +10,7 @@ from module_harness.config import HarnessConfig, OutputFormat
 from module_harness.consistency import ConsistencyError
 from module_harness.events import EventBus, ScriptCompleted
 from module_harness.loader import ModuleLoader, ModuleManifestError, ModuleRequirementError
+from module_harness.module import Module
 from module_harness.registry import HarnessRegistry
 from module_harness.spec import SpecSchema, TaskDefinition, Tasklist
 from module_harness.submodule import SpecValidationError, SubModule, script
@@ -471,3 +472,12 @@ class TestModulesAttr:
             modules = {"another": object}  # 显式定义覆盖
 
         assert set(M2.modules) == {"another"}
+
+    def test_module_validates_submodule_refs_against_modules(self):
+        tl = Tasklist(
+            tasks={"A": TaskDefinition(type="submodule", submodule="missing")},
+            flow="[A]",
+        )
+        m = Module(spec={}, tasklist=tl, llm_client=object())
+        with pytest.raises(ValueError, match="未在 modules 中声明"):
+            m.build_runner()

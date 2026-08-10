@@ -89,7 +89,7 @@ class Module:
         self.module_id = module_id or f"mod_{uuid.uuid4().hex[:8]}"
         self._llm_client = llm_client
         # submodule 引用解析表 {tasklist 名: SubModule 类}：TasklistValidator 校验
-        # submodule 节点（T4）与 TasklistTranslator 构建嵌套子图（T6）共用
+        # submodule 节点（T2）与 TasklistTranslator 构建嵌套子图（T6）共用
         self._modules = dict(modules or {})
 
         if registry is not None:
