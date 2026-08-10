@@ -1,11 +1,20 @@
-"""academic_writer 模块 mock 测试（无 key 可跑，MagicMock 逐节点预设输出）。"""
+"""academic_writer 模块 mock 测试（无 key 可跑，MagicMock 逐节点预设输出）。
+
+覆盖两种使用方式（模板通道，template_name 选择）：
+- mode="submodule"：事实审阅 loop 以 submodule 节点复用（黑盒嵌入）
+- mode="detailed"：loop 内联展开到主图（详细模式，全程可审计）
+"""
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from llm.client import LLMResponse
 
-from example.academic_writer import academic_tasklist, run_writer
+from example.academic_writer import (
+    academic_tasklist,
+    detailed_tasklist,
+    run_writer,
+)
 
 
 @pytest.fixture
@@ -127,3 +136,114 @@ class TestAcademicWriter:
         notes = out["modification_notes"]
         assert "达上限未清" in notes
         assert "杜撰引用文献" in notes  # 遗留问题逐条列出
+
+
+class TestDetailedMode:
+    """详细模式：loop 内联展开到主图（不用 submodule），全程可审计。"""
+
+    # 复用 TestAcademicWriter 的 mock 分发帮助（self 未被使用，跨类共用）
+    _run_with = TestAcademicWriter._run_with
+
+    def test_detailed_tasklist_inline_no_submodule(self):
+        """详细模式 tasklist：无 submodule 节点；两组 loop 节点内联展开。"""
+        tasks = detailed_tasklist.tasks
+        assert not any(t.type == "submodule" for t in tasks.values())
+        for key in ("Seed1", "Merge1", "Review1", "Fix1", "Exit1",
+                    "Seed2", "Merge2", "Review2", "Fix2", "Exit2"):
+            assert key in tasks
+
+    @pytest.mark.asyncio
+    async def test_detailed_nodes_visible_in_firings(self, mock_llm):
+        """详细模式核心价值：内联节点进入主图审计记录（submodule 黑盒做不到）；
+        修复路径下 Fix1 触发、Loop1 两轮收敛。"""
+        self._run_with(mock_llm, review_plan={
+            "loop1": [
+                '{"issues": [{"type": "omission", "detail": "缺结论", '
+                '"quote_original": "…", "quote_draft": "…"}], "clean": false}',
+                '{"issues": [], "clean": true}',
+            ],
+            "loop2": ['{"issues": [], "clean": true}'],
+        })
+        firings = await run_writer(
+            {"raw_text": RAW}, mode="detailed",
+            llm_client=mock_llm, persist=False, max_ticks=80,
+        )
+        fired = {f.node for f in firings}
+        assert {"Organize", "Polish", "Finalize", "Report"} <= fired
+        assert {"Seed1", "Merge1", "Review1", "Fix1", "Exit1"} <= fired
+        assert {"Seed2", "Merge2", "Review2", "Exit2"} <= fired
+        assert any(f.node == "Fix1" for f in firings)  # 修复被触发过
+        assert any(f.node == "Review1" and f.output.get("clean") for f in firings)
+
+    @pytest.mark.asyncio
+    async def test_detailed_normal_path(self, mock_llm):
+        """详细模式正常路径：输出 final_text + modification_notes 两变量。"""
+        self._run_with(mock_llm, review_plan={
+            "loop1": ['{"issues": [], "clean": true}'],
+            "loop2": ['{"issues": [], "clean": true}'],
+        })
+        out = (await run_writer(
+            {"raw_text": RAW}, mode="detailed",
+            llm_client=mock_llm, persist=False, max_ticks=80,
+        ))[-1].output
+        assert set(out) == {"final_text", "modification_notes"}
+        assert out["final_text"] == "final version"
+        notes = out["modification_notes"]
+        assert "阶段 1 审阅" in notes and "阶段 2 审阅" in notes
+        assert "通过（无事实问题）" in notes
+
+    @pytest.mark.asyncio
+    async def test_detailed_loop1_fix_path(self, mock_llm):
+        """详细模式阶段 1 修复路径：notes 记 2 轮、结论通过。"""
+        self._run_with(mock_llm, review_plan={
+            "loop1": [
+                '{"issues": [{"type": "omission", "detail": "缺实验细节", '
+                '"quote_original": "…", "quote_draft": "…"}], "clean": false}',
+                '{"issues": [], "clean": true}',
+            ],
+            "loop2": ['{"issues": [], "clean": true}'],
+        })
+        out = (await run_writer(
+            {"raw_text": RAW}, mode="detailed",
+            llm_client=mock_llm, persist=False, max_ticks=80,
+        ))[-1].output
+        notes = out["modification_notes"]
+        assert "事实审阅轮数：2" in notes
+        assert "通过（无事实问题）" in notes
+
+    @pytest.mark.asyncio
+    async def test_detailed_loop2_max_attempts(self, mock_llm):
+        """详细模式阶段 2 达上限：notes 含遗留问题明细。"""
+        self._run_with(mock_llm, review_plan={
+            "loop1": ['{"issues": [], "clean": true}'],
+            "loop2": [
+                '{"issues": [{"type": "hallucination", "detail": "杜撰引用文献", '
+                '"quote_original": "无", "quote_draft": "[1]"}], "clean": false}',
+            ],
+        })
+        out = (await run_writer(
+            {"raw_text": RAW}, mode="detailed",
+            llm_client=mock_llm, persist=False, max_ticks=80,
+        ))[-1].output
+        notes = out["modification_notes"]
+        assert "达上限未清" in notes
+        assert "杜撰引用文献" in notes
+
+    @pytest.mark.asyncio
+    async def test_modes_equivalent_output(self, mock_llm):
+        """同一 module 两种使用方式（submodule / detailed）在同 mock 下输出等价。"""
+        plan = {
+            "loop1": ['{"issues": [], "clean": true}'],
+            "loop2": ['{"issues": [], "clean": true}'],
+        }
+        self._run_with(mock_llm, review_plan=plan)
+        out_sub = (await run_writer(
+            {"raw_text": RAW}, llm_client=mock_llm, persist=False, max_ticks=50,
+        ))[-1].output
+        self._run_with(mock_llm, review_plan=plan)
+        out_det = (await run_writer(
+            {"raw_text": RAW}, mode="detailed",
+            llm_client=mock_llm, persist=False, max_ticks=80,
+        ))[-1].output
+        assert out_sub["final_text"] == out_det["final_text"]
+        assert out_sub["modification_notes"] == out_det["modification_notes"]

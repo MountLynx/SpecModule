@@ -200,9 +200,11 @@
 
 **✅ 已完成（2026-08-10，`example/` 落地）**：`example/fact_review_loop.py`
 （FactReviewLoop + 自包含 guards，pack 含 guards/ 导出，roundtrip 测试覆盖）、
-`example/academic_writer.py`（普通 Module 过程式组装，Loop1/Loop2 为 submodule 节点引用
-fact_review_loop，输出 final_text + modification_notes）、demo 入口
-（`--mock` 免 key 冒烟）、示例草稿、两级用户 README、mock 测试（`pytest example/ -q`）。
+`example/academic_writer.py`（普通 Module **双模板**：`academic_writer` 默认——
+Loop1/Loop2 为 submodule 节点引用 fact_review_loop；`academic_writer_detailed`
+详细模式——loop 内联展开到主图全程可审计，`run_writer(spec, mode=...)` 切换，
+输出 final_text + modification_notes）、demo 入口（`--mock` 免 key 冒烟 +
+`--detailed`）、示例草稿、两级用户 README、mock 测试（`pytest example/ -q`，17 项）。
 框架缺口修复已随 436dbcc 前的系列提交落地。设计见
 `docs/superpowers/specs/2026-08-10-academic-writer-design.md`（状态：已实现）。
 

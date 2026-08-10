@@ -2,8 +2,10 @@
 """academic_writer 完整流水线真实运行示例（读 sample_raw_text.txt）。
 
 用法（在仓库根目录）：
-    python -m example.demo_writer            # 真实 LLM（.env / 环境变量）
-    python -m example.demo_writer --mock     # 假 LLM（无需 key，冒烟演示数据流）
+    python -m example.demo_writer                # 真实 LLM（.env / 环境变量）
+    python -m example.demo_writer --mock         # 假 LLM（无需 key，冒烟演示数据流）
+    python -m example.demo_writer --detailed     # 详细模式：loop 内联展开，全程可审计
+    python -m example.demo_writer --mock --detailed
 """
 
 from __future__ import annotations
@@ -53,8 +55,10 @@ def _mock_client():
 
 async def main() -> None:
     raw_text = SAMPLE.read_text(encoding="utf-8")
+    mode = "detailed" if "--detailed" in sys.argv else "submodule"
     firings = await run_writer(
         {"raw_text": raw_text},
+        mode=mode,
         llm_client=_mock_client() if "--mock" in sys.argv else None,
         max_ticks=80,
     )
@@ -64,6 +68,10 @@ async def main() -> None:
     print()
     print("=== modification_notes ===")
     print(out["modification_notes"])
+    if mode == "detailed":
+        print()
+        print("=== 详细模式审计（内联节点 firing 轨迹）===")
+        print(" -> ".join(f.node for f in firings))
 
 
 if __name__ == "__main__":

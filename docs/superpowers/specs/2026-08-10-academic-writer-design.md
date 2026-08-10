@@ -113,10 +113,17 @@ def clean(view):       # 与 has_issues 严格互补（XOR 分支不得双走）
 **定位**：使用场景产物——end user 只写 spec（raw_text）运行完整流水线。
 
 **形态（2026-08-10 修正）**：`academic_writer` 是**顶层完整工作流**（整机），不是可复用处理单元
-（零件）——用普通 `Module` 过程式组装（`Module(spec, tasklist, modules={"fact_review_loop":
-FactReviewLoop})`），**不定义 `AcademicWriter(SubModule)` 类**。只有 `fact_review_loop` 是
+（零件）——用普通 `Module` + **双模板**（框架模板通道：`TemplateLoader` 注册 +
+`Module(template_name=...)` 选择，翻译器为 script 类型、确定性返回流程），
+**不定义 `AcademicWriter(SubModule)` 类**。只有 `fact_review_loop` 是
 SubModule（可打包、可被任意模块引用）；academic_writer 消费它，自身不做类式声明/打包/被引用。
 修正前版本基于错误认知把两个模块都做成 SubModule（零件/整机不分）。
+
+**两种使用方式（2026-08-10 实现时确认，用户需求"一个 module 多种使用方式"）**：
+- **`academic_writer`（默认）**——loop 以 submodule 节点复用（黑盒嵌入，只暴露终点输出）
+- **`academic_writer_detailed`（详细模式）**——事实审阅 loop **内联展开到主图**
+  （Seed1→Merge1→Review1→Fix1 循环 + Exit1；Loop2 同构），全部节点进审计记录，
+  逐 tick 可审阅修复过程；`run_writer(spec, mode="detailed")` 切换
 
 **submodule 节点组合**：tasklist 内 Loop1/Loop2 直接写 `{type: "submodule", submodule:
 "fact_review_loop", inputs: {...}}`；`modules` 解析表经 `Module(modules=...)` 传入（无全局注册表）
@@ -168,6 +175,7 @@ SubModule（可打包、可被任意模块引用）；academic_writer 消费它�
 | 8 | guard 归属 | guards 内聚在 fact_review_loop 内部（绑定 Review/Merge 固定节点名）；父模块经 submodule 节点引用，无需按阶段重声明（submodule 一等节点核心收益） |
 | 9 | academic_writer 外壳 | **普通 Module（过程式组装），不是 SubModule**（2026-08-10 修正，用户确认）：SubModule = 可复用/可打包的处理单元（零件），academic_writer = 顶层工作流（整机）；修正前把两者都定义为 SubModule 系错误认知 |
 | 10 | 文本节点输出格式 | **长文本 harness（seed_draft / fix_issues / organize / polish）用 `OutputFormat(type="text")`，仅结构化节点（fact_review 的 issues/clean、finalize 的 text+notes）用 json_object**（2026-08-10 实现时确认）：deepseek `json_object` 模式偶发返回空白/非 JSON（实测复现：seed 转发全文时 `Failure(llm)` 阻断子模块），长文本 JSON 包裹放大该风险；text 类型无格式要求、失败率趋零，script 侧已有 str 防御 |
+| 11 | 详细模式 tasklist 模板 | **同 module 双模板（框架模板通道）：`academic_writer`（submodule 黑盒）与 `academic_writer_detailed`（loop 内联展开，全程可审计）**（2026-08-10 实现时确认，用户需求"一个 module 多种使用方式"）：翻译器为 script 类型、确定性返回流程（`translate` 返回值即 tasklist 形式）；内联 loop 的 merge/collect_result/build_report 经闭包工厂（`_make_merge` 等）`reg.body()` 绑定节点名——view[field_name] 在 tickflow 语义下恒为 Missing（graph_builder 注释），故不能用 field 名解耦脚本；闭包逻辑与 fact_review_loop 的 @script 版本同步维护（pack 单文件导出约束后者须自包含） |
 
 ## 错误处理
 
@@ -201,7 +209,7 @@ SubModule（可打包、可被任意模块引用）；academic_writer 消费它�
 |------|------|
 | `example/__init__.py` | 空包 |
 | `example/fact_review_loop.py` | FactReviewLoop(SubModule) + 自包含 guards + 内联上限 |
-| `example/academic_writer.py` | 普通 Module 过程式组装：模块级 `academic_tasklist`（Loop1/Loop2 submodule 节点）+ `run_writer()` 入口 |
+| `example/academic_writer.py` | 普通 Module 双模板（模板通道）：`academic_tasklist` / `detailed_tasklist`（Loop1/Loop2 submodule 节点 / loop 内联展开）+ 翻译器 + 闭包工厂 + `run_writer(spec, mode=...)` |
 | `example/demo_loop.py` | loop 模块真实运行入口 |
 | `example/demo_writer.py` | 完整流水线真实运行入口 |
 | `example/sample_raw_text.txt` | 示例灵感草稿（中英混杂、重复） |

@@ -168,7 +168,11 @@ class FactReviewLoop(SubModule):
 
     @script("merge")
     def merge(view: Any) -> dict[str, Any]:
-        """合并输入：修复稿优先于种子稿（Fix 首次未触发时用 Seed）；计数轮次。"""
+        """合并输入：修复稿优先于种子稿（Fix 首次未触发时用 Seed）；计数轮次。
+
+        读 producer 节点名（Seed/Fix）——本模块固定节点名；详细模式内联
+        loop 经 academic_writer._make_merge 闭包绑定各自节点名（逻辑同步）。
+        """
         try:
             fixed = view["Fix"].value
         except (KeyError, AttributeError):
@@ -188,7 +192,11 @@ class FactReviewLoop(SubModule):
 
     @script("collect_result")
     def collect_result(view: Any) -> dict[str, Any]:
-        """收集终点输出：当前稿 + 轮次 + verdict + 遗留 issues（达上限未清时）。"""
+        """收集终点输出：当前稿 + 轮次 + verdict + 遗留 issues（达上限未清时）。
+
+        读 producer 节点名（Review/Merge）——详细模式经 _make_collect_result
+        闭包绑定各自节点名（逻辑同步）。
+        """
         review = view["Review"].value
         merge = view["Merge"].value
         issues = review.get("issues", []) if isinstance(review, dict) else []
