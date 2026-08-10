@@ -71,6 +71,13 @@ class Parent(SubModule):
         return {"got": view["B"].value}
 
 
+class FastParent(Parent):
+    """快速模式父模块：父不写盘——任何 .specmodule 残留只能来自子模块节点。"""
+
+    name = "fast_parent"
+    mode = "fast"
+
+
 class LlmChild(SubModule):
     """带 harness 的子模块：用于验证节点级 LLM 覆盖传播。"""
 
@@ -156,6 +163,16 @@ class TestSubmoduleNode:
         firings = await Parent(llm_client=mock_llm).run({"x": 1}, max_ticks=20)
         c_out = next(f.output for f in firings if f.node == "C")
         assert c_out == {"got": {"msg": "from_child"}}
+
+    @pytest.mark.asyncio
+    async def test_node_embedded_zero_residue(self, tmp_path, monkeypatch, mock_llm):
+        """submodule 节点嵌入模式：子 run 零落盘（父 fast 不写盘，任何
+        .specmodule 残留只能来自子模块节点——锁定 _register_submodule 的
+        persist=False 语义）。"""
+        monkeypatch.chdir(tmp_path)
+        firings = await FastParent(llm_client=mock_llm).run({"x": 1}, max_ticks=20)
+        assert len(firings) >= 2
+        assert not (tmp_path / ".specmodule").exists()
 
     @pytest.mark.asyncio
     async def test_undeclared_submodule_rejected(self, mock_llm):
@@ -443,6 +460,19 @@ class TestPackLoadSubmodules:
         manifest["modules"] = ["ghost"]
         manifest_path.write_text(_json.dumps(manifest), encoding="utf-8")
         with pytest.raises(ModuleManifestError, match="ghost"):
+            ModuleLoader(llm_client=mock_llm).load(out)
+
+    def test_manifest_modules_extra_dir_rejected(self, tmp_path, mock_llm):
+        """submodules/ 目录存在但 manifest 未声明 → 反向不一致报错（无隐式行为）。"""
+        import json as _json
+        from module_harness.loader import ModuleLoader, ModuleManifestError
+
+        out = Parent().pack(tmp_path / "dist")
+        manifest_path = out / "module.json"
+        manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["modules"] = []
+        manifest_path.write_text(_json.dumps(manifest), encoding="utf-8")
+        with pytest.raises(ModuleManifestError, match="未在 manifest 声明"):
             ModuleLoader(llm_client=mock_llm).load(out)
 
     @pytest.mark.asyncio

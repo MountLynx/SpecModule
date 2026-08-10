@@ -96,6 +96,10 @@ class ModuleLoader:
         if missing_mods:
             raise ModuleManifestError(
                 "modules 缺少子模块目录: " + ", ".join(missing_mods))
+        extra_mods = [m for m in submodules if m not in modules_raw]
+        if extra_mods:
+            raise ModuleManifestError(
+                "submodules/ 目录未在 manifest 声明: " + ", ".join(sorted(extra_mods)))
 
         schema_data = manifest.get("spec_schema", {}) or {}
         spec_schema = SpecSchema(
