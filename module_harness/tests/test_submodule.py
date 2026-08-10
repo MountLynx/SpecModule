@@ -78,7 +78,7 @@ class Translator(SubModule):
         return {"translation": view.A.value["translation"].strip()}
 
 
-def _until3(view):
+def until3(view):
     return view["counter"].value["n"] < 3
 
 
@@ -87,7 +87,7 @@ class LoopMod(SubModule):
 
     name = "loop_mod"
     spec_schema = SpecSchema(input={}, output={"n": "int"})
-    guards = [("until3", _until3)]
+    guards = [("until3", until3)]
     tasklist = Tasklist(
         tasks={"counter": TaskDefinition(type="script", script="counter")},
         flow="[counter] --|until3|--> counter",
@@ -329,6 +329,15 @@ class TestPackGuards:
         ns: dict = {}
         exec(compile(guard_file.read_text(encoding="utf-8"), "until3.py", "exec"), ns)
         assert callable(ns["until3"])
+
+    def test_pack_guard_name_mismatch_rejected(self, tmp_path):
+        class BadGuard(SubModule):
+            name = "bad_guard"
+            tasklist = LoopMod.tasklist
+            guards = [("renamed", until3)]  # 注册名 ≠ 函数名
+
+        with pytest.raises(ValueError, match="不一致"):
+            BadGuard().pack(tmp_path / "dist")
 
 
 class TestModuleLoader:

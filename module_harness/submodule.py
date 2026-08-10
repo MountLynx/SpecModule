@@ -237,13 +237,13 @@ class SubModule:
             header = "from __future__ import annotations\nfrom module_harness.submodule import script\n\n"
             (p / "scripts" / f"{sname}.py").write_text(header + src, encoding="utf-8")
         for gname, gfn in self.guards:
+            if gname != gfn.__name__:
+                raise ValueError(
+                    f"guard 注册名 '{gname}' 与函数名 '{gfn.__name__}' 不一致"
+                    "（注册名 = 打包文件名 = 加载键，与 @script 同约定）"
+                )
             src = textwrap.dedent(inspect.getsource(gfn))
             header = "from __future__ import annotations\n\n"
-            # 注册名 = 打包文件名 = 加载后函数名；函数名与注册名不一致时
-            # 改写 def 语句，保证 loader 按文件名取函数（guard 无 script
-            # 装饰器那样的名称一致性强制）
-            if gfn.__name__ != gname:
-                src = src.replace(f"def {gfn.__name__}(", f"def {gname}(", 1)
             (p / "guards" / f"{gname}.py").write_text(header + src, encoding="utf-8")
         for mname, mcls in self.modules.items():
             mcls().pack(p / "submodules" / mname)
