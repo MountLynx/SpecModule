@@ -77,6 +77,50 @@ class Translator(SubModule):
         return {"translation": view.A.value["translation"].strip()}
 
 
+def _until3(view):
+    return view["counter"].value["n"] < 3
+
+
+class LoopMod(SubModule):
+    """带 guard 自循环的 submodule：n 递增到 3 后 guard 放行退出。"""
+
+    name = "loop_mod"
+    spec_schema = SpecSchema(input={}, output={"n": "int"})
+    guards = [("until3", _until3)]
+    tasklist = Tasklist(
+        tasks={"counter": TaskDefinition(type="script", script="counter")},
+        flow="[counter] --|until3|--> counter",
+    )
+
+    @script("counter")
+    def counter(view):
+        n = view.state.get("n", 0) + 1
+        view.state["n"] = n
+        return {"n": n}
+
+
+class TestGuards:
+    def test_guards_copied_between_subclasses(self):
+        class G1(SubModule):
+            name = "g1"
+            guards = [("g", lambda view: True)]
+
+        class G2(G1):
+            name = "g2"
+
+        assert G2.guards == G1.guards
+        assert G1.guards is not G2.guards
+        G2.guards.append(("h", lambda view: False))
+        assert len(G1.guards) == 1  # 不污染父类
+
+    @pytest.mark.asyncio
+    async def test_loop_runs_until_guard_opens(self, mock_llm):
+        """带 guard 的 loop tasklist 正常终止（校验 + 构建 + 运行全链路）。"""
+        firings = await LoopMod(llm_client=mock_llm).run({}, max_ticks=20)
+        assert len(firings) == 3
+        assert firings[-1].output == {"n": 3}
+
+
 class TestSubModule:
     def test_scripts_collected(self):
         assert set(Translator._scripts) == {"format_output"}

@@ -62,6 +62,7 @@ class SubModule:
     harnesses: list[HarnessConfig] = []
     commands: list[CommandConfig] = []
     requires: list[str] = []
+    guards: list[tuple[str, Callable]] = []   # [(名字, 函数)]，名字 = 注册名 = 打包文件名
     tasklist: Tasklist | None = None
     mode: Literal["persist", "fast"] = "persist"
     # 发布者声明轻量特性："fast" = 快速模式（NullBackend 全内存，零落盘零 I/O，
@@ -78,7 +79,7 @@ class SubModule:
         cls._scripts = inherited
         cls._scripts.update(collected)
         # 列表类属性按子类复制，防止子类就地修改污染父类注册
-        for attr in ("harnesses", "commands", "requires"):
+        for attr in ("harnesses", "commands", "requires", "guards"):
             if attr not in cls.__dict__:
                 setattr(cls, attr, list(getattr(cls, attr)))
 
@@ -112,6 +113,8 @@ class SubModule:
             reg.command(cc.name, cc)
         for sname, fn in self._scripts.items():
             reg.script(sname)(fn)
+        for gname, gfn in self.guards:
+            reg.guard(gname, gfn)
         register_builtin_harnesses(reg)
         return reg
 
