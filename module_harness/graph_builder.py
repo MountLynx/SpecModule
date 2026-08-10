@@ -326,7 +326,7 @@ class TasklistTranslator:
                     type="infrastructure",
                 )
             out = firings[-1].output if firings else {}
-            if task.outputs:
+            if task.outputs and isinstance(out, dict) and not isinstance(out, Failure):
                 out = {k: out.get(v) for k, v in task.outputs.items()}
             return out
 

@@ -70,6 +70,29 @@ class Parent(SubModule):
         return {"got": view["B"].value}
 
 
+class LlmChild(SubModule):
+    """带 harness 的子模块：用于验证节点级 LLM 覆盖传播。"""
+
+    name = "llm_child"
+    spec_schema = SpecSchema(input={}, output={"msg": "str"})
+    harnesses = [
+        HarnessConfig(
+            name="say", prompt_core="说：{text}",
+            output_format=OutputFormat(type="json_object"),
+        ),
+    ]
+    tasklist = Tasklist(
+        tasks={
+            "S": TaskDefinition(
+                type="harness", harness="say",
+                inputs={"text": "hello"},
+                outputformat={"type": "json_object"},
+            ),
+        },
+        flow="[S]",
+    )
+
+
 class TestSubmoduleNode:
     @pytest.mark.asyncio
     async def test_basic_run(self, mock_llm):
@@ -276,3 +299,60 @@ class TestSubmoduleNode:
         firings = await mod.run(max_ticks=20)
         c_out = next(f.output for f in firings if f.node == "C")
         assert c_out == {"got": {"msg": "from_child"}}
+
+    @pytest.mark.asyncio
+    async def test_node_llm_overrides_propagate_to_child(self, mock_llm):
+        class P5(SubModule):
+            name = "p5"
+            modules = {"llm_child": LlmChild}
+            tasklist = Tasklist(
+                tasks={
+                    "B": TaskDefinition(
+                        type="submodule", submodule="llm_child",
+                        model="model-x", temperature=0.7,
+                    ),
+                },
+                flow="B",
+            )
+
+        mock_llm.complete.return_value = LLMResponse(
+            content='{"msg": "hi"}', usage={}, finish_reason="end_turn")
+        await P5(llm_client=mock_llm).run({}, max_ticks=20)
+        assert mock_llm.complete.await_args is not None
+        kwargs = mock_llm.complete.await_args.kwargs
+        assert kwargs.get("model") == "model-x"
+        assert kwargs.get("temperature") == 0.7
+
+    @pytest.mark.asyncio
+    async def test_outputs_mapping_passes_through_failure(self, mock_llm):
+        from tickflow import Failure
+
+        class FailChild(SubModule):
+            name = "fail_child"
+            spec_schema = SpecSchema(input={}, output={"msg": "str"})
+            tasklist = Tasklist(
+                tasks={"S": TaskDefinition(type="script", script="boom")},
+                flow="[S]",
+            )
+
+            @script("boom")
+            def boom(view):
+                return Failure("子模块内部失败", type="llm")
+
+        class P6(SubModule):
+            name = "p6"
+            modules = {"fail_child": FailChild}
+            tasklist = Tasklist(
+                tasks={
+                    "B": TaskDefinition(
+                        type="submodule", submodule="fail_child",
+                        outputs={"m": "msg"},
+                    ),
+                },
+                flow="B",
+            )
+
+        firings = await P6(llm_client=mock_llm).run({}, max_ticks=20)
+        b_out = next(f.output for f in firings if f.node == "B")
+        assert isinstance(b_out, Failure)
+        assert b_out.type == "llm"
