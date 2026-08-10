@@ -63,6 +63,7 @@ class SubModule:
     commands: list[CommandConfig] = []
     requires: list[str] = []
     guards: list[tuple[str, Callable]] = []   # [(名字, 函数)]，名字 = 注册名 = 打包文件名
+    modules: dict[str, type["SubModule"]] = {}  # submodule 节点引用表 {tasklist 名: 类}
     tasklist: Tasklist | None = None
     mode: Literal["persist", "fast"] = "persist"
     # 发布者声明轻量特性："fast" = 快速模式（NullBackend 全内存，零落盘零 I/O，
@@ -82,6 +83,9 @@ class SubModule:
         for attr in ("harnesses", "commands", "requires", "guards"):
             if attr not in cls.__dict__:
                 setattr(cls, attr, list(getattr(cls, attr)))
+        # dict 类属性同理由：按子类复制，防止子类就地修改污染父类注册
+        if "modules" not in cls.__dict__:
+            setattr(cls, "modules", dict(getattr(cls, "modules")))
 
     def __init__(
         self,
