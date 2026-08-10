@@ -108,7 +108,7 @@ view → 渲染 inputs 引用（{spec.xxx} 构建期解析、节点名运行时�
 | outputs 校验 | 构建期校验：`outputs` 的每个值字段必须存在于子模块 `spec_schema.output` 声明（无隐式行为）；缺失 → 构建报错 |
 | LLM 配置继承 | 节点级 `model / temperature / think / api_params` 经 `harness_overrides` 传播到子模块内部**所有** harness（覆盖其自身配置）；未写的字段用默认 |
 | client 共享 | 子模块实例化注入父的 `llm_client`（同进程同配置）；父无 client 时子模块按既有逻辑 `from_env()` 懒创建 |
-| 实例缓存 | 首次触发时实例化并缓存，同节点多次触发（loop 回边）复用实例——嵌入模式无状态，每次 run 独立 |
+| 实例缓存 | 构建时实例化并缓存（`_register_submodule`），同节点多次触发（loop 回边）复用实例——嵌入模式无状态，每次 run 独立 |
 | 命名空间 | 子模块实例有独立 `module_id` → body 名前缀隔离，与父图无冲突；嵌套子模块同理递归 |
 | guard 引用 | 节点输出是普通 dict，guard 可读（`view.Loop1.value`），submodule 节点可进 loop |
 | 事件/审计 | `audit=False` 嵌入模式：`EventBus.null()` + `keep_records=False` + 无 backend——不进审计/快照/回滚 |
