@@ -70,6 +70,7 @@ class Module:
         keep_records: bool = True,
         persist: bool = True,
         status_file: bool = True,
+        modules: dict[str, Any] | None = None,
     ) -> None:
         if (template_name is None) == (tasklist is None):
             raise ValueError("template_name 与 tasklist 必须且只能传一个")
@@ -86,6 +87,10 @@ class Module:
         self.status_file = status_file
         self.review_result: ConsistencyReport | None = None
         self.module_id = module_id or f"mod_{uuid.uuid4().hex[:8]}"
+        self._llm_client = llm_client
+        # submodule 引用解析表 {tasklist 名: SubModule 类}：TasklistValidator 校验
+        # submodule 节点（T4）与 TasklistTranslator 构建嵌套子图（T6）共用
+        self._modules = dict(modules or {})
 
         if registry is not None:
             self._reg = registry
@@ -152,7 +157,7 @@ class Module:
         if self.tasklist is not None:
             self._write_phase("reviewing")
             tasklist = self.tasklist
-            errors = TasklistValidator.validate(tasklist, self._reg)
+            errors = TasklistValidator.validate(tasklist, self._reg, self._modules)
             if errors:
                 raise ValueError(
                     "tasklist 校验失败:\n" + "\n".join(f"  - {e}" for e in errors)
@@ -177,7 +182,10 @@ class Module:
                 raise ValueError(f"模板 '{self.template_name}' 未找到")
             tasklist = await self._translator.translate(self.spec, template)
         self._write_phase("building")
-        builder = TasklistTranslator(self._reg, self.module_id)
+        builder = TasklistTranslator(
+            self._reg, self.module_id,
+            modules=self._modules, llm_client=self._llm_client,
+        )
         graph, reg = builder.build(tasklist, spec=self.spec)
         self._last_tasklist = tasklist
         backend = (

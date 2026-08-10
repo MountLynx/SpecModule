@@ -165,7 +165,8 @@ class SubModule:
         - tasklist=None：用自身固定 tasklist，不触发一致性审核（发布前已验证）
         - 传入自定义 tasklist：与 Module 一致，校验 + 一致性审核
         - harness_overrides：{model/temperature/think/api_params} 覆盖，
-          构建 registry 时应用到全部 harness（submodule 节点 LLM 配置传播）
+          构建 registry 时应用到 submodule 自身的全部 harness（不含内置
+          harness）（submodule 节点 LLM 配置传播）
         - audit=False（默认）：嵌入模式，EventBus.null() + keep_records=False；
           除非 mode="fast"，嵌入模式同样落盘（D11）
         - persist：False = 快速模式（NullBackend 全内存 + 无 status.json，
@@ -194,6 +195,7 @@ class SubModule:
             keep_records=audit,
             persist=use_persist,
             status_file=use_persist,
+            modules=self.modules,
         )
         return await module.run(max_ticks=max_ticks)
 

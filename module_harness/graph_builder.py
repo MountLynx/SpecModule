@@ -42,9 +42,18 @@ class TasklistTranslator:
         graph, out_reg = builder.build(tasklist)
     """
 
-    def __init__(self, registry: HarnessRegistry, module_id: str) -> None:
+    def __init__(
+        self,
+        registry: HarnessRegistry,
+        module_id: str,
+        *,
+        modules: dict[str, Any] | None = None,
+        llm_client: Any = None,
+    ) -> None:
         self.reg = registry
         self.module_id = module_id
+        self.modules = dict(modules or {})
+        self._llm_client = llm_client
 
     # ------------------------------------------------------------------
     # Public API

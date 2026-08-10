@@ -445,3 +445,29 @@ class TestScriptNameCheck:
                 @script("renamed")
                 def actual_fn(view):
                     return {}
+
+
+class TestModulesAttr:
+    def test_modules_copied_between_subclasses(self):
+        class M1(SubModule):
+            name = "m1"
+            modules = {"child": object}
+
+        class M2(M1):
+            name = "m2"
+
+        assert M2.modules == {"child": object}
+        assert M1.modules is not M2.modules
+        M2.modules["other"] = object
+        assert "other" not in M1.modules  # 不污染父类
+
+    def test_modules_explicit_override(self):
+        class M1(SubModule):
+            name = "m1"
+            modules = {"child": object}
+
+        class M2(M1):
+            name = "m2"
+            modules = {"another": object}  # 显式定义覆盖
+
+        assert set(M2.modules) == {"another"}
