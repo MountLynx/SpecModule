@@ -94,6 +94,62 @@ class LlmChild(SubModule):
     )
 
 
+def until3(view):
+    return view["counter"].value["n"] < 3
+
+
+class GuardLoopMod(SubModule):
+    """带 guard 自循环的子模块：验证 loader 加载后 guard 循环仍可运行。"""
+
+    name = "guard_loop_mod"
+    spec_schema = SpecSchema(input={}, output={"n": "int"})
+    guards = [("until3", until3)]
+    tasklist = Tasklist(
+        tasks={"counter": TaskDefinition(type="script", script="counter")},
+        flow="[counter] --|until3|--> counter",
+    )
+
+    @script("counter")
+    def counter(view):
+        n = view.state.get("n", 0) + 1
+        view.state["n"] = n
+        return {"n": n}
+
+
+class GrandChild(SubModule):
+    """深度 2 嵌套：孙模块。"""
+
+    name = "grand_child"
+    spec_schema = SpecSchema(input={}, output={"msg": "str"})
+    tasklist = Tasklist(
+        tasks={"S": TaskDefinition(type="script", script="echo")},
+        flow="[S]",
+    )
+
+    @script("echo")
+    def echo(view):
+        return {"msg": "from_grandchild"}
+
+
+class MidChild(SubModule):
+    """深度 1 子模块：自身也引用 submodule 节点。"""
+
+    name = "mid_child"
+    spec_schema = SpecSchema(input={}, output={"msg": "str"})
+    modules = {"grand_child": GrandChild}
+    tasklist = Tasklist(
+        tasks={
+            "B": TaskDefinition(type="submodule", submodule="grand_child"),
+            "C": TaskDefinition(type="script", script="read", inputs={"data": "B"}),
+        },
+        flow="[B] --> C",
+    )
+
+    @script("read")
+    def read(view):
+        return {"got": view["B"].value}
+
+
 class TestSubmoduleNode:
     @pytest.mark.asyncio
     async def test_basic_run(self, mock_llm):
@@ -388,3 +444,25 @@ class TestPackLoadSubmodules:
         manifest_path.write_text(_json.dumps(manifest), encoding="utf-8")
         with pytest.raises(ModuleManifestError, match="ghost"):
             ModuleLoader(llm_client=mock_llm).load(out)
+
+    @pytest.mark.asyncio
+    async def test_load_roundtrip_guards_loop(self, tmp_path, mock_llm):
+        from module_harness.loader import ModuleLoader
+
+        out = GuardLoopMod().pack(tmp_path / "dist")
+        module = ModuleLoader(llm_client=mock_llm).load(out)
+        firings = await module.run({}, max_ticks=20)
+        assert len(firings) == 3
+        assert firings[-1].output == {"n": 3}
+
+    @pytest.mark.asyncio
+    async def test_load_roundtrip_nested_submodules(self, tmp_path, mock_llm):
+        from module_harness.loader import ModuleLoader
+
+        out = MidChild().pack(tmp_path / "dist")
+        assert (out / "submodules" / "grand_child" / "module.json").is_file()
+        module = ModuleLoader(llm_client=mock_llm).load(out)
+        assert set(module.modules) == {"grand_child"}
+        firings = await module.run({}, max_ticks=20)
+        c_out = next(f.output for f in firings if f.node == "C")
+        assert c_out == {"got": {"msg": "from_grandchild"}}
