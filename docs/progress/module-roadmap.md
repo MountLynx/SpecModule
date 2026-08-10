@@ -1,6 +1,6 @@
 # SpecModule 开发进度与路线
 
-> 最后更新：2026-08-06
+> 最后更新：2026-08-10
 
 本文档追踪 SpecModule module 核心功能的开发状态与实现方向。
 
@@ -165,12 +165,42 @@
 
 ---
 
+## 模块组合讨论与决策（2026-08-10）
+
+**背景**：example 模块开发（灵感式写作 → 学术英语，含两阶段"原始↔当前稿"事实审阅 loop）中，审阅 loop 需要复用，引出"模块组合"能力讨论。结论记录于此，不另写设计文档。
+
+**三种复用模型**：
+
+| 模型 | 机制 | 复用对象 | 审计 | 结论 |
+|------|------|---------|------|------|
+| **嵌套执行** | script node 内 `await 子 module.run()`（收 spec → 返回结果） | 整个黑盒模块 | 子 run 独立落盘（`.specmodule/runs/<run_id>/`）可审计；父子 run 分离，回滚不联动 | ✅ **采纳**（本次） |
+| **图级组合**（子流程嵌入） | 子流程展开进主图（前缀隔离 / spec 透传 / 跨子图死锁分析） | 图结构（边+guard 语义） | 好（节点进主图） | ⏸️ 不做：仅省 flow 骨架几行边，成本高；骨架复用已有模板机制兜底 |
+| **公共库 + requires** | 公共 harness/script/guard，模块注册时只写引用 | 零件 | 好 | 即"内置工具提炼机制"，按提炼判定标准推进 |
+
+**嵌套执行语义要点**：
+- 同进程 asyncio await 天然"暂停 → 运行 → 恢复"：父 tick 在 await 处挂起，子 module 用自己的 RunState 跑完（独立落盘），返回结果父继续下一 tick——**无需快照机制**（快照/rollback 是跨进程 resume/回退用的）
+- 已实证：async script node 内 `await 子 module.run()` 跑通
+- 子 module 以 spec-in/result-out 契约暴露聚合字段（轮次/问题数/遗留问题）+ **子 run id**（事后审计追踪）
+- 边界：父图读不到子流程内部节点输出；父回滚不联动子 run；子 module 的 client 走模块级工厂（env 创建 / 测试 patch），pack 源码导出受限（getsource 只含函数体）
+
+**触发条件**：图级组合 / 零件提炼在实践线（M1/M2）出现第二个真实使用方时再评估（YAGNI 对冲）。
+
+**本次 example 计划**（记于此处）：
+- `example/fact_review_loop.py`：`FactReviewLoop(SubModule)`——通用事实审阅循环（spec: `{original_text, draft_text}` → `{text, attempt, clean, issues_remaining}`）。loop 路由逻辑在 merge script（确定性轮次上限 attempt≥3），4 个 guard（continue/done/fix_needed/clean）全读 `view[view.node]`，完全通用可打包
+- `example/academic_writer.py`：`AcademicWriter(SubModule)`——流水线 `[A]Organize → Loop1 → Polish → Loop2 → Finalize → Report`（Loop1/2 为 async script 嵌套调用 loop 模块）；spec: `{raw_text, target_field?, max_words?}` → `{final_text, modification_notes}`；两阶段审阅复用同一 `fact_review` harness 配置
+- **框架缺口修复**（模块无关，通用价值，随 example 一并做）：
+  1. `TasklistValidator._check_flow` 解析 flow 时未传 registry → 任何 guard 边在校验阶段必被拒（`translator.py`，一行修复）
+  2. `SubModule` 无 guard 声明/收集/注册/pack 导出/加载机制（`submodule.py` + `loader.py`）——loop 必须用 guard，当前类式模块无法声明
+
+---
+
 ## 不在当前范围 ⏸️
 
 | 功能 | 说明 |
 |------|------|
 | 自建 agent (斜杠指令) | 见 agent 专项设计（未来） |
 | module 独立进程 | 多进程架构（未来） |
+| 图级模块组合（子流程嵌入） | 判定不做，见"模块组合讨论与决策"（嵌套执行已覆盖当前需求） |
 | 跨 session 快照重进/派生分支（issue #1） | 底层已就位（自包含快照 + fired），Module 层显式 API 待需求驱动 |
 
 ---
