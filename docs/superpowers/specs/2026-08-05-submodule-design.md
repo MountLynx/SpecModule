@@ -90,7 +90,7 @@ result = await module.run({"source_text": "Hello", "style": "formal"})
 - 第二层 CLI（保持纯 Python 入口）
 - LLM 翻译生成 tasklist 的 translation 通道——tasklist 固定 + `{spec.xxx}` 占位符已覆盖 spec-only 输入
 - 快照/回滚封装（roadmap #6，独立任务）
-- submodule 嵌入子 module（module 内调用另一 module）
+- submodule 嵌入子 module（module 内调用另一 module）（已实现，见 2026-08-10-submodule-node-design.md——2026-08-10 修正）
 
 ## 数据模型
 
