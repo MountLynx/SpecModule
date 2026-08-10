@@ -59,7 +59,7 @@ class TasklistValidator:
         for key, task in tasklist.tasks.items():
             errors.extend(TasklistValidator._check_task(key, task, registry))
 
-        errors.extend(TasklistValidator._check_flow(tasklist))
+        errors.extend(TasklistValidator._check_flow(tasklist, registry))
         return errors
 
     @staticmethod
@@ -87,7 +87,7 @@ class TasklistValidator:
         return errors
 
     @staticmethod
-    def _check_flow(tasklist: Tasklist) -> list[str]:
+    def _check_flow(tasklist: Tasklist, registry: HarnessRegistry) -> list[str]:
         errors: list[str] = []
         task_keys = set(tasklist.tasks.keys())
 
@@ -116,7 +116,7 @@ class TasklistValidator:
 
         # 尝试 tickflow parse 检测语法问题（与 graph_builder 使用相同的 prepare_flow 预处理）
         try:
-            parse_graph(prepare_flow(flow))
+            parse_graph(prepare_flow(flow), registry=registry)
         except Exception as e:
             errors.append(f"Flow 解析失败: {e}")
 

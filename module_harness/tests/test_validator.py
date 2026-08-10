@@ -1,5 +1,7 @@
 import pytest
 from unittest.mock import MagicMock
+from module_harness.events import EventBus
+from module_harness.registry import HarnessRegistry
 from module_harness.spec import Tasklist, TaskDefinition
 from module_harness.translator import TasklistValidator
 
@@ -86,3 +88,27 @@ class TestTasklistValidator:
         reg = _make_registry()
         errors = TasklistValidator.validate(tl, reg)
         assert any("A" in e for e in errors)
+
+
+class TestGuardFlow:
+    def _reg(self):
+        reg = HarnessRegistry(llm_client=object(), event_bus=EventBus())
+        reg.script("s")(lambda view: {"n": 1})
+        return reg
+
+    def test_guard_edge_with_registered_guard_passes(self):
+        tl = Tasklist(
+            tasks={"A": TaskDefinition(type="script", script="s")},
+            flow="[A] --|until3|--> A",
+        )
+        reg = self._reg()
+        reg.guard("until3")(lambda view: False)
+        assert TasklistValidator.validate(tl, reg) == []
+
+    def test_guard_edge_unregistered_guard_fails(self):
+        tl = Tasklist(
+            tasks={"A": TaskDefinition(type="script", script="s")},
+            flow="[A] --|until3|--> A",
+        )
+        errors = TasklistValidator.validate(tl, self._reg())
+        assert any("until3" in e for e in errors)
