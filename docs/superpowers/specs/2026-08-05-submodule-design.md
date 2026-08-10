@@ -16,6 +16,13 @@ SpecModule 面向两层用户：
 
 本设计为第一层开发者提供**类式快速搭建 + `pack()` 封装发布**，为第二层用户提供**纯 Python 的 `ModuleLoader` 入口**。对应 roadmap #5（submodule，含模块打包/发布）。
 
+> **2026-08-10 修正定位**：本设计的 SubModule 同时承担两种身份——① 独立可运行/可打包的
+> module；② 可被其他模块引用为 tasklist 节点的**处理单元**（submodule 一等节点类型，
+> 与 harness/script 同级）。父模块类属性 `modules: dict[str, type[SubModule]]` 声明引用；
+> pack 递归内置 `submodules/<name>/`，加载无运行时依赖。节点级 LLM 设置传播到子模块内部
+> 所有 harness；子模块以嵌入模式运行（不进审计/快照/回滚），只暴露终点输出。原「不包含」
+> 清单中"submodule 嵌入子 module"一项已实现（见 2026-08-10-submodule-node-design.md）。
+
 ## 两层用户模型
 
 ### 第一层：类式开发

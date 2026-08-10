@@ -1,14 +1,15 @@
 # 灵感写作 → 学术英语（academic_writer）设计文档
 
 > 日期：2026-08-10 | 状态：已确认，待实现
+> 状态更新（2026-08-10）：两个框架缺口已修复（本计划完成）；Loop1/Loop2 组合方式改为 submodule 一等节点（见 2026-08-10-submodule-node-design.md），本设计的嵌套执行表述作废。
 > 关联：实践线 M1 论文优化的前置练习；开发提炼（submodule guard 能力）的首次落地
 
 ## 概述
 
 制作两个 example module（新 `example/` 目录，不放在 tests）：
 
-1. **`fact_review_loop`** — 独立可复用 submodule：给定原始文段与待审文段，循环执行"事实审阅 → 问题修复 → 回审"，直到无事实问题或达最大轮数。任何"文本需对照原文核验"的工作流（M1 论文优化等）可继承复用。
-2. **`academic_writer`** — 完整流水线 submodule：将中英混杂、混乱重复的灵感式写作文段，经「整理 → 事实审阅 loop → 学术润色 → 事实审阅 loop → 整合终稿」产出学术英语文段 + 修改说明两个输出变量。
+1. **`fact_review_loop`** — 独立可复用 submodule：给定原始文段与待审文段，循环执行"事实审阅 → 问题修复 → 回审"，直到无事实问题或达最大轮数。任何"文本需对照原文核验"的工作流（M1 论文优化等）可引用为 submodule 节点复用。
+2. **`academic_writer`** — 完整流水线 submodule：将中英混杂、混乱重复的灵感式写作文段，经「整理 → 事实审阅 loop → 学术润色 → 事实审阅 loop → 整合终稿」产出学术英语文段 + 修改说明两个输出变量。Loop1/Loop2 为 **submodule 一等节点**（类属性 `modules = {"fact_review_loop": FactReviewLoop}` 声明 + tasklist 内 `{type: "submodule", submodule: "fact_review_loop", inputs: {...}}` 引用）；节点级 LLM 配置（model/temperature/think/api_params）可传播到子模块内部所有 harness。
 
 框架修复（两个缺口，模块无关的通用价值）：
 
@@ -22,7 +23,7 @@
 - 框架现实约束：
   - **script 节点读不到 spec**（`graph_builder._register_script` 不解析 `{spec.xxx}`；常量引用只对 harness 生效）→ loop 模块的种子稿需经转发 harness 节点入图。
   - **guard 读不到 spec** → 最大轮数 MAX_ATTEMPTS 为代码常量（3），不进 spec 契约。
-  - **无图级模块组合**（`requires` 只解析「内置集 ∪ 自身 provides」，submodule 设计文档"不包含"清单中明确 YAGNI 延后）→ `academic_writer` 通过**类继承**复用 loop 模块的 harness 配置；两阶段 loop 图结构需按阶段重声明节点与 guard。
+  - **submodule 节点类型**（2026-08-10-submodule-node-design.md）支持黑盒引用；两阶段 loop 复用同一 fact_review_loop 处理单元
 
 ## 范围
 
@@ -31,6 +32,8 @@
 - **不包含**：图级模块组合能力（独立 spec，触发条件 = M1/M2 真实需要）、模板通道、CLI。
 
 ## 框架修复
+
+> 状态更新（2026-08-10）：以下两个缺口均已修复（随框架实现落地，见 2026-08-10-submodule-node-design.md）。
 
 ### 缺口 1：_check_flow 丢失 registry（translator.py）
 
@@ -99,42 +102,39 @@ def clean(view):       # 与 has_issues 严格互补（XOR 分支不得双走）
 | `fact_review` | 原始 vs 当前稿逐句对比：信息缺漏（omission）/ 幻觉新增（hallucination）/ 事实改动（alteration）；每条附原文与当前稿引文；`clean` 仅当零问题 | `{"issues": [{type, detail, quote_original, quote_draft}], "clean": bool}` |
 | `fix_issues` | 按 issues 逐条修复：补遗漏、删幻觉、还原事实；不引入新事实；不改动未被点名内容 | `{"text": str}` |
 
-## 模块二：academic_writer（AcademicWriter(FactReviewLoop)）
+## 模块二：academic_writer（AcademicWriter(SubModule)，modules 引用 FactReviewLoop）
 
 **定位**：使用场景产物——end user 只写 spec（raw_text）运行完整流水线。
 
-**继承复用**：`class AcademicWriter(FactReviewLoop)`——`fact_review` / `fix_issues` harness 配置字面共享（"同一个 harness"= 同一配置对象）；重写 `name` / `spec_schema` / `tasklist` / `harnesses`（追加 organize/polish/finalize）/ `_scripts`（新增 merge_1/merge_2/build_report）/ `guards`（按阶段绑定，覆盖继承的通用 guard——基类 guard 绑定 Review/Merge 节点名，在两阶段图上不可用）。
+**submodule 节点组合**：`class AcademicWriter(SubModule)`，类属性 `modules = {"fact_review_loop": FactReviewLoop}` 声明引用（无全局注册表）；tasklist 内 Loop1/Loop2 直接写 `{type: "submodule", submodule: "fact_review_loop", inputs: {...}}`——两阶段复用同一 `fact_review_loop` **处理单元**（黑盒嵌入运行，不进审计/快照/回滚，只暴露终点输出）。节点级 LLM 设置（model/temperature/think/api_params）传播到子模块内部所有 harness；`outputs` 字段可从终点输出挑选/重命名（缺省全量）。对比本设计早先版本（类继承复用 + 按阶段重声明节点与 guard），父模块不再需要任何重声明。
 
 **spec 契约**：`input: {raw_text: str, target_field: str?, max_words: int?}`；`output: {final_text: str, modification_notes: str}`
 
 **图**：
 
 ```
-[A]Organize --> Merge1 --> Review1 --|has_issues_1|--> Fix1 --> Merge1
-                Review1 --|clean_1|--> Polish --> Merge2 --> Review2 --|has_issues_2|--> Fix2 --> Merge2
-                                                       Review2 --|clean_2|--> Finalize --> Report
-                Merge1.join: OR      Merge2.join: OR
+[A]Organize --> Loop1 --> Polish --> Loop2 --> Finalize --> Report
 ```
+
+（Loop1 / Loop2 各自是 `fact_review_loop` 的完整 loop 子图：Seed → Merge → Review --|has_issues|--> Fix → Merge，Review --|clean|--> Exit，Merge.join: OR——节点与 guard 均在子模块内部，父图只见黑盒。）
 
 | 节点 | 类型 | 引用 | 输入 | 说明 |
 |------|------|------|------|------|
 | Organize | harness | `organize` | `{raw_text: "{spec.raw_text}"}` + 可选字段 | 中英混杂 → 逻辑通顺英文，保留全部信息，不增删事实 |
-| Merge1 / Merge2 | script | `merge_1` / `merge_2` | 阶段1: `{organized: Organize, fixed: Fix1}`；阶段2: `{organized: Polish, fixed: Fix2}` | 同 loop 模块 merge 语义（修复稿优先 + attempt 计数） |
-| Review1 / Review2 | harness | `fact_review`（**同一 harness，两个节点**） | `{draft: Merge1|Merge2, original: "{spec.raw_text}"}` | 事实审阅（同 loop 模块） |
-| Fix1 / Fix2 | harness | `fix_issues`（同一 harness，两个节点） | `{draft: Merge1|Merge2, issues: Review1|Review2}` | 问题修复 |
-| Polish | harness | `polish` | `{draft: Merge1}` + 可选字段 | 学术英语化（正式、精确、学术句式），事实不变 |
-| Finalize | harness | `finalize` | `{original: "{spec.raw_text}", draft: Merge2}` | 原始+润色整合终稿，可微调语言，不得改事实；输出终稿 + 语言调整说明 |
-| Report | script | `build_report` | `{finalize: Finalize, review1: Review1, review2: Review2, merge2: Merge2}` | 聚合生成 markdown 修改说明（确定性、可审计，见下） |
+| Loop1 / Loop2 | submodule | `fact_review_loop`（**同一处理单元，两个节点**） | `{original_text: "{spec.raw_text}", draft_text: Organize\|Polish}` | 事实审阅 loop；节点输出 = 子流程终点输出全量（text/attempt/clean/issues_remaining），可选 `outputs` 挑选/重命名 |
+| Polish | harness | `polish` | `{draft: Loop1}` + 可选字段 | 学术英语化（正式、精确、学术句式），事实不变 |
+| Finalize | harness | `finalize` | `{original: "{spec.raw_text}", draft: Loop2}` | 原始+润色整合终稿，可微调语言，不得改事实；输出终稿 + 语言调整说明 |
+| Report | script | `build_report` | `{finalize: Finalize, loop1: Loop1, loop2: Loop2}` | 聚合生成 markdown 修改说明（确定性、可审计，见下） |
 
-**guards**（4 个自包含函数，上限 3 内联于每个函数——pack 单文件导出约束，见模块一）：`has_issues_1/clean_1` 绑定 `(Review1, Merge1)`，`has_issues_2/clean_2` 绑定 `(Review2, Merge2)`；逻辑与 loop 模块的通用 guard 相同（`issues 非空 and attempt < 3` / 严格互补）。
+**guards**：父模块无需声明——loop 的 guards（has_issues/clean，上限 3 内联）内聚在 `fact_review_loop` 内部（自包含、可打包，见模块一）；这是 submodule 一等节点相比"按阶段重声明节点与 guard"的核心收益。
 
 **modification_notes（markdown，由 build_report 确定性聚合）**：
 - 整理阶段：原始 vs 整理稿（无 LLM 说明，结构重组由 organize 完成）
-- 阶段 1 审阅：发现 issues 数、修复轮数（merge1.attempt）、最终 verdict（clean 或"达上限，遗留 N 项"）
-- 阶段 2 审阅：同上（merge2.attempt）
+- 阶段 1 审阅：发现 issues 数、修复轮数（Loop1.attempt）、最终 verdict（clean 或"达上限，遗留 N 项"，Loop1.issues_remaining）
+- 阶段 2 审阅：同上（Loop2.attempt / Loop2.issues_remaining）
 - 整合阶段：finalize 的语言调整说明（LLM 输出）
 - 遗留问题逐条列出（若达上限未清）
-- 每轮修复明细不进 notes——RunState 审计记录（firings 轨迹）已可查
+- 每轮修复明细不进 notes——子模块嵌入模式内部过程不进审计（零落盘），聚合字段（attempt / issues_remaining）已覆盖审阅所需
 
 **可选字段**（target_field / max_words）：spec 缺省时 prompt 占位符渲染为空/占位文案（实现时验证渲染行为，缺省不得报错）。
 
@@ -142,14 +142,14 @@ def clean(view):       # 与 has_issues 严格互补（XOR 分支不得双走）
 
 | # | 决策点 | 结论 |
 |---|--------|------|
-| 1 | loop 形态 | **独立 submodule + 继承复用**（用户确认）；图级组合能力按设计文档"后续按需"延后，触发条件 = M1/M2 真实需要 |
+| 1 | loop 形态 | **独立 submodule + submodule 一等节点组合**（2026-08-10 修正，用户确认）；图级组合能力维持不做（用户定位 submodule 为黑盒处理单元，非图结构复用） |
 | 2 | 阶段 4 审阅 | 对称 loop（用户确认）：润色后同样带"审阅 → 修复 → 回审" |
 | 3 | 轮次上限 | guard 函数内联常量 3（guard/script 读不到 spec；pack 单文件导出约束）；达上限强制走 clean 边退出，遗留 issues 进 `issues_remaining`/notes |
 | 4 | guard 互补性 | `clean = not has_issues` 严格互补——两 guarded 出边同时为 True 会让 XOR 分支双走（Fix 与下游同时触发） |
 | 5 | 循环合并节点 | Merge（OR-join：一次性种子 + loop 回边）——引擎文档的标准"loop 成员 + 一次性种子"模式；不用 LLM 条件判断（无隐式行为） |
 | 6 | 种子入图 | 转发 harness 节点（script 读不到 spec 的框架约束）；失真由 loop 自愈 |
-| 7 | 修改说明 | script 确定性聚合（可审计）而非 LLM 生成；每轮明细留审计记录 |
-| 8 | guard 命名 | 按阶段绑定（has_issues_1/clean_1…）：loop 模块通用 guard 绑定固定节点名，两阶段图无法复用，显式重声明（每个 ~6 行） |
+| 7 | 修改说明 | script 确定性聚合（可审计）而非 LLM 生成；每轮明细不进 notes——子模块嵌入模式内部过程不进审计（零落盘），聚合字段（attempt / issues_remaining）覆盖审阅所需 |
+| 8 | guard 归属 | guards 内聚在 fact_review_loop 内部（绑定 Review/Merge 固定节点名）；父模块经 submodule 节点引用，无需按阶段重声明（submodule 一等节点核心收益） |
 
 ## 错误处理
 
@@ -172,9 +172,9 @@ def clean(view):       # 与 has_issues 严格互补（XOR 分支不得双走）
    - 正常路径：review 首轮报 issues → fix 触发 → 二轮 clean → Exit 输出 `text/attempt=2/clean=True/issues_remaining=[]`
    - 达上限路径：review 恒报 issues → attempt=3 后退出 → `issues_remaining` 非空
 2. `test_writer.py`：
-   - 正常路径：两阶段均一次 clean → 最终输出 final_text + modification_notes 两变量；`fact_review` 被调用两次（两个节点）
-   - 修复路径：阶段 1 review 先 issues 后 clean → Fix1 被触发且循环收敛
-   - 达上限路径：阶段 2 恒 issues → notes 含遗留问题
+   - 正常路径：两阶段均一次 clean → 最终输出 final_text + modification_notes 两变量；`fact_review_loop` 被调用两次（两个 submodule 节点）
+   - 修复路径：阶段 1 loop 先 issues 后 clean → 子模块内部 Fix 触发且循环收敛
+   - 达上限路径：阶段 2 loop 恒 issues → notes 含遗留问题（Loop2.issues_remaining）
 
 **demo（真实 LLM，deepseek）**：`demo_loop.py` / `demo_writer.py` 跑 `sample_raw_text.txt`（中英混杂示例草稿），打印各节点输出与最终两变量。
 
@@ -188,7 +188,7 @@ def clean(view):       # 与 has_issues 严格互补（XOR 分支不得双走）
 | `module_harness/tests/` | 三个既有测试文件补测 |
 | `example/__init__.py` | 空包 |
 | `example/fact_review_loop.py` | FactReviewLoop + 自包含 guards + MAX_ATTEMPTS |
-| `example/academic_writer.py` | AcademicWriter(FactReviewLoop) |
+| `example/academic_writer.py` | AcademicWriter(SubModule)：`modules` 声明 + tasklist submodule 节点（Loop1/Loop2 引用 fact_review_loop） |
 | `example/demo_loop.py` | loop 模块真实运行入口 |
 | `example/demo_writer.py` | 完整流水线真实运行入口 |
 | `example/sample_raw_text.txt` | 示例灵感草稿（中英混杂、重复） |
@@ -209,9 +209,16 @@ report = firings[-1].output          # {"final_text": ..., "modification_notes":
 from example.fact_review_loop import FactReviewLoop
 FactReviewLoop().pack("dist/fact_review_loop")     # 发布
 
-# 开发场景：新模块继承复用
-class PaperOptimizer(FactReviewLoop):
+# 开发场景：新模块以 submodule 节点引用复用
+class PaperOptimizer(SubModule):
     name = "paper_optimizer"
+    modules = {"fact_review_loop": FactReviewLoop}
     spec_schema = SpecSchema(input={"paper": "str"}, ...)
-    ...
+    tasklist = Tasklist(tasks={
+        "Loop": TaskDefinition(
+            type="submodule", submodule="fact_review_loop",
+            inputs={"original_text": "{spec.paper}", "draft_text": "..."},
+        ),
+        ...
+    }, flow="...")
 ```
