@@ -46,10 +46,12 @@ class Spec:
 class TaskDefinition:
     """tasklist 中单个 Task 的定义。与 HarnessConfig 字段对齐。"""
 
-    type: Literal["harness", "script", "command"]
+    type: Literal["harness", "script", "command", "submodule"]
     harness: str | None = None
     script: str | None = None
     command: str | None = None          # type="command" 时引用的命令名
+    submodule: str | None = None        # type="submodule" 时引用名（父模块 modules 解析）
+    outputs: dict[str, str] | None = None  # submodule 输出映射 {节点字段: 子输出字段}；缺省 = 全量
     timeout: float | None = None        # command 超时覆盖（秒）
     cwd: str | None = None              # command 工作目录覆盖
     promptmode: str | None = None
@@ -69,6 +71,8 @@ class TaskDefinition:
             harness=d.get("harness"),
             script=d.get("script"),
             command=d.get("command"),
+            submodule=d.get("submodule"),
+            outputs=d.get("outputs"),
             timeout=d.get("timeout"),
             cwd=d.get("cwd"),
             promptmode=d.get("promptmode"),

@@ -181,7 +181,8 @@ class TestTasklistToDict:
         )
         assert tl.to_dict() == tasklist_to_dict(tl) == {
             "Tasks": {"A": {"type": "script", "script": "echo",
-                            "harness": None, "command": None, "timeout": None,
+                            "harness": None, "command": None, "submodule": None,
+                            "outputs": None, "timeout": None,
                             "cwd": None, "promptmode": None, "prompt": None,
                             "outputformat": None, "notdo": None, "model": None,
                             "temperature": None, "think": None,

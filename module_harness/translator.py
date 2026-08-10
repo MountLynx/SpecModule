@@ -52,18 +52,28 @@ class TasklistValidator:
     """校验 tasklist 的结构合法性与引用完整性。"""
 
     @staticmethod
-    def validate(tasklist: Tasklist, registry: HarnessRegistry) -> list[str]:
-        """返回问题列表，空列表 = 合法。"""
+    def validate(
+        tasklist: Tasklist,
+        registry: HarnessRegistry,
+        modules: dict[str, Any] | None = None,
+    ) -> list[str]:
+        """返回问题列表，空列表 = 合法。``modules`` 为 submodule 名解析表
+        （None = 跳过名字校验，向后兼容）。"""
         errors: list[str] = []
 
         for key, task in tasklist.tasks.items():
-            errors.extend(TasklistValidator._check_task(key, task, registry))
+            errors.extend(TasklistValidator._check_task(key, task, registry, modules))
 
         errors.extend(TasklistValidator._check_flow(tasklist, registry))
         return errors
 
     @staticmethod
-    def _check_task(key: str, task: TaskDefinition, registry: HarnessRegistry) -> list[str]:
+    def _check_task(
+        key: str,
+        task: TaskDefinition,
+        registry: HarnessRegistry,
+        modules: dict[str, Any] | None = None,
+    ) -> list[str]:
         errors: list[str] = []
 
         if task.type == "harness":
@@ -81,6 +91,11 @@ class TasklistValidator:
                 errors.append(f"Task '{key}': type='command' 但缺少 'command' 字段")
             elif not registry.is_command(task.command) and not registry.has_body(task.command):
                 errors.append(f"Task '{key}': command '{task.command}' 未在 registry 中注册")
+        elif task.type == "submodule":
+            if not task.submodule:
+                errors.append(f"Task '{key}': type='submodule' 但缺少 'submodule' 字段")
+            elif modules is not None and task.submodule not in modules:
+                errors.append(f"Task '{key}': submodule '{task.submodule}' 未在 modules 中声明")
         else:
             errors.append(f"Task '{key}': 未知 type '{task.type}'")
 
@@ -94,7 +109,7 @@ class TasklistValidator:
         # 解析 flow 得到 node 名（简单正则提取 mermaid 中的节点）
         # 匹配 A --> B, [A]-->B, A--|g|-->B 等
         node_names: set[str] = set()
-        flow = tasklist.flow
+        flow = prepare_flow(tasklist.flow)
         # 匹配 start marker [X]
         for m in re.finditer(r'\[(\w+)\]', flow):
             node_names.add(m.group(1))

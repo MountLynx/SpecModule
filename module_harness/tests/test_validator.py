@@ -89,6 +89,32 @@ class TestTasklistValidator:
         errors = TasklistValidator.validate(tl, reg)
         assert any("A" in e for e in errors)
 
+    def test_submodule_type_missing_submodule_field(self):
+        tl = Tasklist(
+            tasks={"B": TaskDefinition(type="submodule", submodule=None)},
+            flow="B",
+        )
+        errors = TasklistValidator.validate(tl, _make_registry())
+        assert any("submodule" in e for e in errors)
+
+    def test_submodule_not_in_modules(self):
+        tl = Tasklist(
+            tasks={"B": TaskDefinition(type="submodule", submodule="nope")},
+            flow="B",
+        )
+        errors = TasklistValidator.validate(
+            tl, _make_registry(), modules={"child": object()})
+        assert any("nope" in e for e in errors)
+
+    def test_submodule_declared_in_modules_passes(self):
+        tl = Tasklist(
+            tasks={"B": TaskDefinition(type="submodule", submodule="child")},
+            flow="B",
+        )
+        errors = TasklistValidator.validate(
+            tl, _make_registry(), modules={"child": object()})
+        assert errors == []
+
 
 class TestGuardFlow:
     def _reg(self):
