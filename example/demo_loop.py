@@ -34,12 +34,12 @@ def _mock_client():
         p = prompt or ""
         if "修复者" in p:
             content = (
-                '{"text": "Our method achieves 85% accuracy, outperforming the '
-                'baseline rule-based system by 15 percentage points. '
-                'It runs in under 2 seconds per query."}'
+                "Our method achieves 85% accuracy, outperforming the baseline "
+                "rule-based system by 15 percentage points. "
+                "It runs in under 2 seconds per query."
             )
         elif "原样转发" in p:
-            content = '{"text": "' + DRAFT.replace('"', "'") + '"}'
+            content = DRAFT
         else:  # 审阅
             content = (
                 '{"issues": [{"type": "alteration", "detail": "耗时 5 秒与原文'

@@ -60,14 +60,15 @@ def clean(view: Any) -> bool:
 SEED_DRAFT_CONFIG = HarnessConfig(
     name="seed_draft",
     prompt_core=(
-        "你是文档处理管线中的转发节点。原样转发以下「待审稿」，禁止任何修改、"
+        "你是文档处理管线中的转发节点。原样转发以下「待审稿」内容，禁止任何修改、"
         "删减、补充、翻译或重新组织。\n"
-        "若「待审稿」是 JSON 对象（含 text 字段），只输出其中的 text 字段内容；"
-        "若为纯文本，直接原样输出。\n\n"
+        "若「待审稿」是 JSON 对象（含 text 字段），只转发其中的 text 字段内容；"
+        "若为纯文本，直接原样输出。\n"
+        "直接输出文本内容本身，不要用 JSON 包裹，不要添加任何解释、前后缀或标记。\n\n"
         "待审稿：{draft}"
     ),
-    output_format=OutputFormat(type="json_object"),
-    notdo=["修改内容", "删减内容", "补充内容", "翻译"],
+    output_format=OutputFormat(type="text"),
+    notdo=["修改内容", "删减内容", "补充内容", "翻译", "添加解释"],
 )
 
 FACT_REVIEW_CONFIG = HarnessConfig(
@@ -96,12 +97,14 @@ FIX_ISSUES_CONFIG = HarnessConfig(
         "- hallucination：删除杜撰内容；\n"
         "- alteration：还原为原始文段事实。\n\n"
         "约束：只改动被点名内容，不引入原始文段中没有的新事实，"
-        "不重写未被点名内容的措辞。\n\n"
+        "不重写未被点名内容的措辞。\n"
+        "直接输出修复后的完整文本内容本身，不要用 JSON 包裹，"
+        "不要添加任何解释、前后缀或标记。\n\n"
         "当前稿（JSON 对象，取其 draft 字段）：{draft}\n\n"
         "问题列表（JSON 对象，取其 issues 字段）：{issues}"
     ),
-    output_format=OutputFormat(type="json_object"),
-    notdo=["新增原文没有的事实", "修改未被点名内容", "改动事实"],
+    output_format=OutputFormat(type="text"),
+    notdo=["新增原文没有的事实", "修改未被点名内容", "改动事实", "添加解释"],
 )
 
 
@@ -176,7 +179,9 @@ class FactReviewLoop(SubModule):
             draft = fixed
         else:
             seed = view["Seed"].value
-            draft = seed.get("text", "") if isinstance(seed, dict) else ""
+            draft = seed if isinstance(seed, str) else (
+                seed.get("text", "") if isinstance(seed, dict) else ""
+            )
         n = view.state.get("attempt", 0) + 1
         view.state["attempt"] = n
         return {"draft": draft, "attempt": n}

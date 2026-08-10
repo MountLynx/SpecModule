@@ -82,14 +82,15 @@ def _resp(content: str) -> LLMResponse:
     return LLMResponse(content=content, usage={}, finish_reason="end_turn")
 
 
-def _make_side_effect(review_bodies: list[str], fix_text: str = '{"text": "draft fixed"}'):
-    """按 prompt 关键词分发：seed 原样转发 / review 按给定序列返回 / fix 返回修复稿。"""
+def _make_side_effect(review_bodies: list[str], fix_text: str = "draft fixed"):
+    """按 prompt 关键词分发：seed 原样转发（text 类型，返回纯文本）/
+    review 按给定序列返回 JSON / fix 返回修复稿纯文本。"""
     review_calls = {"n": 0}
 
     async def side_effect(**kwargs):
         prompt = kwargs.get("prompt", "")
         if "原样转发" in prompt:
-            return _resp('{"text": "draft v1"}')
+            return _resp("draft v1")
         if "修复者" in prompt:
             return _resp(fix_text)
         # 审阅：按 review_bodies 序列依次返回
@@ -270,14 +271,15 @@ def clean(view: Any) -> bool:
 SEED_DRAFT_CONFIG = HarnessConfig(
     name="seed_draft",
     prompt_core=(
-        "你是文档处理管线中的转发节点。原样转发以下「待审稿」，禁止任何修改、"
+        "你是文档处理管线中的转发节点。原样转发以下「待审稿」内容，禁止任何修改、"
         "删减、补充、翻译或重新组织。\n"
-        "若「待审稿」是 JSON 对象（含 text 字段），只输出其中的 text 字段内容；"
-        "若为纯文本，直接原样输出。\n\n"
+        "若「待审稿」是 JSON 对象（含 text 字段），只转发其中的 text 字段内容；"
+        "若为纯文本，直接原样输出。\n"
+        "直接输出文本内容本身，不要用 JSON 包裹，不要添加任何解释、前后缀或标记。\n\n"
         "待审稿：{draft}"
     ),
-    output_format=OutputFormat(type="json_object"),
-    notdo=["修改内容", "删减内容", "补充内容", "翻译"],
+    output_format=OutputFormat(type="text"),
+    notdo=["修改内容", "删减内容", "补充内容", "翻译", "添加解释"],
 )
 
 FACT_REVIEW_CONFIG = HarnessConfig(
@@ -306,12 +308,14 @@ FIX_ISSUES_CONFIG = HarnessConfig(
         "- hallucination：删除杜撰内容；\n"
         "- alteration：还原为原始文段事实。\n\n"
         "约束：只改动被点名内容，不引入原始文段中没有的新事实，"
-        "不重写未被点名内容的措辞。\n\n"
+        "不重写未被点名内容的措辞。\n"
+        "直接输出修复后的完整文本内容本身，不要用 JSON 包裹，"
+        "不要添加任何解释、前后缀或标记。\n\n"
         "当前稿（JSON 对象，取其 draft 字段）：{draft}\n\n"
         "问题列表（JSON 对象，取其 issues 字段）：{issues}"
     ),
-    output_format=OutputFormat(type="json_object"),
-    notdo=["新增原文没有的事实", "修改未被点名内容", "改动事实"],
+    output_format=OutputFormat(type="text"),
+    notdo=["新增原文没有的事实", "修改未被点名内容", "改动事实", "添加解释"],
 )
 
 
@@ -386,7 +390,9 @@ class FactReviewLoop(SubModule):
             draft = fixed
         else:
             seed = view["Seed"].value
-            draft = seed.get("text", "") if isinstance(seed, dict) else ""
+            draft = seed if isinstance(seed, str) else (
+                seed.get("text", "") if isinstance(seed, dict) else ""
+            )
         n = view.state.get("attempt", 0) + 1
         view.state["attempt"] = n
         return {"draft": draft, "attempt": n}
@@ -486,16 +492,18 @@ class TestAcademicWriter:
             prompt = kwargs.get("prompt", "")
             # 分发键必须是各 prompt_core 独有引导短语——不能选用户文本
             # 可能出现的词（如"灵感草稿"），因为 {original} 占位符会把
-            # raw_text 渲染进 Review/Finalize 的 prompt
+            # raw_text 渲染进 Review/Finalize 的 prompt。
+            # 文本节点（organize/seed/fix/polish）为 text 类型 → 返回纯文本；
+            # 仅 finalize/review 为 json_object → 返回 JSON。
             if "整理成逻辑通顺的英文文段" in prompt:
-                return _resp('{"text": "organized draft"}')
+                return _resp("organized draft")
             if "原样转发" in prompt:
-                # 子模块 Seed 的 draft 是父节点输出 dict —— 转发其中的 text
-                return _resp('{"text": "child draft"}')
+                # 子模块 Seed 的 draft 是父节点输出 —— 原样转发
+                return _resp("child draft")
             if "修复者" in prompt:
-                return _resp('{"text": "child draft fixed"}')
+                return _resp("child draft fixed")
             if "学术英语写作规范" in prompt:
-                return _resp('{"text": "polished draft"}')
+                return _resp("polished draft")
             if "整合输出最终版本" in prompt:
                 return _resp('{"text": "final version", "notes": "将被动语态改为主动语态"}')
             # 审阅：按调用顺序区分 loop1 / loop2
@@ -616,11 +624,13 @@ ORGANIZE_CONFIG = HarnessConfig(
         "必须保留草稿中的全部信息，不得新增任何草稿中没有的事实或观点，"
         "不得遗漏任何要点。\n"
         "目标领域（值为 None 表示未提供，忽略此要求）：{target_field}\n"
-        "字数上限（值为 None 表示未提供，不设限）：{max_words}\n\n"
+        "字数上限（值为 None 表示未提供，不设限）：{max_words}\n"
+        "直接输出整理后的英文文段本身，不要用 JSON 包裹，"
+        "不要添加任何解释、前后缀或标记。\n\n"
         "灵感草稿：{raw_text}"
     ),
-    output_format=OutputFormat(type="json_object"),
-    notdo=["新增事实", "遗漏要点", "改变原意"],
+    output_format=OutputFormat(type="text"),
+    notdo=["新增事实", "遗漏要点", "改变原意", "添加解释"],
 )
 
 POLISH_CONFIG = HarnessConfig(
@@ -628,11 +638,13 @@ POLISH_CONFIG = HarnessConfig(
     prompt_core=(
         "你是学术英语写作专家。把以下「整理稿」润色为符合学术英语写作规范的"
         "文段：正式、精确、句式多样、逻辑衔接自然。\n"
-        "约束：只改变语言表达，不得改变任何事实、不得增删信息点。\n\n"
+        "约束：只改变语言表达，不得改变任何事实、不得增删信息点。\n"
+        "直接输出润色后的文段本身，不要用 JSON 包裹，"
+        "不要添加任何解释、前后缀或标记。\n\n"
         "整理稿（JSON 对象，取其 text 字段）：{draft}"
     ),
-    output_format=OutputFormat(type="json_object"),
-    notdo=["改变事实", "新增信息", "删减信息"],
+    output_format=OutputFormat(type="text"),
+    notdo=["改变事实", "新增信息", "删减信息", "添加解释"],
 )
 
 FINALIZE_CONFIG = HarnessConfig(
@@ -859,11 +871,19 @@ def _mock_client():
     async def complete(prompt: str | None = None, **kwargs) -> LLMResponse:
         p = prompt or ""
         if "修复者" in p:
-            content = '{"text": "Our method achieves 85% accuracy, outperforming the baseline rule-based system by 15 percentage points. It runs in under 2 seconds per query."}'
+            content = (
+                "Our method achieves 85% accuracy, outperforming the baseline "
+                "rule-based system by 15 percentage points. "
+                "It runs in under 2 seconds per query."
+            )
         elif "原样转发" in p:
-            content = '{"text": "' + DRAFT.replace('"', "'") + '"}'
+            content = DRAFT
         else:  # 审阅
-            content = '{"issues": [{"type": "alteration", "detail": "耗时 5 秒与原文 2 秒不符", "quote_original": "under 2 seconds", "quote_draft": "less than 5 seconds"}], "clean": false}'
+            content = (
+                '{"issues": [{"type": "alteration", "detail": "耗时 5 秒与原文'
+                ' 2 秒不符", "quote_original": "under 2 seconds", '
+                '"quote_draft": "less than 5 seconds"}], "clean": false}'
+            )
         return LLMResponse(content=content, usage={}, finish_reason="end_turn")
 
     client = MagicMock()
@@ -922,13 +942,13 @@ def _mock_client():
         if "整合输出最终版本" in p:
             content = '{"text": "This paper proposes an LLM-based code review system that automatically analyzes pull requests.", "notes": "合并重复表述；将口语化表达改为正式学术句式"}'
         elif "学术英语写作规范" in p:
-            content = '{"text": "We propose an LLM-based system for automated code review of pull requests."}'
+            content = "We propose an LLM-based system for automated code review of pull requests."
         elif "整理成逻辑通顺的英文文段" in p:
-            content = '{"text": "We propose an LLM-based code review system that automatically reviews pull requests."}'
+            content = "We propose an LLM-based code review system that automatically reviews pull requests."
         elif "原样转发" in p:
-            content = '{"text": "We propose an LLM-based code review system that automatically reviews pull requests."}'
+            content = "We propose an LLM-based code review system that automatically reviews pull requests."
         elif "修复者" in p:
-            content = '{"text": "We propose an LLM-based code review system that automatically reviews pull requests."}'
+            content = "We propose an LLM-based code review system that automatically reviews pull requests."
         else:  # 审阅
             content = '{"issues": [], "clean": true}'
         return LLMResponse(content=content, usage={}, finish_reason="end_turn")

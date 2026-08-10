@@ -20,14 +20,15 @@ def _resp(content: str) -> LLMResponse:
     return LLMResponse(content=content, usage={}, finish_reason="end_turn")
 
 
-def _make_side_effect(review_bodies: list[str], fix_text: str = '{"text": "draft fixed"}'):
-    """按 prompt 关键词分发：seed 原样转发 / review 按给定序列返回 / fix 返回修复稿。"""
+def _make_side_effect(review_bodies: list[str], fix_text: str = "draft fixed"):
+    """按 prompt 关键词分发：seed 原样转发（text 类型，返回纯文本）/
+    review 按给定序列返回 JSON / fix 返回修复稿纯文本。"""
     review_calls = {"n": 0}
 
     async def side_effect(**kwargs):
         prompt = kwargs.get("prompt", "")
         if "原样转发" in prompt:
-            return _resp('{"text": "draft v1"}')
+            return _resp("draft v1")
         if "修复者" in prompt:
             return _resp(fix_text)
         # 审阅：按 review_bodies 序列依次返回
@@ -61,7 +62,7 @@ class TestFactReviewLoop:
                 '"quote_original": "…", "quote_draft": "…"}], "clean": false}',
                 '{"issues": [], "clean": true}',
             ],
-            fix_text='{"text": "draft v2 fixed"}',
+            fix_text="draft v2 fixed",
         )
         out = (await FactReviewLoop(llm_client=mock_llm).run(
             {"original_text": "orig", "draft_text": "draft v0"},

@@ -47,16 +47,18 @@ class TestAcademicWriter:
             prompt = kwargs.get("prompt", "")
             # 分发键必须是各 prompt_core 独有引导短语——不能选用户文本
             # 可能出现的词（如"灵感草稿"），因为 {original} 占位符会把
-            # raw_text 渲染进 Review/Finalize 的 prompt
+            # raw_text 渲染进 Review/Finalize 的 prompt。
+            # 文本节点（organize/seed/fix/polish）为 text 类型 → 返回纯文本；
+            # 仅 finalize/review 为 json_object → 返回 JSON。
             if "整理成逻辑通顺的英文文段" in prompt:
-                return _resp('{"text": "organized draft"}')
+                return _resp("organized draft")
             if "原样转发" in prompt:
-                # 子模块 Seed 的 draft 是父节点输出 dict —— 转发其中的 text
-                return _resp('{"text": "child draft"}')
+                # 子模块 Seed 的 draft 是父节点输出 —— 原样转发
+                return _resp("child draft")
             if "修复者" in prompt:
-                return _resp('{"text": "child draft fixed"}')
+                return _resp("child draft fixed")
             if "学术英语写作规范" in prompt:
-                return _resp('{"text": "polished draft"}')
+                return _resp("polished draft")
             if "整合输出最终版本" in prompt:
                 return _resp('{"text": "final version", "notes": "将被动语态改为主动语态"}')
             # 审阅：按调用顺序区分 loop1 / loop2

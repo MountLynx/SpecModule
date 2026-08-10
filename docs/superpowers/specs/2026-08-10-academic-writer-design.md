@@ -167,6 +167,7 @@ SubModule（可打包、可被任意模块引用）；academic_writer 消费它�
 | 7 | 修改说明 | script 确定性聚合（可审计）而非 LLM 生成；每轮明细不进 notes——子模块嵌入模式内部过程不进审计（零落盘），聚合字段（attempt / issues_remaining）覆盖审阅所需 |
 | 8 | guard 归属 | guards 内聚在 fact_review_loop 内部（绑定 Review/Merge 固定节点名）；父模块经 submodule 节点引用，无需按阶段重声明（submodule 一等节点核心收益） |
 | 9 | academic_writer 外壳 | **普通 Module（过程式组装），不是 SubModule**（2026-08-10 修正，用户确认）：SubModule = 可复用/可打包的处理单元（零件），academic_writer = 顶层工作流（整机）；修正前把两者都定义为 SubModule 系错误认知 |
+| 10 | 文本节点输出格式 | **长文本 harness（seed_draft / fix_issues / organize / polish）用 `OutputFormat(type="text")`，仅结构化节点（fact_review 的 issues/clean、finalize 的 text+notes）用 json_object**（2026-08-10 实现时确认）：deepseek `json_object` 模式偶发返回空白/非 JSON（实测复现：seed 转发全文时 `Failure(llm)` 阻断子模块），长文本 JSON 包裹放大该风险；text 类型无格式要求、失败率趋零，script 侧已有 str 防御 |
 
 ## 错误处理
 
@@ -175,6 +176,7 @@ SubModule（可打包、可被任意模块引用）；academic_writer 消费它�
 | 审阅永远报 issues | 第 3 轮后 clean 强制触发退出；遗留 issues 显式列出 |
 | guard 双走（理论不可能，防御） | 互补实现保证唯一 |
 | LLM 输出缺字段（issues/clean/text） | script 侧 `dict.get` 缺省 + 类型防御；guard 对非 dict 输出返回 False（安全侧） |
+| LLM 输出非 JSON | 长文本节点用 text 类型消除（D10）；结构化节点（fact_review/finalize）偶发失败 → `Failure(llm)` 阻断下游，重跑运行 |
 | 非终止 | `Module.run(max_ticks=...)` 兜底（demo 传 100） |
 | spec 缺可选字段 | 渲染为空，不报错 |
 

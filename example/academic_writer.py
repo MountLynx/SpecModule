@@ -40,11 +40,13 @@ ORGANIZE_CONFIG = HarnessConfig(
         "必须保留草稿中的全部信息，不得新增任何草稿中没有的事实或观点，"
         "不得遗漏任何要点。\n"
         "目标领域（值为 None 表示未提供，忽略此要求）：{target_field}\n"
-        "字数上限（值为 None 表示未提供，不设限）：{max_words}\n\n"
+        "字数上限（值为 None 表示未提供，不设限）：{max_words}\n"
+        "直接输出整理后的英文文段本身，不要用 JSON 包裹，"
+        "不要添加任何解释、前后缀或标记。\n\n"
         "灵感草稿：{raw_text}"
     ),
-    output_format=OutputFormat(type="json_object"),
-    notdo=["新增事实", "遗漏要点", "改变原意"],
+    output_format=OutputFormat(type="text"),
+    notdo=["新增事实", "遗漏要点", "改变原意", "添加解释"],
 )
 
 POLISH_CONFIG = HarnessConfig(
@@ -52,11 +54,13 @@ POLISH_CONFIG = HarnessConfig(
     prompt_core=(
         "你是学术英语写作专家。把以下「整理稿」润色为符合学术英语写作规范的"
         "文段：正式、精确、句式多样、逻辑衔接自然。\n"
-        "约束：只改变语言表达，不得改变任何事实、不得增删信息点。\n\n"
+        "约束：只改变语言表达，不得改变任何事实、不得增删信息点。\n"
+        "直接输出润色后的文段本身，不要用 JSON 包裹，"
+        "不要添加任何解释、前后缀或标记。\n\n"
         "整理稿（JSON 对象，取其 text 字段）：{draft}"
     ),
-    output_format=OutputFormat(type="json_object"),
-    notdo=["改变事实", "新增信息", "删减信息"],
+    output_format=OutputFormat(type="text"),
+    notdo=["改变事实", "新增信息", "删减信息", "添加解释"],
 )
 
 FINALIZE_CONFIG = HarnessConfig(

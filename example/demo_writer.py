@@ -35,13 +35,13 @@ def _mock_client():
                 '"notes": "合并重复表述；将口语化表达改为正式学术句式"}'
             )
         elif "学术英语写作规范" in p:
-            content = '{"text": "We propose an LLM-based system for automated code review of pull requests."}'
+            content = "We propose an LLM-based system for automated code review of pull requests."
         elif "整理成逻辑通顺的英文文段" in p:
-            content = '{"text": "We propose an LLM-based code review system that automatically reviews pull requests."}'
+            content = "We propose an LLM-based code review system that automatically reviews pull requests."
         elif "原样转发" in p:
-            content = '{"text": "We propose an LLM-based code review system that automatically reviews pull requests."}'
+            content = "We propose an LLM-based code review system that automatically reviews pull requests."
         elif "修复者" in p:
-            content = '{"text": "We propose an LLM-based code review system that automatically reviews pull requests."}'
+            content = "We propose an LLM-based code review system that automatically reviews pull requests."
         else:  # 审阅
             content = '{"issues": [], "clean": true}'
         return LLMResponse(content=content, usage={}, finish_reason="end_turn")
