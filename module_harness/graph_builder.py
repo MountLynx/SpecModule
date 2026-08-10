@@ -11,13 +11,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from tickflow import Graph, parse as parse_graph
+from tickflow import Failure, Graph, parse as parse_graph
 from tickflow.ir import InputPolicy
 
 from .config import HarnessConfig
 from .outputfmt import OutputFormat
 from .registry import HarnessRegistry
-from .spec import TaskDefinition, Tasklist
+from .spec import SpecValidationError, TaskDefinition, Tasklist
 from .translator import prepare_flow
 
 
@@ -128,6 +128,8 @@ class TasklistTranslator:
             self._register_script(key, task)
         elif task.type == "command":
             self._register_command(key, task)
+        elif task.type == "submodule":
+            self._register_submodule(key, task, spec_dict, tasklist_dict)
         else:
             raise ValueError(f"Task '{key}': unknown type {task.type!r}")
 
@@ -259,3 +261,73 @@ class TasklistTranslator:
             timeout=task.timeout,
             cwd=task.cwd,
         )
+
+    def _register_submodule(self, key: str, task: TaskDefinition,
+                            spec_dict: dict[str, Any],
+                            tasklist_dict: dict[str, Any]) -> None:
+        """注册 submodule 节点 body：黑盒嵌入运行子模块（audit=False +
+        persist=False，不进审计/落盘），返回子流程终点输出。"""
+        assert task.submodule is not None  # validated by spec
+        child_ref = self.modules.get(task.submodule)
+        if child_ref is None:
+            raise ValueError(
+                f"Task '{key}': submodule '{task.submodule}' not found.  "
+                f"Make sure it was declared in modules."
+            )
+        if task.outputs:
+            for out_field, child_field in task.outputs.items():
+                if child_field not in child_ref.spec_schema.output:
+                    raise ValueError(
+                        f"Task '{key}': outputs 字段 '{child_field}' 不在 "
+                        f"submodule '{task.submodule}' 的 spec_schema.output 中"
+                    )
+
+        # 子模块实例：类 → 懒实例化（注入父 client）；实例（loader 加载）→ 复用
+        if isinstance(child_ref, type):
+            child = child_ref(llm_client=self._llm_client)
+        else:
+            child = child_ref
+
+        # 节点级 LLM 覆盖 → 传播到子模块内部全部 harness
+        overrides: dict[str, Any] = {}
+        for k in ("model", "temperature", "think", "api_params"):
+            v = getattr(task, k)
+            if v is not None:
+                overrides[k] = v
+
+        # 常量引用（{spec.xxx} / {spec}/{tasklist}/{node}）构建期解析
+        const_inputs: dict[str, Any] = {}
+        if task.inputs:
+            for field_name, producer in task.inputs.items():
+                if isinstance(producer, str) and producer in _CONSTANT_TOKENS:
+                    const_inputs[field_name] = self._resolve_constant(
+                        producer, key, spec_dict, tasklist_dict
+                    )
+                elif isinstance(producer, str) and producer.startswith("{spec."):
+                    const_inputs[field_name] = self._resolve_spec_ref(
+                        producer, spec_dict
+                    )
+
+        async def body(view: Any) -> Any:
+            spec_input = dict(const_inputs)
+            if task.inputs:
+                for field_name, producer in task.inputs.items():
+                    if _is_constant_ref(producer):
+                        continue
+                    spec_input[field_name] = view[producer].value
+            try:
+                firings = await child.run(
+                    spec_input, audit=False, persist=False,
+                    harness_overrides=overrides,
+                )
+            except SpecValidationError as e:
+                return Failure(
+                    f"submodule '{task.submodule}' spec 校验失败: {e}",
+                    type="infrastructure",
+                )
+            out = firings[-1].output if firings else {}
+            if task.outputs:
+                out = {k: out.get(v) for k, v in task.outputs.items()}
+            return out
+
+        self.reg.body(self._isolated(key), body)

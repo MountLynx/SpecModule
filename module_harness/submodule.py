@@ -19,15 +19,7 @@ from .config import HarnessConfig
 from .events import EventBus
 from .module import Module
 from .registry import HarnessRegistry
-from .spec import SpecSchema, Tasklist
-
-
-class SpecValidationError(Exception):
-    """spec 不满足 spec_schema 契约。"""
-
-    def __init__(self, errors: list[str]) -> None:
-        self.errors = errors
-        super().__init__("spec 校验失败:\n" + "\n".join(f"  - {e}" for e in errors))
+from .spec import SpecSchema, SpecValidationError, Tasklist
 
 
 def script(name: str):
