@@ -189,7 +189,7 @@ class TestFactReviewLoop:
 
         dist = FactReviewLoop().pack(tmp_path / "dist")
         loaded = ModuleLoader(llm_client=mock_llm).load(dist)
-        assert set(loaded.guards) == {"has_issues", "clean"}
+        assert {name for name, _ in loaded.guards} == {"has_issues", "clean"}
         mock_llm.complete.side_effect = _make_side_effect(
             ['{"issues": [], "clean": true}'])
         out = (await loaded.run(
@@ -255,8 +255,16 @@ def has_issues(view: Any) -> bool:
 
 
 def clean(view: Any) -> bool:
-    """与 has_issues 严格互补（XOR 分支不得双走）。"""
-    return not has_issues(view)
+    """与 has_issues 严格互补（XOR 分支不得双走）。
+
+    注意：必须内联 has_issues 逻辑（pack 逐文件单函数导出，跨函数引用在
+    加载后失效）——两处判断必须保持同步修改。
+    """
+    review = view["Review"].value
+    issues = review.get("issues", []) if isinstance(review, dict) else []
+    merge = view["Merge"].value
+    attempt = merge.get("attempt", 0) if isinstance(merge, dict) else 0
+    return not (bool(issues) and attempt < 3)
 
 
 SEED_DRAFT_CONFIG = HarnessConfig(

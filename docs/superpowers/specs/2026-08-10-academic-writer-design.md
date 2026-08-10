@@ -88,7 +88,11 @@ def has_issues(view):  # issues 非空 且 未达上限（3 轮）
     return bool(issues) and attempt < 3
 
 def clean(view):       # 与 has_issues 严格互补（XOR 分支不得双走）
-    return not has_issues(view)
+    # 必须内联 has_issues 逻辑：pack 逐文件单函数导出，跨函数引用在加载后
+    # 失效（clean.py 单独 exec 时 has_issues 未定义）；两处判断同步修改
+    issues = view.Review.value.get("issues", [])
+    attempt = view.Merge.value.get("attempt", 0)
+    return not (bool(issues) and attempt < 3)
 ```
 
 - **上限 3 轮为函数内联常量**——pack 单文件导出（`inspect.getsource(fn)`）只含函数体，同文件模块级常量也不会被导出；跨文件 import 同样失效。guard/script 读不到 spec，故上限不进契约。
