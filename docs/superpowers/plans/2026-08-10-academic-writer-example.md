@@ -910,16 +910,20 @@ SAMPLE = Path(__file__).parent / "sample_raw_text.txt"
 
 
 def _mock_client():
-    """免 key 假客户端：按 prompt 关键词返回预设输出（演示数据流形状）。"""
+    """免 key 假客户端：按 prompt 独有引导短语返回预设输出（演示数据流形状）。
+
+    分发键不能用"灵感草稿"等用户文本可能出现的词——{original} 占位符会把
+    raw_text 渲染进 Review/Finalize 的 prompt。
+    """
     from unittest.mock import AsyncMock, MagicMock
 
     async def complete(prompt: str | None = None, **kwargs) -> LLMResponse:
         p = prompt or ""
-        if "最终版本" in p:
+        if "整合输出最终版本" in p:
             content = '{"text": "This paper proposes an LLM-based code review system that automatically analyzes pull requests.", "notes": "合并重复表述；将口语化表达改为正式学术句式"}'
-        elif "学术英语" in p:
+        elif "学术英语写作规范" in p:
             content = '{"text": "We propose an LLM-based system for automated code review of pull requests."}'
-        elif "灵感草稿" in p:
+        elif "整理成逻辑通顺的英文文段" in p:
             content = '{"text": "We propose an LLM-based code review system that automatically reviews pull requests."}'
         elif "原样转发" in p:
             content = '{"text": "We propose an LLM-based code review system that automatically reviews pull requests."}'
