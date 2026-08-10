@@ -198,6 +198,14 @@
   1. `TasklistValidator._check_flow` 解析 flow 时未传 registry → 任何 guard 边在校验阶段必被拒（`translator.py`，一行修复）——✅ **已修复**
   2. `SubModule` 无 guard 声明/收集/注册/pack 导出/加载机制（`submodule.py` + `loader.py`）——loop 必须用 guard，当前类式模块无法声明——✅ **已修复**
 
+**✅ 已完成（2026-08-10，`example/` 落地）**：`example/fact_review_loop.py`
+（FactReviewLoop + 自包含 guards，pack 含 guards/ 导出，roundtrip 测试覆盖）、
+`example/academic_writer.py`（普通 Module 过程式组装，Loop1/Loop2 为 submodule 节点引用
+fact_review_loop，输出 final_text + modification_notes）、demo 入口
+（`--mock` 免 key 冒烟）、示例草稿、两级用户 README、mock 测试（`pytest example/ -q`）。
+框架缺口修复已随 436dbcc 前的系列提交落地。设计见
+`docs/superpowers/specs/2026-08-10-academic-writer-design.md`（状态：已实现）。
+
 ---
 
 ## 不在当前范围 ⏸️
