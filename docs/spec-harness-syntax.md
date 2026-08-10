@@ -13,7 +13,7 @@ spec（想要什么）──► tasklist（如何做）──► 执行元件（
 
 | 通道 | 用法 | 流程 |
 |------|------|------|
-| **模板翻译** | 只传 spec + `template_name` | 模板 → LLM 翻译 harness → tasklist → 校验 → 建图 |
+| **模板翻译** | 只传 spec + `template_name` | 模板 → 翻译器（LLM harness / script 确定性）→ tasklist → 校验 → 建图 |
 | **自定义** | 传 spec + tasklist | 校验 → 一致性审核（默认开）→ 建图 |
 
 ```python
@@ -210,9 +210,51 @@ submodule 的 `harnesses` 列表中的 `HarnessConfig` 必须带 `name` 字段�
 |------|------|
 | `name` / `description` | 模板元数据 |
 | `translation` | 翻译声明（TranslationSpec）：`type: "harness" \| "script"`、`harness`/`script`（执行翻译的元件）、`prompt`/`prompt_core`（翻译指令） |
-| `tasklist` | 生成的 tasklist 骨架——**Task 的 `promptmode`/`inputs` 用 `{spec.xxx}` 引用运行时 spec**，LLM 翻译时已给出字段名 |
+| `tasklist` | **特定流程 tasklist 的定义**（翻译的目标形态）——LLM 翻译时作骨架示例与 Flow 兜底（`translate()` 用 `template.tasklist.flow` 兜底）；script 翻译时返回值可完全覆盖。Task 的 `promptmode`/`inputs` 用 `{spec.xxx}` 引用运行时 spec |
 
-内置模板：`translate` / `summarize` / `codereview` / `docwrite`（`loader.load_builtins()`）。
+内置模板：`translate` / `summarize` / `codereview` / `docwrite`（`loader.load_builtins()`），详见下文「内置模板」。
+
+### 模板语义：翻译声明 + 特定流程 tasklist 定义
+
+`TasklistTemplate` 是**一枚硬币的两面**：`translation` 声明"由谁翻译"，`tasklist` 字段定义"翻译成什么样的特定流程"。
+
+**翻译器 = 产出 tasklist 的通道，可产出任意形式的 tasklist**（submodule 黑盒形式 / loop 内联展开形式 / 任意节点组合）——由翻译器返回值决定，与"固定流水线 vs 动态流程"无关。
+
+| 翻译器类型 | 语义 | 适用 |
+|-----------|------|------|
+| `type: "harness"`（LLM） | 读 spec + translation.prompt 生成 tasklist JSON | spec 驱动、流程由 LLM 设计的场景（内置模板） |
+| `type: "script"`（确定性） | 直接调用已注册 script 函数，返回 tasklist dict（可读 `view["spec"].value`） | **固定流水线的多形态封装**——零 LLM 成本、流程稳定 |
+
+```python
+# script 翻译器：确定性返回"特定形式的 tasklist"（是否读 spec 由实现决定）
+def tl_academic(view):                        # 形式 1：submodule 黑盒（loop 在子模块内）
+    return academic_tasklist.to_dict()
+def tl_detailed(view):                        # 形式 2：loop 内联展开（详细模式，全程可审计）
+    return detailed_tasklist.to_dict()
+reg.script("tl_academic")(tl_academic)
+reg.script("tl_detailed")(tl_detailed)
+```
+
+### 多模板：一个 module 多种使用方式
+
+`TemplateLoader` 按 `name` 注册多个模板（`register()` / `load_directory()` / `load_builtins()`），`Module(template_name=...)` 选择其一——**同一个 module（同一组 harness/script/registry）配多个 tasklist 模板**，经 `template_name` 切换：
+
+```python
+loader = TemplateLoader()
+loader.register("academic_writer", {...})            # 翻译器返回 submodule 形式
+loader.register("academic_writer_detailed", {...})   # 翻译器返回内联 loop 形式（详细模式）
+
+mod = Module(spec=..., template_name="academic_writer_detailed",
+             template_loader=loader, registry=reg, ...)
+```
+
+`template_name` 与 `tasklist` 参数二选一：**tasklist 直入 = 跳过翻译的模板**——两者是同一事物的两种封装，不是"固定 vs 动态"的对立（先例：`example/academic_writer.py` 的 `run_writer(mode=...)`）。
+
+### 内置模板
+
+`translate` / `summarize` / `codereview` / `docwrite`——**spec only 使用场景的预置包**：用户只写 spec（如 `{"source_text": ..., "target_lang": ...}`），LLM 翻译器按 translation.prompt 生成 tasklist，模板 `tasklist` 字段作骨架与 Flow 兜底。
+
+> ⚠️ **常见误解**：内置模板恰好全部用 LLM 翻译（`spec_to_tasklist` harness，演示动态流程）——**不代表模板必须 LLM 翻译**。固定流水线的多形态封装用 script 翻译器（确定性、可读 spec、返回固定流程 dict），见上。`translation.type` 支持 `"script"` 是机制本身的能力，不是特例。
 
 ---
 
@@ -252,7 +294,7 @@ loader = TemplateLoader(); loader.load_builtins()
 
 module = Module(
     spec={"source_text": "Hello", "style": "formal"},
-    template_name="translate",        # 模板通道：LLM 按 translation 声明生成 tasklist
+    template_name="translate",        # 模板通道：翻译器（LLM harness / script 确定性）按声明生成 tasklist
     registry=reg,                     # registry 已含 client 与 event_bus
     template_loader=loader,
 )
