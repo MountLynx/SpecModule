@@ -205,6 +205,8 @@ class SubModule:
         (p / "harnesses").mkdir(parents=True, exist_ok=True)
         (p / "scripts").mkdir(exist_ok=True)
         (p / "commands").mkdir(exist_ok=True)
+        (p / "guards").mkdir(exist_ok=True)
+        (p / "submodules").mkdir(exist_ok=True)
         manifest = {
             "name": self.name,
             "version": self.version,
@@ -212,6 +214,7 @@ class SubModule:
             "submodule": True,
             "spec_schema": asdict(self.spec_schema),
             "requires": list(self.requires),
+            "modules": list(self.modules),
             "tasklist": self.tasklist.to_dict(),
         }
         (p / "module.json").write_text(
@@ -233,4 +236,15 @@ class SubModule:
             src = textwrap.dedent(inspect.getsource(fn))
             header = "from __future__ import annotations\nfrom module_harness.submodule import script\n\n"
             (p / "scripts" / f"{sname}.py").write_text(header + src, encoding="utf-8")
+        for gname, gfn in self.guards:
+            src = textwrap.dedent(inspect.getsource(gfn))
+            header = "from __future__ import annotations\n\n"
+            # 注册名 = 打包文件名 = 加载后函数名；函数名与注册名不一致时
+            # 改写 def 语句，保证 loader 按文件名取函数（guard 无 script
+            # 装饰器那样的名称一致性强制）
+            if gfn.__name__ != gname:
+                src = src.replace(f"def {gfn.__name__}(", f"def {gname}(", 1)
+            (p / "guards" / f"{gname}.py").write_text(header + src, encoding="utf-8")
+        for mname, mcls in self.modules.items():
+            mcls().pack(p / "submodules" / mname)
         return p

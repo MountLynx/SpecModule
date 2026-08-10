@@ -321,6 +321,16 @@ class TestPack:
             NoName().pack(tmp_path / "dist")
 
 
+class TestPackGuards:
+    def test_pack_exports_guards(self, tmp_path):
+        out = LoopMod().pack(tmp_path / "dist")
+        guard_file = out / "guards" / "until3.py"
+        assert guard_file.is_file()
+        ns: dict = {}
+        exec(compile(guard_file.read_text(encoding="utf-8"), "until3.py", "exec"), ns)
+        assert callable(ns["until3"])
+
+
 class TestModuleLoader:
     def test_load_returns_instance(self, tmp_path, mock_llm):
         out = Translator().pack(tmp_path / "dist")

@@ -1,5 +1,6 @@
 """submodule 节点类型测试：模型 roundtrip + 节点行为。"""
 
+import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -356,3 +357,34 @@ class TestSubmoduleNode:
         b_out = next(f.output for f in firings if f.node == "B")
         assert isinstance(b_out, Failure)
         assert b_out.type == "llm"
+
+
+class TestPackLoadSubmodules:
+    def test_pack_exports_submodules(self, tmp_path):
+        out = Parent().pack(tmp_path / "dist")
+        manifest = json.loads((out / "module.json").read_text(encoding="utf-8"))
+        assert manifest["modules"] == ["echo_child"]
+        assert (out / "submodules" / "echo_child" / "module.json").is_file()
+
+    @pytest.mark.asyncio
+    async def test_load_roundtrip_with_submodules(self, tmp_path, mock_llm):
+        from module_harness.loader import ModuleLoader
+
+        out = Parent().pack(tmp_path / "dist")
+        module = ModuleLoader(llm_client=mock_llm).load(out)
+        assert set(module.modules) == {"echo_child"}
+        firings = await module.run({"x": 1}, max_ticks=20)
+        c_out = next(f.output for f in firings if f.node == "C")
+        assert c_out == {"got": {"msg": "from_child"}}
+
+    def test_manifest_modules_missing_dir_rejected(self, tmp_path, mock_llm):
+        import json as _json
+        from module_harness.loader import ModuleLoader, ModuleManifestError
+
+        out = Parent().pack(tmp_path / "dist")
+        manifest_path = out / "module.json"
+        manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["modules"] = ["ghost"]
+        manifest_path.write_text(_json.dumps(manifest), encoding="utf-8")
+        with pytest.raises(ModuleManifestError, match="ghost"):
+            ModuleLoader(llm_client=mock_llm).load(out)

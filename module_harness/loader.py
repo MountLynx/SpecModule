@@ -85,6 +85,17 @@ class ModuleLoader:
         harnesses = self._load_harnesses(p)
         commands = self._load_commands(p)
         scripts = self._load_scripts(p)
+        guards = self._load_guards(p)
+        submodules = self._load_submodules(p)
+
+        modules_raw = manifest.get("modules", []) or []
+        if not isinstance(modules_raw, list) or not all(
+                isinstance(m, str) for m in modules_raw):
+            raise ModuleManifestError("modules 必须是字符串列表")
+        missing_mods = [m for m in modules_raw if m not in submodules]
+        if missing_mods:
+            raise ModuleManifestError(
+                "modules 缺少子模块目录: " + ", ".join(missing_mods))
 
         schema_data = manifest.get("spec_schema", {}) or {}
         spec_schema = SpecSchema(
@@ -116,6 +127,8 @@ class ModuleLoader:
             "harnesses": harnesses,
             "commands": commands,
             "_scripts": scripts,
+            "guards": list(guards.items()),
+            "modules": submodules,
         })
         return cls(llm_client=self._ensure_client(), event_bus=self._event_bus)
 
@@ -158,4 +171,35 @@ class ModuleLoader:
             if not callable(fn):
                 raise ModuleManifestError(f"{f} 未定义函数 {f.stem}")
             result[f.stem] = fn
+        return result
+
+    def _load_guards(self, p: Path) -> dict[str, Any]:
+        """加载 guards/*.py 为可调用函数（exec 执行——与 scripts 同机制）。"""
+        result: dict[str, Any] = {}
+        for f in sorted((p / "guards").glob("*.py")):
+            ns: dict[str, Any] = {}
+            try:
+                exec(compile(f.read_text(encoding="utf-8"), str(f), "exec"), ns)
+            except Exception as e:  # 函数自身报错视为清单错误
+                raise ModuleManifestError(f"{f} 加载失败: {e}") from e
+            fn = ns.get(f.stem)
+            if not callable(fn):
+                raise ModuleManifestError(f"{f} 未定义函数 {f.stem}")
+            result[f.stem] = fn
+        return result
+
+    def _load_submodules(self, p: Path) -> dict[str, SubModule]:
+        """递归加载 submodules/*/（每个是完整子包）→ {目录名: 实例}。
+
+        目录名为引用键（pack 时以父模块 modules 的键命名），与子模块
+        自身 name 无关。guard 名不进入 provides/requires（边引用，不参与
+        重复名检测）；子模块实例是父的 modules 值，加载时同样解析。"""
+        result: dict[str, SubModule] = {}
+        base = p / "submodules"
+        if not base.is_dir():
+            return result
+        for d in sorted(base.iterdir()):
+            if not (d / "module.json").is_file():
+                raise ModuleManifestError(f"{d} 缺少 module.json（submodule 目录无效）")
+            result[d.name] = self.load(d)
         return result
