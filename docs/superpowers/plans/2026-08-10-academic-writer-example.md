@@ -4,7 +4,7 @@
 
 **Goal:** 在新建 `example/` 目录落地两个可运行 module——`fact_review_loop`（通用事实审阅循环 submodule）与 `academic_writer`（灵感式写作 → 学术英语完整流水线，含两阶段事实审阅 loop）。
 
-**Architecture:** 框架侧（submodule 一等节点、guards、pack/loader）已实现且测试全绿（342 passed），本计划纯新增 `example/` 包，零框架改动。`fact_review_loop` 为独立可打包 `SubModule`（Seed→Merge→Review→Fix 条件 loop，2 个互补 guard）；`academic_writer` 为 `SubModule`，类属性 `modules = {"fact_review_loop": FactReviewLoop}`，tasklist 内 Loop1/Loop2 以 `{type: "submodule"}` 引用同一处理单元（同一个 `fact_review` harness，两个节点实例）。所有 LLM 文本节点用 `json_object` 输出；script/guard 侧 `dict.get` 缺省 + 类型防御（设计文档错误处理表）。
+**Architecture:** 框架侧（submodule 一等节点、guards、pack/loader）已实现且测试全绿（342 passed），本计划纯新增 `example/` 包，零框架改动。**仅 `fact_review_loop` 是 `SubModule`**（可打包复用的黑盒处理单元：Seed→Merge→Review→Fix 条件 loop，2 个互补 guard）；**`academic_writer` 是普通 `Module` 过程式组装**（2026-08-10 外壳修正：顶层工作流不定义 SubModule 类，`Module(spec, academic_tasklist, modules={"fact_review_loop": FactReviewLoop})`，tasklist 内 Loop1/Loop2 以 `{type: "submodule"}` 引用同一处理单元——同一个 `fact_review` harness，两个节点实例）。所有 LLM 文本节点用 `json_object` 输出；script/guard 侧 `dict.get` 缺省 + 类型防御（设计文档错误处理表）。
 
 **Tech Stack:** Python 3.13, asyncio, pytest + unittest.mock（AsyncMock/MagicMock）, tickflow 引擎（零修改）。
 
@@ -29,7 +29,7 @@
 | `example/test_loop.py` | fact_review_loop mock 测试（正常/修复/达上限/防御/pack roundtrip） | 新建（T1） |
 | `example/fact_review_loop.py` | FactReviewLoop(SubModule)：3 harnesses + 2 guards + 2 scripts + tasklist | 新建（T1） |
 | `example/test_writer.py` | academic_writer mock 测试（正常/修复/达上限/spec 校验） | 新建（T2） |
-| `example/academic_writer.py` | AcademicWriter(SubModule)：3 harnesses + build_report + Loop1/Loop2 submodule 节点 | 新建（T2） |
+| `example/academic_writer.py` | 普通 Module 过程式组装：模块级 `academic_tasklist`（Loop1/Loop2 submodule 节点）+ `run_writer()` 入口（内部构造 `Module(spec, tasklist, modules=...)`） | 新建（T2） |
 | `example/sample_raw_text.txt` | 示例灵感草稿（中英混杂、重复、碎片化） | 新建（T3） |
 | `example/demo_loop.py` | loop 真实运行入口（`--mock` 免 key 冒烟） | 新建（T3） |
 | `example/demo_writer.py` | 完整流水线真实运行入口（`--mock` 免 key 冒烟） | 新建（T3） |
@@ -412,12 +412,19 @@ git commit -m "feat: example/fact_review_loop — 通用事实审阅循环 submo
 
 ---
 
-## Task 2: AcademicWriter（test_writer.py TDD）
+## Task 2: academic_writer 过程式组装（test_writer.py TDD）
 
 **Files:**
 - Create: `example/test_writer.py`
 - Create: `example/academic_writer.py`
 - Test: `example/test_writer.py`
+
+> 形态注记（2026-08-10 修正）：academic_writer 是**普通 Module**（过程式组装，
+> 模块级 `academic_tasklist` + `run_writer()` 入口），**不是 SubModule 类**；
+> 仅 fact_review_loop 是 SubModule。过程式形态下 script 需先注册进 registry
+> （`reg.script("build_report")(build_report)`）；Module 不做 spec_schema 校验
+> （校验只在 SubModule.run 发生），故不设缺字段报错测试，改为结构测试
+> （tasklist 含两个 submodule 节点）。
 
 - [ ] **Step 1: 写失败测试**（`example/test_writer.py`）
 
@@ -428,9 +435,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from llm.client import LLMResponse
-from module_harness.spec import SpecValidationError
 
-from example.academic_writer import AcademicWriter
+from example.academic_writer import academic_tasklist, run_writer
 
 
 @pytest.fixture
@@ -451,6 +457,12 @@ RAW = (
 
 
 class TestAcademicWriter:
+    def test_tasklist_has_two_submodule_nodes(self):
+        """Loop1/Loop2 两个 submodule 节点引用同一 fact_review_loop（结构校验）。"""
+        subs = [t for t in academic_tasklist.tasks.values() if t.type == "submodule"]
+        assert len(subs) == 2
+        assert all(t.submodule == "fact_review_loop" for t in subs)
+
     def _run_with(self, mock_llm, review_plan: dict[str, list[str]]):
         """review_plan：{"loop1": [审阅响应...], "loop2": [审阅响应...]}
         按阶段分发审阅；其余节点按关键词返回预设输出。"""
@@ -492,8 +504,8 @@ class TestAcademicWriter:
             "loop1": ['{"issues": [], "clean": true}'],
             "loop2": ['{"issues": [], "clean": true}'],
         })
-        out = (await AcademicWriter(llm_client=mock_llm).run(
-            {"raw_text": RAW}, persist=False, max_ticks=50,
+        out = (await run_writer(
+            {"raw_text": RAW}, llm_client=mock_llm, persist=False, max_ticks=50,
         ))[-1].output
         assert set(out) == {"final_text", "modification_notes"}
         assert out["final_text"] == "final version"
@@ -518,8 +530,8 @@ class TestAcademicWriter:
             ],
             "loop2": ['{"issues": [], "clean": true}'],
         })
-        out = (await AcademicWriter(llm_client=mock_llm).run(
-            {"raw_text": RAW}, persist=False, max_ticks=50,
+        out = (await run_writer(
+            {"raw_text": RAW}, llm_client=mock_llm, persist=False, max_ticks=50,
         ))[-1].output
         notes = out["modification_notes"]
         assert "事实审阅轮数：2" in notes
@@ -535,19 +547,12 @@ class TestAcademicWriter:
                 '"quote_original": "无", "quote_draft": "[1]"}], "clean": false}',
             ],
         })
-        out = (await AcademicWriter(llm_client=mock_llm).run(
-            {"raw_text": RAW}, persist=False, max_ticks=80,
+        out = (await run_writer(
+            {"raw_text": RAW}, llm_client=mock_llm, persist=False, max_ticks=80,
         ))[-1].output
         notes = out["modification_notes"]
         assert "达上限未清" in notes
         assert "杜撰引用文献" in notes  # 遗留问题逐条列出
-
-    @pytest.mark.asyncio
-    async def test_missing_raw_text_raises(self, mock_llm):
-        """缺 raw_text → SpecValidationError。"""
-        with pytest.raises(SpecValidationError):
-            await AcademicWriter(llm_client=mock_llm).run(
-                {}, persist=False, max_ticks=20)
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
@@ -559,7 +564,11 @@ Expected: 全部 FAIL（`ModuleNotFoundError: No module named 'example.academic_
 
 ```python
 # example/academic_writer.py
-"""AcademicWriter — 灵感式写作 → 学术英语完整流水线 submodule。
+"""academic_writer — 灵感式写作 → 学术英语完整流水线（普通 Module 过程式组装）。
+
+仅 fact_review_loop 是 SubModule（可复用处理单元）；本文件是**顶层工作流**（整机）：
+模块级 `academic_tasklist`（Loop1/Loop2 为 submodule 节点）+ `run_writer()` 入口
+（内部构造 `Module(spec, tasklist, modules={"fact_review_loop": FactReviewLoop})`）。
 
 spec 契约：input {raw_text: str}（可选未声明字段 target_field / max_words，
 传入即生效，缺省时 prompt 占位符渲染 None 并提示忽略）；
@@ -569,18 +578,22 @@ output {final_text: str, modification_notes: str}。
 
     [Organize] --> Loop1 --> Polish --> Loop2 --> Finalize --> Report
 
-Loop1/Loop2 为 submodule 节点，引用 FactReviewLoop（同一处理单元、两个节点，
-同用 fact_review harness 但为不同节点实例——嵌入模式不进审计，只暴露终点输出）。
+Loop1/Loop2 复用同一 fact_review_loop 处理单元（黑盒嵌入运行，不进审计/
+快照/回滚，只暴露终点输出）——同一 fact_review harness、两个节点实例。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from llm import LLMConfig, create_llm_client
+
 from module_harness.config import HarnessConfig
+from module_harness.events import EventBus
+from module_harness.module import Module
 from module_harness.outputfmt import OutputFormat
-from module_harness.spec import SpecSchema, TaskDefinition, Tasklist
-from module_harness.submodule import SubModule, script
+from module_harness.registry import HarnessRegistry
+from module_harness.spec import TaskDefinition, Tasklist
 
 from .fact_review_loop import FactReviewLoop
 
@@ -629,121 +642,143 @@ FINALIZE_CONFIG = HarnessConfig(
 )
 
 
-class AcademicWriter(SubModule):
-    """将中英混杂、混乱重复的灵感式写作文段逐步整合优化为学术英语文段。"""
+def build_report(view: Any) -> dict[str, Any]:
+    """确定性聚合修改说明（markdown）——script 聚合可审计，不用 LLM 生成。"""
+    f_out = view["Finalize"].value
+    l1_out = view["Loop1"].value
+    l2_out = view["Loop2"].value
+    finalize = f_out if isinstance(f_out, dict) else {}
+    loop1 = l1_out if isinstance(l1_out, dict) else {}
+    loop2 = l2_out if isinstance(l2_out, dict) else {}
 
-    name = "academic_writer"
-    version = "0.1.0"
-    description = (
-        "灵感式写作 → 学术英语完整流水线：整理 → 事实审阅 loop → 学术润色 → "
-        "事实审阅 loop → 整合终稿 + 修改说明。"
+    def stage(name: str, loop: dict[str, Any]) -> str:
+        attempt = loop.get("attempt", 0)
+        verdict = "通过（无事实问题）" if loop.get("clean") else "达上限未清"
+        remaining = loop.get("issues_remaining", [])
+        lines = [f"### {name}", f"- 事实审阅轮数：{attempt}", f"- 结论：{verdict}"]
+        if remaining:
+            lines.append("- 遗留问题：")
+            for i, issue in enumerate(remaining, 1):
+                detail = issue.get("detail", issue) if isinstance(issue, dict) else issue
+                lines.append(f"  {i}. {detail}")
+        return "\n".join(lines)
+
+    notes = "\n\n".join([
+        "# 修改说明",
+        "## 处理流程",
+        "1. 整理：中英混杂灵感草稿 → 逻辑通顺英文文段（保留全部信息）",
+        "2. 阶段 1 事实审阅：原始文段 vs 整理稿（循环修复至无事实问题或达上限）",
+        "3. 学术润色：整理稿 → 学术英语文段（只改语言，不改事实）",
+        "4. 阶段 2 事实审阅：原始文段 vs 润色稿（同上）",
+        "5. 整合：原始 + 润色 → 最终版本（语言微调）",
+        stage("阶段 1 审阅（整理稿）", loop1),
+        stage("阶段 2 审阅（润色稿）", loop2),
+        "## 整合阶段语言调整",
+        str(finalize.get("notes", "")).strip() or "（无说明）",
+    ])
+    return {
+        "final_text": str(finalize.get("text", "")),
+        "modification_notes": notes,
+    }
+
+
+academic_tasklist = Tasklist(
+    tasks={
+        "Organize": TaskDefinition(
+            type="harness",
+            harness="organize",
+            inputs={
+                "raw_text": "{spec.raw_text}",
+                "target_field": "{spec.target_field}",
+                "max_words": "{spec.max_words}",
+            },
+        ),
+        "Loop1": TaskDefinition(
+            type="submodule",
+            submodule="fact_review_loop",
+            inputs={
+                "original_text": "{spec.raw_text}",
+                "draft_text": "Organize",
+            },
+        ),
+        "Polish": TaskDefinition(
+            type="harness",
+            harness="polish",
+            inputs={"draft": "Loop1"},
+        ),
+        "Loop2": TaskDefinition(
+            type="submodule",
+            submodule="fact_review_loop",
+            inputs={
+                "original_text": "{spec.raw_text}",
+                "draft_text": "Polish",
+            },
+        ),
+        "Finalize": TaskDefinition(
+            type="harness",
+            harness="finalize",
+            inputs={
+                "original": "{spec.raw_text}",
+                "draft": "Loop2",
+            },
+        ),
+        "Report": TaskDefinition(
+            type="script",
+            script="build_report",
+            inputs={"finalize": "Finalize", "loop1": "Loop1", "loop2": "Loop2"},
+        ),
+    },
+    flow="[Organize] --> Loop1 --> Polish --> Loop2 --> Finalize --> Report",
+)
+
+
+def _build_registry(llm_client: Any) -> HarnessRegistry:
+    """注册本流水线的 harness 与 script（过程式形态需显式构造 registry）。"""
+    reg = HarnessRegistry(llm_client=llm_client, event_bus=EventBus.null())
+    for hc in (ORGANIZE_CONFIG, POLISH_CONFIG, FINALIZE_CONFIG):
+        reg.harness(hc.name, hc)
+    reg.script("build_report")(build_report)
+    return reg
+
+
+def run_writer(
+    spec: dict[str, Any],
+    *,
+    llm_client: Any = None,
+    max_ticks: int = 100,
+    persist: bool = True,
+):
+    """构造并运行 academic_writer（普通 Module 过程式组装），返回 firings 列表。
+
+    - llm_client 缺省从 env 创建（LLMConfig.from_env）
+    - persist=False：零落盘快速模式（测试/演示用）
+    - review_harness=None：固定 tasklist，发布前已验证，跳过一致性审核
+    """
+    if llm_client is None:
+        llm_client = create_llm_client(LLMConfig.from_env())
+    mod = Module(
+        spec=spec,
+        tasklist=academic_tasklist,
+        llm_client=llm_client,
+        registry=_build_registry(llm_client),
+        modules={"fact_review_loop": FactReviewLoop},
+        review_harness=None,
+        persist=persist,
+        status_file=persist,
     )
-    spec_schema = SpecSchema(
-        input={"raw_text": "str"},
-        output={"final_text": "str", "modification_notes": "str"},
-    )
-    harnesses = [ORGANIZE_CONFIG, POLISH_CONFIG, FINALIZE_CONFIG]
-    modules = {"fact_review_loop": FactReviewLoop}
-    tasklist = Tasklist(
-        tasks={
-            "Organize": TaskDefinition(
-                type="harness",
-                harness="organize",
-                inputs={
-                    "raw_text": "{spec.raw_text}",
-                    "target_field": "{spec.target_field}",
-                    "max_words": "{spec.max_words}",
-                },
-            ),
-            "Loop1": TaskDefinition(
-                type="submodule",
-                submodule="fact_review_loop",
-                inputs={
-                    "original_text": "{spec.raw_text}",
-                    "draft_text": "Organize",
-                },
-            ),
-            "Polish": TaskDefinition(
-                type="harness",
-                harness="polish",
-                inputs={"draft": "Loop1"},
-            ),
-            "Loop2": TaskDefinition(
-                type="submodule",
-                submodule="fact_review_loop",
-                inputs={
-                    "original_text": "{spec.raw_text}",
-                    "draft_text": "Polish",
-                },
-            ),
-            "Finalize": TaskDefinition(
-                type="harness",
-                harness="finalize",
-                inputs={
-                    "original": "{spec.raw_text}",
-                    "draft": "Loop2",
-                },
-            ),
-            "Report": TaskDefinition(
-                type="script",
-                script="build_report",
-                inputs={"finalize": "Finalize", "loop1": "Loop1", "loop2": "Loop2"},
-            ),
-        },
-        flow="[Organize] --> Loop1 --> Polish --> Loop2 --> Finalize --> Report",
-    )
-
-    @script("build_report")
-    def build_report(view: Any) -> dict[str, Any]:
-        """确定性聚合修改说明（markdown）——script 聚合可审计，不用 LLM 生成。"""
-        f_out = view["Finalize"].value
-        l1_out = view["Loop1"].value
-        l2_out = view["Loop2"].value
-        finalize = f_out if isinstance(f_out, dict) else {}
-        loop1 = l1_out if isinstance(l1_out, dict) else {}
-        loop2 = l2_out if isinstance(l2_out, dict) else {}
-
-        def stage(name: str, loop: dict[str, Any]) -> str:
-            attempt = loop.get("attempt", 0)
-            verdict = "通过（无事实问题）" if loop.get("clean") else "达上限未清"
-            remaining = loop.get("issues_remaining", [])
-            lines = [f"### {name}", f"- 事实审阅轮数：{attempt}", f"- 结论：{verdict}"]
-            if remaining:
-                lines.append("- 遗留问题：")
-                for i, issue in enumerate(remaining, 1):
-                    detail = issue.get("detail", issue) if isinstance(issue, dict) else issue
-                    lines.append(f"  {i}. {detail}")
-            return "\n".join(lines)
-
-        notes = "\n\n".join([
-            "# 修改说明",
-            "## 处理流程",
-            "1. 整理：中英混杂灵感草稿 → 逻辑通顺英文文段（保留全部信息）",
-            "2. 阶段 1 事实审阅：原始文段 vs 整理稿（循环修复至无事实问题或达上限）",
-            "3. 学术润色：整理稿 → 学术英语文段（只改语言，不改事实）",
-            "4. 阶段 2 事实审阅：原始文段 vs 润色稿（同上）",
-            "5. 整合：原始 + 润色 → 最终版本（语言微调）",
-            stage("阶段 1 审阅（整理稿）", loop1),
-            stage("阶段 2 审阅（润色稿）", loop2),
-            "## 整合阶段语言调整",
-            str(finalize.get("notes", "")).strip() or "（无说明）",
-        ])
-        return {
-            "final_text": str(finalize.get("text", "")),
-            "modification_notes": notes,
-        }
+    return mod.run(max_ticks=max_ticks)
 ```
 
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest example/test_writer.py -q`
-Expected: 4 passed（normal-path / loop1-fix-path / loop2-max-attempts / missing-raw-text）
+Expected: 4 passed（two-submodule-nodes / normal-path / loop1-fix-path / loop2-max-attempts）
 
 - [ ] **Step 5: 提交**
 
 ```bash
 git add example/test_writer.py example/academic_writer.py
-git commit -m "feat: example/academic_writer — 灵感写作→学术英语流水线（Loop1/Loop2 submodule 节点复用 fact_review_loop，输出 final_text + modification_notes）"
+git commit -m "feat: example/academic_writer — 普通 Module 过程式组装（Loop1/Loop2 submodule 节点复用 fact_review_loop，输出 final_text + modification_notes）"
 ```
 
 ---
@@ -852,7 +887,7 @@ from pathlib import Path
 
 from llm.client import LLMResponse
 
-from example.academic_writer import AcademicWriter
+from example.academic_writer import run_writer
 
 SAMPLE = Path(__file__).parent / "sample_raw_text.txt"
 
@@ -884,8 +919,11 @@ def _mock_client():
 
 async def main() -> None:
     raw_text = SAMPLE.read_text(encoding="utf-8")
-    writer = AcademicWriter(llm_client=_mock_client() if "--mock" in sys.argv else None)
-    firings = await writer.run({"raw_text": raw_text}, max_ticks=80)
+    firings = await run_writer(
+        {"raw_text": raw_text},
+        llm_client=_mock_client() if "--mock" in sys.argv else None,
+        max_ticks=80,
+    )
     out = firings[-1].output
     print("=== final_text ===")
     print(out["final_text"])
@@ -924,8 +962,9 @@ git commit -m "feat: example demo 入口（真实 LLM + --mock 免 key 冒烟）
 ````markdown
 # example — 实践线模块
 
-两个可运行的 SubModule 示例：**fact_review_loop**（通用事实审阅循环）与
-**academic_writer**（灵感式写作 → 学术英语完整流水线）。
+两个可运行的示例模块：**fact_review_loop**（SubModule，通用事实审阅循环——
+可复用/可打包的处理单元）与 **academic_writer**（普通 Module 过程式组装——
+顶层完整工作流，消费 fact_review_loop 的 submodule 节点）。
 
 ## academic_writer：灵感写作 → 学术英语
 
@@ -948,10 +987,10 @@ git commit -m "feat: example demo 入口（真实 LLM + --mock 免 key 冒烟）
 
 ```python
 import asyncio
-from example.academic_writer import AcademicWriter
+from example.academic_writer import run_writer
 
 async def main():
-    firings = await AcademicWriter().run({
+    firings = await run_writer({
         "raw_text": "中英混杂草稿……",          # 必填
         "target_field": "software engineering",  # 可选：目标领域
         "max_words": 300,                        # 可选：字数上限
@@ -1004,6 +1043,9 @@ submodule 节点上，传播到子模块内部全部 harness。
 
 ## 设计说明
 
+- 形态分工：仅 fact_review_loop 是 SubModule（可复用/可打包的处理单元）；
+  academic_writer 是普通 Module（顶层工作流），过程式组装
+  `Module(spec, academic_tasklist, modules={"fact_review_loop": FactReviewLoop})`
 - 子模块嵌入模式运行（不进审计/快照/回滚，零落盘），只暴露终点输出；
   内部修复明细不进 notes——聚合字段（attempt / issues_remaining）覆盖审阅所需
 - 轮次上限 3 为 guard 内联常量（guard 读不到 spec；pack 单文件导出约束）
@@ -1041,7 +1083,7 @@ git commit -m "docs: example README — 两级用户使用说明（使用场景 
 ```markdown
 **✅ 已完成（2026-08-10，`example/` 落地）**：`example/fact_review_loop.py`
 （FactReviewLoop + 自包含 guards，pack 含 guards/ 导出，roundtrip 测试覆盖）、
-`example/academic_writer.py`（AcademicWriter，Loop1/Loop2 为 submodule 节点引用
+`example/academic_writer.py`（普通 Module 过程式组装，Loop1/Loop2 为 submodule 节点引用
 fact_review_loop，输出 final_text + modification_notes）、demo 入口
 （`--mock` 免 key 冒烟）、示例草稿、两级用户 README、mock 测试（`pytest example/ -q`）。
 框架缺口修复已随 436dbcc 前的系列提交落地。设计见
@@ -1086,5 +1128,6 @@ git commit -m "docs: roadmap / academic-writer 设计标记 example 落地完成
 - [ ] `python -m pytest module_harness/tests/ -q` 与基线一致（342 passed, 2 xfailed）
 - [ ] `python -m example.demo_loop --mock` / `python -m example.demo_writer --mock` 退出码 0 且输出完整
 - [ ] fact_review_loop 可 pack → load roundtrip（guards 导出、运行一致）
+- [ ] academic_writer 为普通 Module 过程式组装（模块级 academic_tasklist + run_writer()，无 SubModule 类定义）；仅 fact_review_loop 为 SubModule
 - [ ] 同一 fact_review harness 经 Loop1/Loop2 两个 submodule 节点各触发一次（测试断言 review prompt 计数 = 2）
 - [ ] 达上限路径不静默丢弃：遗留 issues 进 issues_remaining 与 modification_notes

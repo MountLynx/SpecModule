@@ -1,7 +1,11 @@
 # 灵感写作 → 学术英语（academic_writer）设计文档
 
 > 日期：2026-08-10 | 状态：已确认，待实现
-> 状态更新（2026-08-10）：两个框架缺口已修复（本计划完成）；Loop1/Loop2 组合方式改为 submodule 一等节点（见 2026-08-10-submodule-node-design.md），本设计的嵌套执行表述作废。
+> 状态更新（2026-08-10）：两个框架缺口已修复（随框架实现落地，见 2026-08-10-submodule-node-design.md）；Loop1/Loop2 组合方式改为 submodule 一等节点（本设计的嵌套执行表述作废）。
+> 状态更新（2026-08-10 晚）：**外壳修正**——`academic_writer` 改为普通 `Module`（过程式组装），
+> **仅 `fact_review_loop` 是 SubModule**。修正前把两个模块都定义成 SubModule 类，系基于错误的
+> submodule 认知（零件/整机不分）：SubModule = 可复用/可打包的处理单元（零件）；academic_writer
+> = 顶层完整工作流（整机），消费 submodule 节点但自身不做类式声明/打包。submodule 节点机制不变。
 > 关联：实践线 M1 论文优化的前置练习；开发提炼（submodule guard 能力）的首次落地
 
 ## 概述
@@ -9,12 +13,9 @@
 制作两个 example module（新 `example/` 目录，不放在 tests）：
 
 1. **`fact_review_loop`** — 独立可复用 submodule：给定原始文段与待审文段，循环执行"事实审阅 → 问题修复 → 回审"，直到无事实问题或达最大轮数。任何"文本需对照原文核验"的工作流（M1 论文优化等）可引用为 submodule 节点复用。
-2. **`academic_writer`** — 完整流水线 submodule：将中英混杂、混乱重复的灵感式写作文段，经「整理 → 事实审阅 loop → 学术润色 → 事实审阅 loop → 整合终稿」产出学术英语文段 + 修改说明两个输出变量。Loop1/Loop2 为 **submodule 一等节点**（类属性 `modules = {"fact_review_loop": FactReviewLoop}` 声明 + tasklist 内 `{type: "submodule", submodule: "fact_review_loop", inputs: {...}}` 引用）；节点级 LLM 配置（model/temperature/think/api_params）可传播到子模块内部所有 harness。
+2. **`academic_writer`** — 完整流水线**普通 Module**（过程式组装）：将中英混杂、混乱重复的灵感式写作文段，经「整理 → 事实审阅 loop → 学术润色 → 事实审阅 loop → 整合终稿」产出学术英语文段 + 修改说明两个输出变量。Loop1/Loop2 为 **submodule 一等节点**（tasklist 内 `{type: "submodule", submodule: "fact_review_loop", inputs: {...}}` 引用 + `Module(modules={"fact_review_loop": FactReviewLoop})` 声明解析）；节点级 LLM 配置（model/temperature/think/api_params）可传播到子模块内部所有 harness。**仅 fact_review_loop 是 SubModule**（2026-08-10 修正）。
 
-框架修复（两个缺口，模块无关的通用价值）：
-
-- **缺口 1**：`TasklistValidator._check_flow` 解析 flow 时未传 registry → 任何带 guard 边的 tasklist 都被拒（实测复现：`guard 'xxx' not registered`）。
-- **缺口 2**：`SubModule` 无 guard 声明/收集/导出入口 → 类式模块无法使用 loop。实测复现：SubModule + guard 边 tasklist 直接校验失败。
+框架修复（两个缺口，模块无关的通用价值）：`_check_flow` 丢 registry、`SubModule` 无 guards 通道——**均已随框架实现落地**（见 2026-08-10-submodule-node-design.md），本 example 不再涉及框架改动。
 
 ## 背景
 
@@ -27,8 +28,8 @@
 
 ## 范围
 
-- 框架修复：`module_harness/translator.py`（_check_flow 传 registry）、`module_harness/submodule.py`（guards 收集/注册/打包）、`module_harness/loader.py`（guards 加载）。
-- 新模块：`example/fact_review_loop.py`、`example/academic_writer.py`（含 demo、mock 测试、示例文本、README）。
+- 框架修复：`module_harness/translator.py`（_check_flow 传 registry）、`module_harness/submodule.py`（guards 收集/注册/打包）、`module_harness/loader.py`（guards 加载）——**已随框架实现落地**（见 2026-08-10-submodule-node-design.md），本 example 不再包含框架改动。
+- 新模块：`example/fact_review_loop.py`（SubModule，可复用处理单元）、`example/academic_writer.py`（普通 Module 过程式组装，顶层工作流；含 demo、mock 测试、示例文本、README）。
 - **不包含**：图级模块组合能力（独立 spec，触发条件 = M1/M2 真实需要）、模板通道、CLI。
 
 ## 框架修复
@@ -102,11 +103,21 @@ def clean(view):       # 与 has_issues 严格互补（XOR 分支不得双走）
 | `fact_review` | 原始 vs 当前稿逐句对比：信息缺漏（omission）/ 幻觉新增（hallucination）/ 事实改动（alteration）；每条附原文与当前稿引文；`clean` 仅当零问题 | `{"issues": [{type, detail, quote_original, quote_draft}], "clean": bool}` |
 | `fix_issues` | 按 issues 逐条修复：补遗漏、删幻觉、还原事实；不引入新事实；不改动未被点名内容 | `{"text": str}` |
 
-## 模块二：academic_writer（AcademicWriter(SubModule)，modules 引用 FactReviewLoop）
+## 模块二：academic_writer（普通 Module 过程式组装，Loop1/Loop2 为 submodule 节点）
 
 **定位**：使用场景产物——end user 只写 spec（raw_text）运行完整流水线。
 
-**submodule 节点组合**：`class AcademicWriter(SubModule)`，类属性 `modules = {"fact_review_loop": FactReviewLoop}` 声明引用（无全局注册表）；tasklist 内 Loop1/Loop2 直接写 `{type: "submodule", submodule: "fact_review_loop", inputs: {...}}`——两阶段复用同一 `fact_review_loop` **处理单元**（黑盒嵌入运行，不进审计/快照/回滚，只暴露终点输出）。节点级 LLM 设置（model/temperature/think/api_params）传播到子模块内部所有 harness；`outputs` 字段可从终点输出挑选/重命名（缺省全量）。对比本设计早先版本（类继承复用 + 按阶段重声明节点与 guard），父模块不再需要任何重声明。
+**形态（2026-08-10 修正）**：`academic_writer` 是**顶层完整工作流**（整机），不是可复用处理单元
+（零件）——用普通 `Module` 过程式组装（`Module(spec, tasklist, modules={"fact_review_loop":
+FactReviewLoop})`），**不定义 `AcademicWriter(SubModule)` 类**。只有 `fact_review_loop` 是
+SubModule（可打包、可被任意模块引用）；academic_writer 消费它，自身不做类式声明/打包/被引用。
+修正前版本基于错误认知把两个模块都做成 SubModule（零件/整机不分）。
+
+**submodule 节点组合**：tasklist 内 Loop1/Loop2 直接写 `{type: "submodule", submodule:
+"fact_review_loop", inputs: {...}}`；`modules` 解析表经 `Module(modules=...)` 传入（无全局注册表）
+——两阶段复用同一 `fact_review_loop` **处理单元**（黑盒嵌入运行，不进审计/快照/回滚，只暴露
+终点输出）。节点级 LLM 设置（model/temperature/think/api_params）传播到子模块内部所有 harness；
+`outputs` 字段可从终点输出挑选/重命名（缺省全量）。
 
 **spec 契约**：`input: {raw_text: str, target_field: str?, max_words: int?}`；`output: {final_text: str, modification_notes: str}`
 
@@ -150,6 +161,7 @@ def clean(view):       # 与 has_issues 严格互补（XOR 分支不得双走）
 | 6 | 种子入图 | 转发 harness 节点（script 读不到 spec 的框架约束）；失真由 loop 自愈 |
 | 7 | 修改说明 | script 确定性聚合（可审计）而非 LLM 生成；每轮明细不进 notes——子模块嵌入模式内部过程不进审计（零落盘），聚合字段（attempt / issues_remaining）覆盖审阅所需 |
 | 8 | guard 归属 | guards 内聚在 fact_review_loop 内部（绑定 Review/Merge 固定节点名）；父模块经 submodule 节点引用，无需按阶段重声明（submodule 一等节点核心收益） |
+| 9 | academic_writer 外壳 | **普通 Module（过程式组装），不是 SubModule**（2026-08-10 修正，用户确认）：SubModule = 可复用/可打包的处理单元（零件），academic_writer = 顶层工作流（整机）；修正前把两者都定义为 SubModule 系错误认知 |
 
 ## 错误处理
 
@@ -163,9 +175,7 @@ def clean(view):       # 与 has_issues 严格互补（XOR 分支不得双走）
 
 ## 测试计划
 
-**框架修复**（并入现有测试风格，不新增测试文件——补进 `test_translator.py` / `test_submodule.py` / `test_smoke`）：
-1. `_check_flow`：带 guard 边的 tasklist 校验通过（registry 含 guard）；guard 未注册仍报错
-2. `SubModule.guards`：类属性收集（子类覆盖/继承）；`_build_registry` 注册；pack 导出 `guards/*.py`；pack → load round-trip 后 guard 可被 flow 引用
+**框架修复**：已随框架实现落地（test_validator.py / test_submodule.py / test_submodule_node.py，见 2026-08-10-submodule-node 计划），本 example 不再涉及。
 
 **example mock 测试**（无 key 可跑，MagicMock 客户端逐节点返回预设输出）：
 1. `test_loop.py`：
@@ -182,13 +192,9 @@ def clean(view):       # 与 has_issues 严格互补（XOR 分支不得双走）
 
 | 文件 | 变更 |
 |------|------|
-| `module_harness/translator.py` | `_check_flow(tasklist, registry)` 传 registry 给 parse_graph |
-| `module_harness/submodule.py` | `guards` 类属性 + 收集 + 注册 + pack 导出 |
-| `module_harness/loader.py` | `_load_guards` + 动态类 `"guards"` |
-| `module_harness/tests/` | 三个既有测试文件补测 |
 | `example/__init__.py` | 空包 |
-| `example/fact_review_loop.py` | FactReviewLoop + 自包含 guards + MAX_ATTEMPTS |
-| `example/academic_writer.py` | AcademicWriter(SubModule)：`modules` 声明 + tasklist submodule 节点（Loop1/Loop2 引用 fact_review_loop） |
+| `example/fact_review_loop.py` | FactReviewLoop(SubModule) + 自包含 guards + 内联上限 |
+| `example/academic_writer.py` | 普通 Module 过程式组装：模块级 `academic_tasklist`（Loop1/Loop2 submodule 节点）+ `run_writer()` 入口 |
 | `example/demo_loop.py` | loop 模块真实运行入口 |
 | `example/demo_writer.py` | 完整流水线真实运行入口 |
 | `example/sample_raw_text.txt` | 示例灵感草稿（中英混杂、重复） |
@@ -196,20 +202,40 @@ def clean(view):       # 与 has_issues 严格互补（XOR 分支不得双走）
 | `example/README.md` | 两级用户使用说明（开发场景：类定义/pack；使用场景：spec 运行） |
 | `docs/superpowers/specs/2026-08-10-academic-writer-design.md` | 本设计 |
 
+框架文件变更（translator.py / submodule.py / loader.py / module_harness/tests）已随框架实现落地，不在此列。
+
 ## 使用示例
 
 ```python
-# 使用场景：end user 只写 spec
-from example.academic_writer import AcademicWriter
+import asyncio
 
-firings = await AcademicWriter().run({"raw_text": "……中英混杂草稿……"})
-report = firings[-1].output          # {"final_text": ..., "modification_notes": ...}
+# 使用场景：end user 只写 spec 运行完整流水线（普通 Module，过程式组装）
+from example.academic_writer import academic_tasklist, run_writer
+from module_harness.module import Module
 
-# 开发场景：loop 模块独立复用/打包
+async def main():
+    # 方式一：run_writer 入口（内部构造 Module，llm_client 缺省从 env 创建）
+    firings = await run_writer({"raw_text": "……中英混杂草稿……"})
+    report = firings[-1].output          # {"final_text": ..., "modification_notes": ...}
+
+    # 方式二：直接过程式组装（等价，可自行控制参数）
+    mod = Module(
+        spec={"raw_text": "……中英混杂草稿……"},
+        tasklist=academic_tasklist,
+        llm_client=llm_client,           # create_llm_client(LLMConfig.from_env())
+        modules={"fact_review_loop": FactReviewLoop},   # submodule 节点解析表
+        review_harness=None,             # 固定 tasklist，发布前已验证
+    )
+    firings = await mod.run()
+
+asyncio.run(main())
+
+# 开发场景：loop 模块独立复用/打包（SubModule 双重身份：独立运行 / 可被引用）
 from example.fact_review_loop import FactReviewLoop
+firings = await FactReviewLoop().run({"original_text": "...", "draft_text": "..."})
 FactReviewLoop().pack("dist/fact_review_loop")     # 发布
 
-# 开发场景：新模块以 submodule 节点引用复用
+# 开发场景：新模块以 submodule 节点引用复用（SubModule 类式或 Module 过程式同效）
 class PaperOptimizer(SubModule):
     name = "paper_optimizer"
     modules = {"fact_review_loop": FactReviewLoop}

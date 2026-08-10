@@ -193,7 +193,7 @@
 
 **本次 example 计划**（记于此处）：
 - `example/fact_review_loop.py`：`FactReviewLoop(SubModule)`——通用事实审阅循环（spec: `{original_text, draft_text}` → `{text, attempt, clean, issues_remaining}`）。OR-join Merge 合并种子/修复稿并计数轮次，2 个 guard（`has_issues`/`clean`，严格互补）路由循环与退出，轮次上限 3 为 guard 内联常量（自包含、可打包），完全通用可打包
-- `example/academic_writer.py`：`AcademicWriter(SubModule)`——流水线 `[A]Organize → Loop1 → Polish → Loop2 → Finalize → Report`（Loop1/2 为 **submodule 节点**引用 `fact_review_loop`，类属性 `modules = {"fact_review_loop": FactReviewLoop}` 声明）；spec: `{raw_text, target_field?, max_words?}` → `{final_text, modification_notes}`；两阶段复用同一 `fact_review_loop` 处理单元，节点级 LLM 配置可传播
+- `example/academic_writer.py`：**普通 Module 过程式组装**（2026-08-10 修正：**仅 loop 为 SubModule**，academic_writer 为顶层工作流——整机消费零件，不定义 SubModule 类）——流水线 `[A]Organize → Loop1 → Polish → Loop2 → Finalize → Report`（Loop1/2 为 **submodule 节点**引用 `fact_review_loop`，`Module(modules={"fact_review_loop": FactReviewLoop})` 声明解析）；spec: `{raw_text, target_field?, max_words?}` → `{final_text, modification_notes}`；两阶段复用同一 `fact_review_loop` 处理单元，节点级 LLM 配置可传播
 - **框架缺口修复**（模块无关，通用价值，随 example 一并做）：
   1. `TasklistValidator._check_flow` 解析 flow 时未传 registry → 任何 guard 边在校验阶段必被拒（`translator.py`，一行修复）——✅ **已修复**
   2. `SubModule` 无 guard 声明/收集/注册/pack 导出/加载机制（`submodule.py` + `loader.py`）——loop 必须用 guard，当前类式模块无法声明——✅ **已修复**
