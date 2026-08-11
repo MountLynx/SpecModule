@@ -242,7 +242,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         _check_spec_schema(entry, spec)
         llm_client = _build_llm_client(args.mock)
         template_name = args.template or entry.default_template
-        if template_name is not None and template_name not in entry.templates:
+        if args.tasklist:
+            # tasklist 路径：跳过翻译，template_name 置 None（与 Module
+            # "template/tasklist 二选一"不变量对齐）
+            template_name = None
+        elif template_name is not None and template_name not in entry.templates:
             raise ValueError(
                 f"模板 '{template_name}' 未注册——可用: {', '.join(entry.templates)}"
             )
