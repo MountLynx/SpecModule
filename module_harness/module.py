@@ -71,6 +71,7 @@ class Module:
         persist: bool = True,
         status_file: bool = True,
         modules: dict[str, Any] | None = None,
+        hooks: dict | None = None,
     ) -> None:
         if (template_name is None) == (tasklist is None):
             raise ValueError("template_name 与 tasklist 必须且只能传一个")
@@ -91,6 +92,9 @@ class Module:
         # submodule 引用解析表 {tasklist 名: SubModule 类}：TasklistValidator 校验
         # submodule 节点（T2）与 TasklistTranslator 构建嵌套子图（T6）共用
         self._modules = dict(modules or {})
+        # runner hooks 透传（观察通道）：{hook名: async/sync 回调}，构造
+        # runner 后注册。CLI 实时显示使用 on_tick_start/on_fire。
+        self._hooks = dict(hooks or {})
 
         if registry is not None:
             self._reg = registry
@@ -202,6 +206,12 @@ class Module:
             session_id=self.module_id,
         )
         self._runner = runner
+        for _hook_name, _cb in self._hooks.items():
+            _register = getattr(runner, _hook_name, None)
+            if callable(_register):
+                _register(_cb)
+            else:
+                log.warning("Module hooks: 未知 runner hook '%s'（忽略）", _hook_name)
         return runner
 
     # ------------------------------------------------------------------
