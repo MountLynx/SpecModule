@@ -48,6 +48,15 @@ from .loader import ModuleLoader, ModuleManifestError, ModuleRequirementError
 from .spec import SpecSchema
 from .status import ModuleStatus, query_run_status
 from .entry import ModuleEntry, discover_modules
+from .query import (
+    ReviewEntry,
+    ReviewTimeline,
+    build_timeline,
+    filter_failed,
+    filter_node,
+    filter_tick,
+    timeline_to_dict,
+)
 from .checkpoint import (
     ModuleInputStore,
     ResumeCheck,
@@ -128,4 +137,12 @@ __all__ = [
     # 模块入口（roadmap Phase 0：CLI 使用）
     "ModuleEntry",
     "discover_modules",
+    # 共享查询层（roadmap Phase 0：CLI/MCP/Web 复用）
+    "ReviewEntry",
+    "ReviewTimeline",
+    "build_timeline",
+    "filter_failed",
+    "filter_node",
+    "filter_tick",
+    "timeline_to_dict",
 ]
