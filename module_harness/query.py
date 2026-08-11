@@ -37,7 +37,7 @@ class ReviewTimeline:
 
 
 def _run_db_path(module_id: str, base_dir: Path | None) -> Path:
-    """``<base>/<cwd>/.specmodule/runs/<module_id>/run.sqlite``（与 Module 对齐）。"""
+    """``<base>/.specmodule/runs/<module_id>/run.sqlite``（与 Module 对齐）。"""
     base = base_dir if base_dir is not None else Path.cwd()
     return base / ".specmodule" / "runs" / module_id / "run.sqlite"
 
@@ -63,9 +63,13 @@ def build_timeline(module_id: str, base_dir: Path | None = None) -> ReviewTimeli
     seen: set[tuple[int, str]] = set()
     latest: int | None = None
     for d in rows:
-        tick = int(d.get("tick", 0))
         node = d.get("node")
         if not node:
+            continue          # 空 node 行跳过（损坏/异常行不阻断时间线）
+        try:
+            tick = int(d.get("tick", 0))
+        except (TypeError, ValueError):
+            log.warning("跳过损坏的 firing 行（tick 非法）: %r", d)
             continue
         if (tick, node) in seen:
             continue          # 与 tickflow audit() 去重语义一致（restore 重放兼容）
@@ -83,30 +87,41 @@ def build_timeline(module_id: str, base_dir: Path | None = None) -> ReviewTimeli
     return ReviewTimeline(module_id=module_id, entries=entries, latest_tick=latest)
 
 
+def _latest_of(entries: list[ReviewEntry]) -> int | None:
+    """过滤后子集中最新 tick（无条目 → None）。"""
+    return max((e.tick for e in entries), default=None)
+
+
 def filter_failed(timeline: ReviewTimeline) -> ReviewTimeline:
-    """只看失败/中止节点（定位问题 tick 的核心路径）。"""
+    """只看失败/中止节点（定位问题 tick 的核心路径）。
+
+    latest_tick 重算为过滤子集中的最新 tick（避免过滤后仍报全局 tick 误导）。
+    """
+    entries = [e for e in timeline.entries if e.status != "ok"]
     return ReviewTimeline(
         module_id=timeline.module_id,
-        entries=[e for e in timeline.entries if e.status != "ok"],
-        latest_tick=timeline.latest_tick,
+        entries=entries,
+        latest_tick=_latest_of(entries),
     )
 
 
 def filter_tick(timeline: ReviewTimeline, tick: int) -> ReviewTimeline:
     """只看指定 tick。"""
+    entries = [e for e in timeline.entries if e.tick == tick]
     return ReviewTimeline(
         module_id=timeline.module_id,
-        entries=[e for e in timeline.entries if e.tick == tick],
-        latest_tick=timeline.latest_tick,
+        entries=entries,
+        latest_tick=_latest_of(entries),
     )
 
 
 def filter_node(timeline: ReviewTimeline, node: str) -> ReviewTimeline:
     """只看指定节点的全部 firing（含 loop 多轮）。"""
+    entries = [e for e in timeline.entries if e.node == node]
     return ReviewTimeline(
         module_id=timeline.module_id,
-        entries=[e for e in timeline.entries if e.node == node],
-        latest_tick=timeline.latest_tick,
+        entries=entries,
+        latest_tick=_latest_of(entries),
     )
 
 

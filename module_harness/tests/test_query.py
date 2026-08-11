@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 from tickflow.persistence import SqliteBackend
 from tickflow.state import NodeState
 
@@ -46,6 +48,37 @@ class TestBuildTimeline:
         assert tl.entries[2].output == "a2"      # 同 (tick,node) 保留首条
         assert tl.latest_tick == 2
 
+    def test_db_read_error_returns_none(self, tmp_path, monkeypatch):
+        _seed(tmp_path)
+        from tickflow import persistence
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("db locked")
+
+        monkeypatch.setattr(persistence.SqliteBackend, "list_firings", boom)
+        assert build_timeline("mod_x", base_dir=tmp_path) is None
+
+    def test_backend_closed_on_read_error(self, tmp_path, monkeypatch):
+        _seed(tmp_path)
+        from tickflow import persistence
+
+        fake = MagicMock()
+        fake.list_firings.side_effect = RuntimeError("boom")
+        monkeypatch.setattr(persistence, "SqliteBackend", lambda path: fake)
+        assert build_timeline("mod_x", base_dir=tmp_path) is None
+        fake.close.assert_called_once()
+
+    def test_skip_empty_node_row(self, tmp_path):
+        _seed(tmp_path)
+        run_dir = tmp_path / ".specmodule" / "runs" / "mod_x"
+        backend = SqliteBackend(run_dir / "run.sqlite")
+        backend.save_firing("mod_x", NodeState(tick=3, node=""))
+        backend.close()
+        tl = build_timeline("mod_x", base_dir=tmp_path)
+        assert tl is not None
+        assert all(e.node for e in tl.entries)
+        assert tl.latest_tick == 2   # 空 node 行被跳过，不影响最新 tick
+
 
 class TestFilters:
     def test_filter_failed(self, tmp_path):
@@ -53,7 +86,7 @@ class TestFilters:
         tl = build_timeline("mod_x", base_dir=tmp_path)
         failed = filter_failed(tl)
         assert [e.node for e in failed.entries] == ["B"]
-        assert failed.latest_tick == 2
+        assert failed.latest_tick == 1   # 过滤子集最新 tick（B 仅 tick 1）
 
     def test_filter_tick(self, tmp_path):
         _seed(tmp_path)
