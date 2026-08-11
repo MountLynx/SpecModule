@@ -47,6 +47,7 @@ from .submodule import SubModule, SpecValidationError, script
 from .loader import ModuleLoader, ModuleManifestError, ModuleRequirementError
 from .spec import SpecSchema
 from .status import ModuleStatus, query_run_status
+from .entry import ModuleEntry, discover_modules
 from .checkpoint import (
     ModuleInputStore,
     ResumeCheck,
@@ -124,4 +125,7 @@ __all__ = [
     "ResumeCheck",
     "ResumeError",
     "check_resume_compat",
+    # 模块入口（roadmap Phase 0：CLI 使用）
+    "ModuleEntry",
+    "discover_modules",
 ]
