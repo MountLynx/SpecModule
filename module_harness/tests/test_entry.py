@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from module_harness.entry import ModuleEntry, discover_modules
 
 GOOD = '''
@@ -59,9 +61,16 @@ class TestDiscoverModules:
         d = _write(tmp_path, "badtype.py", 'entry = "not a module"\n')
         assert discover_modules(d) == {}
 
-    def test_skip_double_underscore_file(self, tmp_path):
+    def test_skip_underscore_prefixed_file(self, tmp_path):
         d = _write(tmp_path, "_private.py", GOOD)
         assert discover_modules(d) == {}
+
+    def test_import_error_does_not_block_discovery(self, tmp_path):
+        # 导入抛异常的文件跳过，后续好文件仍被发现（不阻断整体发现）
+        d = _write(tmp_path, "bad.py", "raise RuntimeError('boom')\n")
+        _write(tmp_path, "good.py", GOOD)
+        entries = discover_modules(d)
+        assert set(entries) == {"hello"}
 
     def test_duplicate_name_last_wins(self, tmp_path):
         d = _write(tmp_path, "a.py", GOOD)
@@ -69,3 +78,17 @@ class TestDiscoverModules:
         entries = discover_modules(d)
         assert list(entries) == ["hello"]
         assert entries["hello"].description == "第二个 hello（覆盖用）"
+
+
+class TestModuleEntry:
+    def test_default_template_not_in_templates_raises(self):
+        with pytest.raises(ValueError):
+            ModuleEntry(
+                name="x", description="x", templates={}, default_template="nope"
+            )
+
+    def test_default_template_in_templates_ok(self):
+        e = ModuleEntry(
+            name="x", description="x", templates={"t": {}}, default_template="t"
+        )
+        assert e.default_template == "t"
