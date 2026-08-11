@@ -18,7 +18,7 @@ from .config import HarnessConfig
 from .outputfmt import OutputFormat
 from .registry import HarnessRegistry
 from .spec import SpecValidationError, TaskDefinition, Tasklist
-from .translator import prepare_flow
+from .translator import prepare_flow, _suppress_parse_noise
 
 
 _CONSTANT_TOKENS = frozenset({"{spec}", "{tasklist}", "{node}"})
@@ -81,7 +81,8 @@ class TasklistTranslator:
 
         # 3.  Parse into a Graph.  The parser validates that guard names
         #     and default placeholder bodies exist in the registry.
-        graph = parse_graph(flow_text, registry=self.reg)
+        with _suppress_parse_noise():
+            graph = parse_graph(flow_text, registry=self.reg)
 
         # 4.  Assign the real (colon-scoped) body name to each graph node.
         for key, task in tasklist.tasks.items():

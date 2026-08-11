@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,25 @@ from .registry import HarnessRegistry
 
 # Regex to find the first node name in a flow line.
 _FIRST_NODE = re.compile(r"^[ \t]*\[?(?P<name>[A-Za-z_][A-Za-z0-9_]*)")
+
+
+@contextlib.contextmanager
+def _suppress_parse_noise():
+    """构建/校验期暂时抑制 ``tickflow.parser`` 的结构性假阳性 warning。
+
+    ModuleHarness 在 ``parse`` **之后**才附加节点 body（isolated 名含 ``:``，
+    DSL body 声明无法表达），故 parse 期所有 producer 被判为 body-less，触发
+    ``node X reads input from Y which has no body`` 假阳性（submodule 漏斗
+    会放大到每条输入边）。真实结构错误仍以 ``ParseError`` 抛出，不受影响。
+    作用域限定在调用方，退出即恢复原日志级别。
+    """
+    parser_log = logging.getLogger("tickflow.parser")
+    prev = parser_log.level
+    parser_log.setLevel(logging.ERROR)
+    try:
+        yield
+    finally:
+        parser_log.setLevel(prev)
 
 
 def prepare_flow(flow: str) -> str:
@@ -131,7 +152,8 @@ class TasklistValidator:
 
         # 尝试 tickflow parse 检测语法问题（与 graph_builder 使用相同的 prepare_flow 预处理）
         try:
-            parse_graph(prepare_flow(flow), registry=registry)
+            with _suppress_parse_noise():
+                parse_graph(prepare_flow(flow), registry=registry)
         except Exception as e:
             errors.append(f"Flow 解析失败: {e}")
 
