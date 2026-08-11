@@ -398,9 +398,19 @@ DETAILED_TEMPLATE: dict[str, Any] = {
 }
 
 
-def _build_registry(llm_client: Any, mode: str = "submodule") -> HarnessRegistry:
-    """注册流水线 harness / script / guard（按模式；含模板通道翻译器）。"""
-    reg = HarnessRegistry(llm_client=llm_client, event_bus=EventBus.null())
+def _build_registry(
+    llm_client: Any,
+    mode: str = "submodule",
+    event_bus: EventBus | None = None,
+) -> HarnessRegistry:
+    """注册流水线 harness / script / guard（按模式；含模板通道翻译器）。
+
+    ``event_bus`` 缺省 None → EventBus.null()（CLI 传入外部 bus 时接入，
+    否则 CLI 收不到 harness 事件）。
+    """
+    reg = HarnessRegistry(
+        llm_client=llm_client, event_bus=event_bus or EventBus.null()
+    )
     for hc in (ORGANIZE_CONFIG, POLISH_CONFIG, FINALIZE_CONFIG):
         reg.harness(hc.name, hc)
     if mode == "detailed":
