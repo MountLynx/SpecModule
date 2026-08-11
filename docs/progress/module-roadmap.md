@@ -4,11 +4,11 @@
 
 本文档追踪 SpecModule module 核心功能的开发状态与实现方向。
 
-**战略定位（2026-08-06 更新）**：框架能力（第一级：开发者层面）基本完成——执行元件、编排、状态数据、快照/回滚均已就绪。下一阶段聚焦**第二级：使用者层面**——让使用者能方便地运行、观察、审阅、接续工作流。实现方式遵循 **"每次新功能实现前先设计所需 SDK"** 的流程约定：数据查询接口先行，功能形态（CLI / AGENT / Web）作为 SDK 的消费方渐进叠加。
+**战略定位（2026-08-10 更新）**：框架能力（第一级：开发者层面）基本完成——执行元件、编排、状态数据、快照/回滚均已就绪。下一阶段聚焦**第二级：使用者层面**——让使用者能方便地运行、观察、审阅、接续工作流。实现方式遵循 **"跨形态共享的逻辑进共享层，重复出现才抽"** 的流程约定：CLI 先行，查询组合逻辑作为共享层沉淀，功能形态（AGENT / Web）渐进叠加。
 
 ## 完成度速览
 
-已实现：**18** / 下一阶段：**4 个 Phase**（SDK → CLI → AGENT → Web）
+已实现：**18** / 下一阶段：**3 个 Phase**（CLI → AGENT → Web）
 
 ---
 
@@ -57,65 +57,60 @@
 > - **实践线**（验收驱动，贯穿各 Phase）：开发**真实落地的 module**（论文优化 → 论文转 PPT），每个 Phase 以实践线 module 为验收用例
 >
 > 流程约定：
-> - **每个新功能实现前先设计所需 SDK**——SDK 是唯一数据查询层，形态只是它的消费方
+> - **跨形态共享的逻辑进共享层，重复出现才抽**——不做前置接口设计；逻辑要进共享层（module_harness）的唯一条件是**确定有第二个消费者**（例：查询组合逻辑已被 CLI 宿主/查询形态、MCP、Web 共同消费 → 放查询模块，形态只 import 不实现）
 > - **内置工具提炼**——开发过程中凡出现有通用价值的实现，主动提炼为内置工具（见下），不留死在 module 内部
 
-### Phase 0：数据暴露 SDK（#6）
+### Phase 0：CLI 使用者界面 + 历史审阅
 
-**说明**：统一数据查询接口，作为后续所有使用者形态的公共地基。不是新数据容器，而是对 tickflow RunState + EventBus + run.sqlite 的查询封装。进程内（注入 runner）与跨进程（读 run.sqlite）统一语义。
+**✅ 子集已交付（2026-08-10，spec：docs/superpowers/specs/2026-08-10-specmodule-cli-design.md）**：
+- `specmodule run` — 按名选模块 + spec/tasklist（终端内联或文件）+ 三级实时显示（tick/节点/状态 → +产出预览 → 完整块）+ `--mock` 冒烟 + `--verbose {1,2,3}`
+- `specmodule status` — 复用 `query_run_status`（文本/JSON）
+- `specmodule review` — tick 时间线 + `--tick/--node/--failed` 过滤 + `--json`
+- 模块入口：`modules/<name>.py` 声明 `ModuleEntry`（`--modules-dir` 默认 `modules/`，兼容未来 init 布局）
+- 查询组合逻辑沉淀 `module_harness/query.py`（CLI/MCP/Web 三形态复用）
 
-**实现方向**：
-- `ModuleSDK`：查询封装，接口先于功能定稿
-  - `outputs_history()` → 输出历史（带 tick/来源标记）——firings 表
-  - `audit_timeline()` → 每 tick 每节点的 inputs/output/status/error —— firings 表
-  - `node_events(node)` → EventBus 录制（prompt、token 流、script 运行状态）
-  - `current_state()` → 节点 mutable state
-  - `checkpoints()` / `snapshot()` / `restore_data()` → 快照/回滚查询
-  - `alignment_status()` → 对齐检查结果
-- 核心原则：**不做新数据容器，只做查询封装**。数据唯一真相源是 tickflow RunState + firings 表 + EventBus
-- 依赖：#5 快照/回滚（fired 轨迹、自包含快照）已就位
-- **验收用例**：论文优化 module 的开发使用 SDK 查询各 tick 产出（SDK 首个实战消费者）
-
-### Phase 1：CLI 使用者界面 + 历史审阅
+**后续迭代（本次未做，roadmap 记录）**：截断/暂停续跑（Ctrl+C 保存状态 → `resume`）、`snapshot / rollback` CLI 命令、`visualize`（mermaid 导出）、`init` 脚手架（scripts/harnesses/submodules/modules 分目录实例搭建）。快照/回滚能力本身已就位（Module.snapshot/restore/checkpoint/rollback_to），仅缺 CLI 命令形态。
 
 **说明**：第一个消费形态。扩展 tickflow/cli.py 之外的 Module 层命令（`specmodule` CLI），覆盖使用者的完整工作流：运行、观察、审阅、接续。
 
 **实现方向**：
-- `specmodule run` — 从 spec/tasklist/模板运行工作流
-- `specmodule status` — 查询运行状态（对齐 `query_run_status`）
-- `specmodule review` — **历史审阅**（本阶段核心新功能）：按 tick 列出每节点产出/错误（tick ↔ 产出对应，fired 轨迹 + firings 表已铺好基础），定位问题 tick
-- `specmodule snapshot / resume / rollback` — 快照/回滚/续跑操作
-- `specmodule visualize` — mermaid/文本图导出（Graph.to_mermaid 已存在）
-- 依赖：Phase 0 SDK（review/status 等命令消费 SDK 查询）
-- **验收用例**：论文优化 module 全流程 CLI 化——`specmodule run`（默认 spec 一键优化）→ `review`（逐 tick 看每段优化产出）→ 不满意 `rollback`/`resume` 换 promptmode 重跑。**Phase 1 完成标志 = 论文优化 module 在 CLI 里跑通**
+- [x] `specmodule run` — 从 spec/tasklist/模板运行工作流
+- [x] `specmodule status` — 查询运行状态（对齐 `query_run_status`）
+- [x] `specmodule review` — **历史审阅**（本阶段核心新功能）：按 tick 列出每节点产出/错误（tick ↔ 产出对应，fired 轨迹 + firings 表已铺好基础），定位问题 tick
+- [ ] `specmodule snapshot / resume / rollback` — 快照/回滚/续跑操作
+- [ ] `specmodule visualize` — mermaid/文本图导出（Graph.to_mermaid 已存在）
+- 依赖：快照/回滚已就位；查询组合逻辑按提炼纪律长在 module_harness 查询模块，CLI 只 import 不实现
+- **验收用例**：论文优化 module 全流程 CLI 化——`specmodule run`（默认 spec 一键优化）→ `review`（逐 tick 看每段优化产出）→ 不满意 `rollback`/`resume` 换 promptmode 重跑。**Phase 0 完成标志 = 论文优化 module 在 CLI 里跑通**
 
-### Phase 2：AGENT 接口（MCP / ACP）
+**2026-08-10 里程碑**：M1 在 CLI 的 `--mock` 冒烟已跑通（run → status → review 全链路）；真实 LLM 验收待补（`--spec-file example/spec.academic_writer.json`）。Phase 0 完成标志 = 论文优化 module 在 CLI 里跑通（真实 LLM）。
 
-**说明**：第二个消费形态。把 SDK 查询能力暴露给外部 agent（MCP 服务或 ACP），让 agent 能读取工作流数据、发起运行、审阅产出。
+### Phase 1：AGENT 接口（MCP / ACP）
+
+**说明**：第二个消费形态。把查询能力暴露给外部 agent（MCP 服务或 ACP），让 agent 能读取工作流数据、发起运行、审阅产出。
 
 **实现方向**：
-- MCP 服务：SDK 方法映射为 MCP 工具（run/status/review/snapshot/resume）
+- MCP 服务：查询函数映射为 MCP 工具（run/status/review/snapshot/resume）
 - 或 ACP（Agent Client Protocol）——实现时二选一，以生态成熟度与目标 agent 环境为准
-- 依赖：Phase 0 SDK（MCP 薄层，零逻辑）
+- 依赖：Phase 0 沉淀的查询函数（MCP 薄层，零逻辑）
 - **验收用例**：论文→PPT module 开发启动（agent 通过 MCP 发起运行与审阅）
 
-### Phase 3：Web 可视化
+### Phase 2：Web 可视化
 
-**说明**：第三个消费形态。浏览器面板：实时运行状态、历史审阅时间线、产出对比。独立前端，消费 SDK。
+**说明**：第三个消费形态。浏览器面板：实时运行状态、历史审阅时间线、产出对比。独立前端，消费查询层。
 
 **实现方向**：
 - 前端：实时 tick 流、节点状态图、审阅面板
-- 后端：SDK 的 HTTP 封装（或直接消费跨进程查询）
-- 依赖：Phase 0 SDK + Phase 1 历史审阅语义
+- 后端：查询层的 HTTP 封装（或直接消费跨进程查询）
+- 依赖：Phase 0 沉淀的查询函数 + 历史审阅语义
 - **验收用例**：论文优化 + 论文→PPT 双 module 全量接入（运行可视化 + 产出对比）
 
 ---
 
 ## 实践线：落地 module（贯穿各 Phase，验收驱动）
 
-> 开发**真实可用的 module**，每个 Phase 以它为验收用例；开发过程中**反哺框架**（SDK 需求、内置工具提炼、submodule/script 完善）。
+> 开发**真实可用的 module**，每个 Phase 以它为验收用例；开发过程中**反哺框架**（查询层需求、内置工具提炼、submodule/script 完善）。
 
-### M1 论文优化（轻量，Phase 0/1 验收用例）
+### M1 论文优化（轻量，Phase 0 验收用例）
 
 **目标**：将中英混杂、混乱重复的灵感式写作文段，逐步整合优化为符合学术英语写作要求的文段。
 
@@ -127,9 +122,9 @@
 - **多轮迭代**（tickflow loop）：优化不满意 → 快照回退 → 换 promptmode 重跑——快照/rollback/resume 的真实使用
 - 失败节点不阻断（llm Failure → 下游跳过、运行继续）
 - 默认 spec 的"零配置可用"体验（翻译通道：spec only → tasklist）
-- 历史审阅：逐段优化前后对比（Phase 1 review 命令的核心场景）
+- 历史审阅：逐段优化前后对比（Phase 0 review 命令的核心场景）
 
-### M2 论文 → PPT（重量级，Phase 1 后启动）
+### M2 论文 → PPT（重量级，Phase 0 后启动）
 
 **目标**：从论文（长文）生成演示文稿（PPT），每页内容与布局由完整细致 spec 定义。
 
@@ -242,13 +237,12 @@ Loop1/Loop2 为 submodule 节点引用 fact_review_loop；`academic_writer_detai
 第二阶段（进行中 🔜）：使用者层面（双线推进）
 ┌────────────────────────────────────────────────────────┐
 │ 形态线（消费方）               实践线（验收驱动）        │
-│  0. 数据暴露 SDK (#6)    ←──  M1 论文优化 module 开发     │
-│  1. CLI + 历史审阅       ←──  M1 全流程 CLI 化（验收）   │
-│  2. AGENT (MCP/ACP)      ←──  M2 论文→PPT module 开发     │
-│  3. Web 可视化           ←──  双 module 全量接入（验收）  │
+│  0. CLI + 历史审阅       ←──  M1 全流程 CLI 化（验收）   │
+│  1. AGENT (MCP/ACP)      ←──  M2 论文→PPT module 开发     │
+│  2. Web 可视化           ←──  双 module 全量接入（验收）  │
 └────────────────────────────────────────────────────────┘
 并行机制：内置工具提炼（开发中通用价值 → 内置 script/harness/模板）
-流程约定：每个新功能前先设计所需 SDK
+流程约定：跨形态共享的逻辑进共享层，重复出现才抽，不为将来抽象
 ```
 
-依赖链：Phase 0 → 1 → 2 → 3 顺序推进；每 Phase 独立 spec → plan → 实现。历史审阅（Phase 1 核心）依赖 fired 轨迹 + firings 表（已就位）。AGENT/Web 形态依赖 SDK 定稿（Phase 0 先行设计的价值所在）。实践线 M1 先于 M2（基础验证 → 重量级验证），每个 Phase 完成标志 = 对应实践线 module 在形态线跑通。
+依赖链：Phase 0 → 1 → 2 顺序推进；每 Phase 独立 spec → plan → 实现。历史审阅（Phase 0 核心）依赖 fired 轨迹 + firings 表（已就位）。AGENT/Web 形态消费 Phase 0 沉淀的查询函数。实践线 M1 先于 M2（基础验证 → 重量级验证），每个 Phase 完成标志 = 对应实践线 module 在形态线跑通。
