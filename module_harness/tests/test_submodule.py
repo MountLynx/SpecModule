@@ -8,7 +8,7 @@ from llm.client import LLMResponse
 from module_harness.builtins import BUILTIN_HARNESS_NAMES, register_builtin_harnesses
 from module_harness.config import HarnessConfig, OutputFormat
 from module_harness.consistency import ConsistencyError
-from module_harness.events import EventBus, ScriptCompleted
+from module_harness.events import EventBus, HarnessFailed, ScriptCompleted
 from module_harness.loader import ModuleLoader, ModuleManifestError, ModuleRequirementError
 from module_harness.module import Module
 from module_harness.registry import HarnessRegistry
@@ -167,15 +167,48 @@ class TestSubModule:
         assert any(isinstance(e, ScriptCompleted) for e in got)
 
     @pytest.mark.asyncio
-    async def test_embedded_mode_no_events(self, mock_llm):
+    async def test_embed_mode_events_flow_without_records(
+        self, mock_llm, monkeypatch
+    ):
+        """嵌入模式（audit=False）：宿主 bus 事件可达，但 keep_records=False。
+
+        事件投递与 records 解耦——宿主传 event_bus 即选择性订阅，无需开启审计。
+        旧契约（audit=False 时宿主 bus 收不到事件）已反转。
+        """
         mock_llm.complete.return_value = LLMResponse(
             content='{"translation": "你好世界"}', usage={}, finish_reason="end_turn")
         bus = EventBus()
         got: list = []
         bus.subscribe(ScriptCompleted, lambda e: got.append(e))
+        # 捕获 SubModule 构造的 Module，验证 audit=False → keep_records=False
+        from module_harness import submodule as sm_module
+        orig_module = sm_module.Module
+        captured: dict = {}
+
+        def spy_module(**kwargs):
+            captured["keep_records"] = kwargs.get("keep_records")
+            return orig_module(**kwargs)
+
+        monkeypatch.setattr(sm_module, "Module", spy_module)
         sm = Translator(llm_client=mock_llm, event_bus=bus)
         await sm.run({"source_text": "Hello", "style": "formal"}, audit=False, max_ticks=10)
-        assert got == []
+        # 事件可达（旧契约相反）
+        assert any(isinstance(e, ScriptCompleted) for e in got)
+        # 且 audit=False → keep_records=False（事件开、records 关）
+        assert captured["keep_records"] is False
+
+    @pytest.mark.asyncio
+    async def test_embed_mode_receives_harness_failed(self, mock_llm):
+        """嵌入模式：宿主可订阅 HarnessFailed（翻译失败原因给用户反馈）。"""
+        from llm.client import LLMError
+        mock_llm.complete.side_effect = LLMError("API timeout")
+        bus = EventBus()
+        failures: list = []
+        bus.subscribe(HarnessFailed, lambda e: failures.append(e))
+        sm = Translator(llm_client=mock_llm, event_bus=bus)
+        await sm.run({"source_text": "Hello", "style": "formal"}, audit=False, max_ticks=10)
+        assert any(isinstance(e, HarnessFailed) for e in failures)
+        assert failures[0].failure_type == "infrastructure"
 
     @pytest.mark.asyncio
     async def test_submodule_mode_fast_zero_residue(self, tmp_path, monkeypatch, mock_llm):

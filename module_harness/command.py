@@ -78,6 +78,10 @@ class Command:
                     env=config.env,
                     capture_output=config.capture_output,
                     text=True,
+                    # 显式 UTF-8 + replace：不依赖 locale 默认编码，非 UTF-8 控制台
+                    # （中文 Windows GBK）的子进程输出不炸 reader 线程（D1）
+                    encoding="utf-8",
+                    errors="replace",
                 )
             except subprocess.TimeoutExpired as e:
                 error_msg = f"命令超时 ({final_timeout}s): {e}"

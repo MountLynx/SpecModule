@@ -50,15 +50,28 @@ Tests use `pytest` + `unittest.mock` (`MagicMock`, `AsyncMock`). Fixtures define
 
 4. **Namespace isolation:** Multiple `Module` instances coexist in one process. Body names are prefixed `{module_id}:{key}` by `TasklistTranslator` — never hardcode bare names across modules.
 
-5. **Two user levels, two usage scenarios.** SpecModule serves two audiences:
-   - **Developer users** — author and publish modules (submodule / script /
-     harness / tasklist templates).
-   - **End users** — only write spec / tasklist and run workflows.
-   The boundary is intentionally soft: developers also consume modules, and
-   end users may customize them. What matters is which **scenario** a feature
-   serves — the *development scenario* (authoring, packaging, publishing) or
-   the *usage scenario* (running, observing, reviewing, resuming). New
-   features must state which scenario they primarily serve.
+5. **This repo is a developer library.** SpecModule's current form is the
+   *library* (`tickflow` + `llm` + `module_harness` + thin CLI), serving
+   **developer users** — authoring and publishing modules (submodule / script /
+   harness / tasklist templates), driving workflows programmatically via the
+   programming API / CLI, and debugging runs. It is NOT an end-user product.
+   End-user consumption forms (rich TUI, MCP/ACP server, web visualization)
+   are **separate ecosystem projects** (`SpecModule_tui/`, `SpecModule_mcp/`,
+   `SpecModule_webview/`), each an independent repo that consumes this library
+   the way this library consumes `tickflow`. "Write spec / tasklist" is a
+   **module-facing interface contract** every module exposes — not a separate
+   usage scenario of this repo. New features should state which developer
+   capability they serve; end-user form work belongs to the ecosystem repos.
+
+6. **Extract on duplication; house what has a confirmed second consumer.**
+   Never abstract for the future: extract a function only when the same logic
+   appears a second time (DRY). A shared-layer home (in `module_harness`) is
+   justified only by a **confirmed** second consumer — which may live outside
+   this repo (an ecosystem form, an embedder) as well as inside it. Pure
+   passthrough wrappers are never extracted. Example: query composition
+   (audit timeline / output history) is consumed by the in-repo CLI and by
+   ecosystem forms (MCP, Web) and embedders → it lives once in
+   `module_harness/query.py`; every consumer imports it, never reimplements.
 
 ## Coding Conventions
 
@@ -82,7 +95,7 @@ Tests use `pytest` + `unittest.mock` (`MagicMock`, `AsyncMock`). Fixtures define
 
 Before modifying sensitive areas, read the relevant spec:
 
-- **Roadmap:** `docs/progress/module-roadmap.md` — 18/19 features done (stage one complete), stage two: user-facing layer (SDK → CLI → AGENT → Web) with practice-line modules
+- **Roadmap:** `docs/progress/module-roadmap.md` — library done (framework capabilities complete); next: library packaging / embedding / init scaffold, then ecosystem projects (TUI/MCP/Web) with practice-line modules
 - **Harness design:** `docs/superpowers/specs/2026-06-29-module-harness-design.md`
 - **Command node:** `docs/superpowers/specs/2026-06-30-command-node-design.md`
 - **Spec/Tasklist:** `docs/superpowers/specs/2026-06-30-spec-tasklist-design.md`

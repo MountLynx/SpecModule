@@ -101,7 +101,10 @@ class SubModule:
         audit: bool,
         harness_overrides: dict[str, Any] | None = None,
     ) -> HarnessRegistry:
-        bus = self._event_bus if audit else EventBus.null()
+        # 事件投递与 keep_records/persist 解耦：宿主传了 event_bus 就始终投递
+        # （与 audit 无关）；未传则静默 EventBus.null()（嵌入零开销）。audit 只
+        # 在 run() 里映射 keep_records。
+        bus = self._event_bus or EventBus.null()
         reg = HarnessRegistry(llm_client=self._ensure_client(), event_bus=bus)
         for hc in self.harnesses:
             if not hc.name:
@@ -159,11 +162,14 @@ class SubModule:
         - harness_overrides：{model/temperature/think/api_params} 覆盖，
           构建 registry 时应用到 submodule 自身的全部 harness（不含内置
           harness）（submodule 节点 LLM 配置传播）
-        - audit=False（默认）：嵌入模式，EventBus.null() + keep_records=False；
-          除非 mode="fast"，嵌入模式同样落盘（D11）
+        - audit=False（默认）：嵌入模式，keep_records=False；除非 mode="fast"，
+          嵌入模式同样落盘（D11）
+        - audit=True：keep_records 全开（全量审计轨迹）
+        - 事件投递与 records/persist 解耦：构造传入 event_bus 时事件始终投递
+          （与 audit 取值无关）；未传则静默 EventBus.null()（嵌入零开销）。宿主
+          需失败原因等现场反馈时，传 event_bus 选择性订阅即可，无需开启审计
         - persist：False = 快速模式（NullBackend 全内存 + 无 status.json，
           零落盘零 I/O）；None = 按 mode 决定（"fast" → False，否则 True）
-        - audit=True：keep_records 全开；订阅事件需在构造时传入 event_bus
         """
         errors = self.spec_schema.validate(spec)
         if errors:
