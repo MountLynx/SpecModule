@@ -13,12 +13,8 @@ and precise rewind (by tick number) cheap.
 
 ```
 SpecModule/
-├── tickflow/              # Petri-net workflow engine (standalone sub-project, synced from the upstream Graph repo)
-│   ├── engine.py          #   Pure-function tick engine
-│   ├── runner.py          #   Runner / AsyncRunner
-│   ├── state.py           #   RunState — single source of truth
-│   └── ...
-├── llm/                   # LLM clients (Anthropic + OpenAI-compatible)
+├── tickflow                # Petri-net workflow engine (external pip dependency tickflow-py, import name tickflow)
+├── llm/                    # LLM clients (Anthropic + OpenAI-compatible)
 │   ├── client.py
 │   └── config.py
 ├── module_harness/        # Module abstraction layer
@@ -208,7 +204,7 @@ Multiple Modules can coexist in the same process. Bodies are registered under `{
 
 ## Design Principles
 
-- **Zero tickflow modification (conditional)** — tickflow is an independent project with its own upstream repository (https://github.com/MountLynx/tickflow-). Before modifying anything, judge: does the change have universal value / genuinely improve tickflow itself? **No → don't touch it** (module-layer features extend via `Registry` subclassing). **Yes → make the change and sync it back to the upstream repo** (docs record only the remote URL, never local paths).
+- **Zero tickflow modification (conditional)** — tickflow is an external dependency (PyPI package `tickflow-py`, import name `tickflow`, upstream https://github.com/MountLynx/tickflow-); no tickflow code lives in this repo. Before modifying anything, judge: does the change have universal value / genuinely improve tickflow itself? **No → don't touch it** (module-layer features extend via `Registry` subclassing). **Yes → make the change upstream**, publish a new `tickflow-py` release, and bump the installed version.
 - **Two user levels** — the framework serves two audiences: **developer users** (author and publish modules) and **end users** (only write spec/tasklist). The boundary is intentionally soft — developers also consume modules, and end users can customize them. In essence there are two usage scenarios (the *development scenario* vs the *usage scenario*); new features must state which scenario they primarily serve.
 - **Full control** — No implicit behavior; a wrong promptmode raises KeyError; the framework does not paper over design mistakes
 - **Audit by design** — All state is recorded in RunState; snapshot and rewind are built-in capabilities

@@ -941,7 +941,7 @@ class TestResumeLoop:
         _loop_module 为通过 TasklistValidator 语法预检，把 guard 注册进了
         tickflow 模块级默认 registry（单例）——这里在 teardown 时 pop，
         防止 guard 泄漏到其他测试。_guards 是 Registry 的私有 dict
-        （tickflow/registry.py:42）。
+        （tickflow.registry 模块内）。
         """
         yield
         from tickflow import registry as default_registry

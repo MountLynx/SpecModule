@@ -8,12 +8,8 @@
 
 ```
 SpecModule/
-├── tickflow/              # Petri 网工作流引擎（独立子项目，上游 Graph 仓库同步）
-│   ├── engine.py          #   纯函数 tick 引擎
-│   ├── runner.py          #   Runner / AsyncRunner
-│   ├── state.py           #   RunState — 唯一真相源
-│   └── ...
-├── llm/                   # LLM 客户端（Anthropic + OpenAI 兼容）
+├── tickflow                # Petri 网工作流引擎（外部 pip 依赖 tickflow-py，import 名 tickflow）
+├── llm/                    # LLM 客户端（Anthropic + OpenAI 兼容）
 │   ├── client.py
 │   └── config.py
 ├── module_harness/        # Module 上层抽象
@@ -203,7 +199,7 @@ EventBus 提供两层事件——流程级（tickflow hooks：`on_fire`、`on_ti
 
 ## 开发原则
 
-- **tickflow 零修改（有条件的）** — tickflow 是独立项目，有独立仓库（https://github.com/MountLynx/tickflow-）。修改前先判断：改动是否有普适性、是否真正有助于优化 tickflow 本身？**没有 → 不碰**（模块层功能一律通过 `Registry` 子类扩展）；**有 → 改**，并同步回其项目仓库（文档只记录远程仓库地址，不记录本地路径）
+- **tickflow 零修改（有条件的）** — tickflow 是外部依赖（PyPI 包 `tickflow-py`，import 名 `tickflow`，上游仓库 https://github.com/MountLynx/tickflow-），仓库内无 tickflow 代码。修改前先判断：改动是否有普适性、是否真正有助于优化 tickflow 本身？**没有 → 不碰**（模块层功能一律通过 `Registry` 子类扩展）；**有 → 在上游改**，发布新版 `tickflow-py` 并升级安装版本
 - **两级用户定位** — 框架服务两类用户：**开发者用户**（写 module 并发布）与**使用者用户**（只写 spec/tasklist）。边界不硬——开发者也是使用者，使用者也能按需修改。本质是两个使用场景（**开发场景** vs **使用场景**），新功能开发时明确主要为哪个场景服务
 - **完全掌控** — 无隐式行为，promptmode 选错直接 KeyError，框架不兜底
 - **审计即设计** — 所有状态记录在 RunState 中，快照与回滚是内置能力
