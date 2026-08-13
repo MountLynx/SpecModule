@@ -35,6 +35,20 @@ SpecModule/
 └── docs/                  # 设计文档、实现计划、路线图
 ```
 
+## 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+| 包 | 用途 | 必需 |
+|----|------|------|
+| **`tickflow-py`** | Petri 网工作流引擎。⚠️ PyPI 包名为 `tickflow-py`，**import 名仍为 `tickflow`**（`import tickflow`，不是 `import tickflow_py`）。上游仓库：https://github.com/MountLynx/tickflow- | ✅ 必需 |
+| `anthropic` | Claude 后端（`provider=anthropic` 时） | 按 provider 选装 |
+| `openai` | OpenAI 及兼容后端（`provider=openai` / `openai-compatible` 时） | 按 provider 选装 |
+| `jsonschema` | `json_schema` 输出格式校验（未安装则跳过 schema 校验，仅保证是 JSON） | 推荐 |
+| `pytest` | 测试套件（`python -m pytest module_harness/tests/ -q`） | 仅开发 |
+
 ## 快速开始
 
 ```python

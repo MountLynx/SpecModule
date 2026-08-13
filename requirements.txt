@@ -1,0 +1,23 @@
+# SpecModule 依赖清单
+#
+# 安装：pip install -r requirements.txt
+
+# ── 运行时（必需）───────────────────────────────────────────────────
+# Petri 网工作流引擎。PyPI 包名为 tickflow-py，import 名仍为 tickflow：
+#   import tickflow  # 而非 import tickflow_py
+# 上游仓库：https://github.com/MountLynx/tickflow-
+tickflow-py>=0.1.0
+
+# ── LLM 后端 SDK（按 provider 选装；未安装时对应 provider 不可用）──────
+# provider=anthropic（Claude）时所需
+anthropic
+# provider=openai / openai-compatible 时所需
+openai
+
+# ── 输出校验（推荐）─────────────────────────────────────────────────
+# output_format=json_schema 时做 schema 校验；未安装则跳过校验，仅保证是 JSON
+jsonschema
+
+# ── 测试（仅开发）───────────────────────────────────────────────────
+# 运行：python -m pytest module_harness/tests/ -q
+pytest
