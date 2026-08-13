@@ -40,6 +40,20 @@ SpecModule/
 └── docs/                  # Design docs, implementation plans, roadmap
 ```
 
+## Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+| Package | Purpose | Required |
+|---------|---------|----------|
+| **`tickflow-py`** | Petri-net workflow engine. ⚠️ The PyPI package is named `tickflow-py`, but the **import name remains `tickflow`** (`import tickflow`, not `import tickflow_py`). Upstream: https://github.com/MountLynx/tickflow- | ✅ Yes |
+| `anthropic` | Claude backend (when `provider=anthropic`) | Depends on provider |
+| `openai` | OpenAI & compatible backends (when `provider=openai` / `openai-compatible`) | Depends on provider |
+| `jsonschema` | Schema validation for `json_schema` output format (skips validation, JSON-only check if not installed) | Recommended |
+| `pytest` | Test suite (`python -m pytest module_harness/tests/ -q`) | Dev only |
+
 ## Quick Start
 
 ```python
