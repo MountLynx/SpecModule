@@ -38,6 +38,7 @@ from .query import (
     timeline_to_dict,
 )
 from .registry import HarnessRegistry
+from .scaffold import scaffold
 from .spec import Tasklist
 from .status import query_run_status
 from .translator import TemplateLoader
@@ -313,6 +314,27 @@ def _latest_run_id() -> str | None:
     return max(dirs, key=lambda d: d.stat().st_mtime).name
 
 
+def _cmd_init(args: argparse.Namespace) -> int:
+    """生成模块脚手架：单文件模块骨架 + 项目文件缺啥补啥（幂等）。"""
+    try:
+        result = scaffold(
+            args.name,
+            base_dir=args.dir,
+            force=args.force,
+            description=args.description or "",
+        )
+    except ValueError as e:
+        print(f"错误: {e}", file=sys.stderr)
+        return 1
+    for p in result.created:
+        print(f"创建 {p}")
+    for p in result.skipped:
+        print(f"跳过（已存在） {p}")
+    print(f"\n完成：{len(result.created)} 个文件创建，{len(result.skipped)} 个跳过。")
+    print(f"冒烟验收：python -m module_harness.cli run --module {args.name} --mock")
+    return 0
+
+
 def _cmd_status(args: argparse.Namespace) -> int:
     run_id = args.run_id or _latest_run_id()
     if run_id is None:
@@ -426,6 +448,13 @@ def main(argv: list[str] | None = None) -> int:
     p_review.add_argument("--failed", action="store_true", help="只看失败节点")
     p_review.add_argument("--json", action="store_true", help="JSON 输出")
     p_review.set_defaults(func=_cmd_review)
+
+    p_init = sub.add_parser("init", help="生成模块开发脚手架（单文件模块 + 项目文件）")
+    p_init.add_argument("name", help="模块名（合法 Python 标识符；同时是文件/--module/entry.name/run_id）")
+    p_init.add_argument("--dir", default=".", help="生成位置（默认 cwd）")
+    p_init.add_argument("--force", action="store_true", help="覆盖已存在的模块文件（仅模块文件）")
+    p_init.add_argument("--description", help="模块描述（展示用，不受标识符约束）")
+    p_init.set_defaults(func=_cmd_init)
 
     args = parser.parse_args(argv)
     try:

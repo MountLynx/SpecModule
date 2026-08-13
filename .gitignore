@@ -6,6 +6,7 @@ __pycache__/
 .specmodule/
 .omp/
 
+/openspec
 
 # 含本地路径（上游 Graph 仓库位置），不进远程
 AGENTS.md

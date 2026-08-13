@@ -47,7 +47,7 @@ CLI 是最基础的终端入口，**留在库内**（参考 Django `django-admin
 - `specmodule run` — 按名选模块 + spec/tasklist，三级实时显示（`--mock` 冒烟）
 - `specmodule status` — 查询运行状态（文本/JSON）
 - `specmodule review` — 历史时间线 + `--tick/--node/--failed` 过滤（文本/JSON）
-- `specmodule init` — 脚手架（`--with-source` dev / `--from-pip` consumer）
+- `specmodule init <name>` — python 原生单文件模块脚手架（已实现；声明式目录形态为后续）
 - `specmodule snapshot / rollback / resume` — 快照/回退/续跑（库能力已就位）
 - `specmodule visualize` — mermaid 导出（`Graph.to_mermaid` 已存在）
 
@@ -104,14 +104,21 @@ CLI 双身份：既是使用者最基础入口，也是开发者终端工作台�
 
 ## 下一阶段 🔜（库自身的路线图）
 
-战略：框架能力已就绪。库接下来要做的不是"某一形态"，而是把它打磨成**干净、可嵌入、可打包、可多形态消费的库**。
+战略：框架能力已就绪。库接下来要做的不是"某一形态"，而是把它打磨成**干净、可嵌入、可打包的库**。
 
 ### 库路线：打包与嵌入
 
 - [ ] **打包**：`pyproject.toml` + `[project.scripts] specmodule = module_harness.cli:main`（CLI 随库分发；TUI/MCP/Web 生态项目各自加自己的入口），保持依赖轻
-- [ ] **init 脚手架（两模板）**：
-  - `--with-source`（dev）：框架源码入项目，整树自包含，零 pip——服务"框架频繁改动期"
-  - `--from-pip`（consumer）：库为依赖，项目只有业务（modules/specs/config）——服务"框架稳定期"
+- [x] **init 脚手架（python 原生单文件形态）** — `specmodule init <name>`：生成 `modules/<name>.py`
+  单文件骨架（harness→script 流水线模板，`--mock` 即冒烟）+ 项目文件缺啥补啥（config.json /
+  .env.example / .gitignore / spec.example.json / README.md）。见
+  `openspec/changes/cli-init-scaffold/` 与 `docs/cli-usage.md#9`。
+  - 方便 module 开发者快速搭建项目结构 ✅
+  - module 使用者，创建与管理 module （后续做，例如大致形态可能是 submodule、harness、script、
+    command 分别放目录，还有一个 module 目录放 module.json 或者 &lt;modulename&gt;.py，并不是严格的
+    目录规范，算是一种推荐管理样式，相关 cli 指令可以看目录下 module 有哪些，做 spec、tasktamplate、
+    module 管理等；配套的 load 也要做修改，把加载的 module 组件放到各个目录里面，这样也顺便就有了
+    “公共 harness 库”公共 script 库的语义。）
 - [ ] **嵌入式验证**：最小 demo 项目 `pip install specmodule` 后 `import Module / HarnessRegistry` 跑通一个 workflow——证明库面干净、可嵌入
 - [ ] **stdlib 可视化开关**：`http.server` 极简运行 feed（零第三方依赖）；富交互编辑器在 webview 项目
 - [ ] **API 稳定化**：query 层 + 编程 API 向后兼容（三个生态项目都依赖它）
@@ -263,7 +270,7 @@ Loop1/Loop2 为 submodule 节点引用 fact_review_loop；`academic_writer_detai
 
 第二阶段（进行中 🔜）：库自身（打包 / 嵌入 / init 脚手架）
 ┌───────────────────────────────────────────────┐
-│ 库：打包(pyproject) → init 两模板 →             │
+│ 库：打包(pyproject) → init 脚手架 →            │
 │     嵌入式验证(demo) → stdlib 可视化开关 →       │
 │     API 稳定化                                  │
 ├───────────────────────────────────────────────┤

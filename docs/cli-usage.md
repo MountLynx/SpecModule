@@ -13,16 +13,17 @@
 python -m module_harness.cli --help
 ```
 
-三个子命令：`run` / `status` / `review`。
+四个子命令：`init` / `run` / `status` / `review`。
 
 ```
-usage: specmodule [-h] {run,status,review} ...
+usage: specmodule [-h] {init,run,status,review} ...
 ```
 
 ## 2. 命令概览
 
 | 命令 | 作用 | 形态 |
 |------|------|------|
+| `init` | 生成模块开发脚手架（单文件模块 + 项目文件补齐） | 非交互参数 |
 | `run` | 按名选模块 + spec/tasklist，运行并实时显示 | 三级 verbose |
 | `status` | 查询某次运行状态（复用 `query_run_status`） | 文本 / JSON |
 | `review` | 审阅历史时间线（tick 分组 + 过滤） | 文本 / JSON |
@@ -30,6 +31,7 @@ usage: specmodule [-h] {run,status,review} ...
 核心数据流：
 
 ```
+init: CLI → scaffold()（纯函数生成：modules/<name>.py + 项目文件缺啥补啥）
 run:  CLI → discover(modules/) → 解析 spec/tasklist → Module(llm_client, event_bus,
         registry, hooks) → asyncio.run() → on_fire 逐 firing 实时打印 → 结束汇总
 status: CLI → query_run_status()（既有）→ 文本/JSON
@@ -318,12 +320,66 @@ python -m module_harness.cli run --module academic_writer \
 
 ---
 
-## 9. 范围 / 后续迭代
+## 9. `init` — 生成模块开发脚手架
+
+```
+python -m module_harness.cli init <name> [--dir PATH] [--force] [--description "..."]
+```
+
+生成单文件 python 原生模块骨架（`modules/<name>.py`）+ 项目文件缺啥补啥（幂等）。
+
+### 参数
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `<name>` | 是 | 模块名（合法 Python 标识符；同时是文件、`--module`、`entry.name`、默认 run_id——四处一致） |
+| `--dir <path>` | — | 生成位置（默认 cwd） |
+| `--force` | — | 覆盖已存在的模块文件（仅模块文件） |
+| `--description <str>` | — | 模块描述（展示用，不受标识符约束） |
+
+### 生成布局
+
+```
+<project>/
+├─ modules/<name>.py    单文件模块骨架（harness/script/模板/registry/入口 五区块）
+├─ config.json          provider/model 注册表（占位，真实运行前需填写）
+├─ .env.example         API key 占位（复制为 .env 填密钥）
+├─ .gitignore           （排除 .env / __pycache__ / .specmodule）
+├─ spec.example.json    示例 spec
+└─ README.md            用法 + config.json / .env 分工说明
+```
+
+### 默认模板（立即冒烟）
+
+默认模板 `hello` 为 **harness → script 流水线**：harness 节点读入 spec 的 `message` 字段
+（prompt 占位符由 `{spec.message}` inputs 填充），script 节点消费其输出并回显。一个文件同时
+展示 harness 声明、script 组件、多节点 flow 三种契约。
+
+```bash
+# 免 key 冒烟（验证流水线接线，非内容质量）
+python -m module_harness.cli run --module <name> --mock
+```
+
+### 冲突 / 幂等语义
+
+- 模块名非法（含空格/连字符/中文等）：报错退出码 1，**零文件生成**。
+- `modules/<name>.py` 已存在且未传 `--force`：报错退出码 1。
+- 项目文件（config.json 等）已存在一律**跳过不覆盖**；`--force` 仅覆盖模块文件。
+
+### 配置分工
+
+- `config.json`：非敏感注册表（providers 连接信息 + `api_key_env` 指向的**变量名**）。
+- `.env`：密钥实际值（gitignored，不进版本库）。`config.json` 的 `api_key_env` 与 `.env`
+  变量名必须对齐。
+
+---
+
+## 10. 范围 / 后续迭代
 
 本子集（Phase 0）**不含**（已记 roadmap，后续迭代）：
 
 - 截断/暂停续跑（Ctrl+C 保存状态 → `resume`）
 - `snapshot` / `rollback` CLI 命令（能力已就位：`Module.snapshot/restore/checkpoint/rollback_to`，仅缺命令形态）
 - `visualize`（mermaid 导出）
-- `init` 脚手架（scripts/harnesses/submodules/modules 分目录实例搭建）
+- `init` 声明式形态（scripts/harnesses/submodules/modules 分目录 + loader 改造）与消费者 module 管理指令——python 原生单文件形态已在此实现
 - AGENT（MCP/ACP）与 Web 形态——直接消费 `query.py` 共享层
