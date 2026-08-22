@@ -1,6 +1,6 @@
 # SpecModule 开发进度与路线
 
-> 最后更新：2026-08-11
+> 最后更新：2026-08-22（module-user-store 提案定稿：库路线以"module 使用者闭环"为主轴）
 
 ## 战略定位（当前仓库 = 库）
 
@@ -9,7 +9,7 @@
 - **执行引擎**：`tickflow`（独立上游）+ `llm` + `module_harness`（spec → tasklist → Petri-net 图 → 运行）
 - **共享查询层**：`module_harness/query.py`——运行状态/历史时间线的纯函数，被 CLI / MCP / Web / 嵌入方共同 import
 - **编程 API**：`Module / HarnessRegistry / SubModule / Translator` 等，可被其他项目直接 `import`（嵌入式：作为 LLM 工具套件开发）
-- **CLI（随库分发）**：`specmodule run/status/review/init/visualize`——参考 Django 自建管理壳，库内建最基础的终端入口，随 `pip install specmodule` 提供
+- **CLI（随库分发）**：`specmodule run/status/review/resume/checkpoint/checkpoints/snapshot/rollback/visualize/init`——参考 Django 自建管理壳，库内建最基础的终端入口，随 `pip install specmodule` 提供
 - **可选零依赖可视化开关**：stdlib `http.server` 推极简运行 feed；富交互终端界面 → TUI 生态项目；富交互编辑器 → webview 生态项目
 
 **库是中性的**——不扛某一形态的完整 UX。形态定位由生态项目各自承担。
@@ -48,8 +48,12 @@ CLI 是最基础的终端入口，**留在库内**（参考 Django `django-admin
 - `specmodule status` — 查询运行状态（文本/JSON）
 - `specmodule review` — 历史时间线 + `--tick/--node/--failed` 过滤（文本/JSON）
 - `specmodule init <name>` — python 原生单文件模块脚手架（已实现；声明式目录形态为后续）
-- `specmodule snapshot / rollback / resume` — 快照/回退/续跑（库能力已就位）
-- `specmodule visualize` — mermaid 导出（`Graph.to_mermaid` 已存在）
+- `specmodule resume [<tick>]` — 从中断处续跑（tick 截断 / Ctrl+C 后；快照/兼容性语义由库承载，已实现）
+- `specmodule checkpoint <label> [<tick>]` — 给指定 tick 快照起命名检查点（`manual:` 永久保留，纯数据操作跨进程；label 自动补前缀）
+- `specmodule checkpoints` — 列出可用回退点（tick 快照 + manual 检查点，含 fired 轨迹；`build_checkpoints` 共享层，MCP/Web 复用）
+- `specmodule snapshot [<tick>]` — 检视指定 tick 运行时快照（摘要 / `--json` 完整结构 / `--out` 导出自包含快照文件）
+- `specmodule rollback <目标>` — 回退到指定 tick/manual 检查点重跑（与 `resume` 同库调用，目标必填防误续最新；checkpoint/checkpoints/snapshot/rollback/resume 组合即"命名-列出-检视-回退-续跑"闭环，已实现）
+- `specmodule visualize` — mermaid 导出（`Graph.to_mermaid` 已存在；CLI 从 `--tasklist` 或 module_inputs 存档重建 Graph 渲染，已实现）
 
 CLI 双身份：既是使用者最基础入口，也是开发者终端工作台（init/mock 冒烟/快照调试图）。
 
@@ -61,7 +65,11 @@ CLI 双身份：既是使用者最基础入口，也是开发者终端工作台�
 ## 完成度速览
 
 已实现（库核心）：**18** 项框架能力（第一级）
-下一阶段（库自身）：打包 / init 脚手架 / 嵌入式验证 / stdlib 可视化开关 / API 稳定化
+已完成（库自身主线 + 独立线，2026-08-22）：打包接线 + module-user-store 全系列
+（store 家目录 / 配置回退链 / 统一枚举 run 打通 / CLI 管理面 / init 目录形态 /
+publish / update 脏检测）+ 嵌入式验证 + stdlib 可视化开关（feed）
+待做：M2 实践线（store 真实验收）、收口（API 稳定化，冻结面含 store 枚举契约）、
+适配变更（旧设计与现有物按新逻辑调整）
 
 ---
 
@@ -106,22 +114,59 @@ CLI 双身份：既是使用者最基础入口，也是开发者终端工作台�
 
 战略：框架能力已就绪。库接下来要做的不是"某一形态"，而是把它打磨成**干净、可嵌入、可打包的库**。
 
-### 库路线：打包与嵌入
+### 库路线：主线 = module 使用者闭环（module-user-store 变更，2026-08-22 提案）
 
-- [ ] **打包**：`pyproject.toml` + `[project.scripts] specmodule = module_harness.cli:main`（CLI 随库分发；TUI/MCP/Web 生态项目各自加自己的入口），保持依赖轻
-- [x] **init 脚手架（python 原生单文件形态）** — `specmodule init <name>`：生成 `modules/<name>.py`
-  单文件骨架（harness→script 流水线模板，`--mock` 即冒烟）+ 项目文件缺啥补啥（config.json /
-  .env.example / .gitignore / spec.example.json / README.md）。见
-  `openspec/changes/cli-init-scaffold/` 与 `docs/cli-usage.md#9`。
-  - 方便 module 开发者快速搭建项目结构 ✅
-  - module 使用者，创建与管理 module （后续做，例如大致形态可能是 submodule、harness、script、
-    command 分别放目录，还有一个 module 目录放 module.json 或者 &lt;modulename&gt;.py，并不是严格的
-    目录规范，算是一种推荐管理样式，相关 cli 指令可以看目录下 module 有哪些，做 spec、tasktamplate、
-    module 管理等；配套的 load 也要做修改，把加载的 module 组件放到各个目录里面，这样也顺便就有了
-    “公共 harness 库”公共 script 库的语义。）
-- [ ] **嵌入式验证**：最小 demo 项目 `pip install specmodule` 后 `import Module / HarnessRegistry` 跑通一个 workflow——证明库面干净、可嵌入
-- [ ] **stdlib 可视化开关**：`http.server` 极简运行 feed（零第三方依赖）；富交互编辑器在 webview 项目
-- [ ] **API 稳定化**：query 层 + 编程 API 向后兼容（三个生态项目都依赖它）
+> 主轴：不写 module 的人 `pip install specmodule` → `setup` 配 key → `install` 装模块 →
+> `list` / `run` → `update` / `uninstall`；想写时 `init --dir` → `publish` 分享。统一 store
+> 家目录（`~/.specmodule`，`SPECMODULE_HOME` 可覆盖）= 无项目用户的隐式项目根 = 生态可视化的枚举契约。
+> 设计决策：一个 module 一个自包含目录（沿用 pack 格式）；"公共 harness/script 库"语义由作者
+> 开发者工作区承担（publish 时冻结）；sha256 仅作安装期元数据（update 脏检测），不做物理去重；
+> 同名冲突按搜索路径优先级 + 显式报告，不做 `module_harnessname` 式后缀（后缀归注册表时代）。
+> 详见 `openspec/changes/module-user-store/`。
+
+**准备（先于主线执行，2026-08-22 提案）**
+- [ ] **文档基线收拾（repo-docs-tidy 变更）**：提交 cli-resume 落地实现 + 规划层（本 roadmap 重构 +
+  module-user-store 提案产物）、文档核对对齐（README / README.en / docs/SpecModule.md / AGENTS.md）、
+  `specmodule-lib-ecosystem` 收尾归档 → 实施前的干净基线。详见 `openspec/changes/repo-docs-tidy/`
+
+**前置（主线第 0 步，persona 起点）**
+- [x] **打包接线（已实现）**：`pyproject.toml` + `[project.scripts] specmodule = module_harness.cli:main`
+  （CLI 随库分发；`pip install specmodule` 自此成立；wheel 构建 + clean venv 安装 +
+  init/run 冒烟验证通过）→ module-user-store 任务 1.1
+- [x] **init 单文件形态（已实现）**：`specmodule init <name>` 生成 `modules/<name>.py` 骨架 +
+  项目文件缺啥补啥（2026-08-21 cli-init-scaffold 归档；`docs/cli-usage.md#15`）；目录形态见主线 5.x
+
+**主线（module-user-store 实施）✅ 已完成（2026-08-22）**
+- [x] **store 家目录与配置回退链**：`~/.specmodule`（modules/manifests/cache）+ 用户级配置
+  （os.environ > 项目根 .env/config.json > store 级）→ 任务 1.2、2.x
+- [x] **run 打通已打包模块**：统一枚举（entry 单文件 / packed 目录 / pip entry points）进
+  `module_harness/store.py` 共享层，run/resume/rollback/visualize 一致解析 → 任务 3.x
+- [x] **CLI 管理面**：`setup` / `install` / `list` / `info` / `uninstall` / `publish` / `update`
+  （manifest 脏检测）→ 任务 4.x、6.x
+- [x] **init 目录形态**（`--as-dir`）：与已装模块同构的骨架，简单写 module 的默认入口；单文件形态
+  保留为代码密集通道（`publish` 单文件转化按 D9 诚实报错）→ 任务 5.x
+
+**独立线（机制上不依赖主线，可与主线并行；接缝处标注）**
+- [ ] **M2 论文→PPT 实践线**（ppt-writer-module 变更）：框架能力验收（完整 spec 驱动 / 复杂流图 /
+  command+script / submodule 打包）；**发布→install→run 环节对接 store，作为主线首个真实验收用例**
+- [x] **嵌入式验证（已完成）**：最小 demo 项目 `pip install specmodule` 后 `import Module / HarnessRegistry`
+  跑通一个 workflow——证明库面干净、可嵌入（`examples/embed_minimal/`；暴露并修复
+  `register_builtin_harnesses` 未从包顶层导出的库面缺口）
+- [x] **stdlib 可视化开关（已完成）**：`http.server` 极简运行 feed（`specmodule feed`，
+  零第三方依赖；复用查询层 status/timeline/checkpoints，页面原生 JS 轮询）；富交互编辑器在 webview 项目
+
+**收口（前置 = 主线 + M2 落定，API 面才冻结）**
+- [ ] **API 稳定化**：query 层 + 编程 API + **新 store 枚举契约**向后兼容（三个生态项目都依赖它）
+
+**适配变更（旧设计/现有物按新使用逻辑调整）**
+- [ ] **init `--with-source` / `--from-pip` 两模板**（lib-ecosystem 提案残留）：与新的单文件 +
+  `--dir` 形态合并评估——pyproject 落地后 `--from-pip` 即常态、`--with-source` 为框架开发用，
+  大概率被吸收为流程说明而非新命令
+- [ ] **specmodule-lib-ecosystem change 收尾**（no-tasks）：定位内容已落地为现状；打包/嵌入动作项
+  被主线与本 roadmap 吸收 → 归档或重定位（**已由 repo-docs-tidy 承接**，任务 4.x）
+- [ ] **example/（M1 成果）适配**：作为 store 首个发布 fixture（publish → 测试 store → smoke），
+  顺带成为 M2 之前的验收样例
+- [ ] **生态 Webview roadmap 适配**：模块可视化管理改吃 store 枚举契约（不再是泛化设想）
 
 **"嵌入模式"两个含义（不混用）**：
 - **宿主整框架嵌入**（本库路线服务）：别项目 `import Module / SubModule` 作 LLM 工具套件。
@@ -162,6 +207,8 @@ CLI 双身份：既是使用者最基础入口，也是开发者终端工作台�
 - 复杂流图（AND/OR join、并行页生成与合并）
 - command/script 节点（渲染工具、格式转换）
 - submodule 打包发布（发布为可复用 submodule + spec schema 契约）
+- **store 对接（新增，2026-08-22）**：发布产物走 `publish` → `install` → `run` 闭环，作为
+  module-user-store 主线的**首个真实验收用例**（不另建 store 测试模块，直接吃 M2 产物）
 
 ---
 
@@ -268,20 +315,32 @@ Loop1/Loop2 为 submodule 节点引用 fact_review_loop；`academic_writer_detai
 │ 6. 快照/回滚封装        │  ✅（含冗余清理、S3 自包含修正）
 └─────────────────────────┘
 
-第二阶段（进行中 🔜）：库自身（打包 / 嵌入 / init 脚手架）
+第二阶段（进行中 🔜）：库自身（主线 = module 使用者闭环）
 ┌───────────────────────────────────────────────┐
-│ 库：打包(pyproject) → init 脚手架 →            │
-│     嵌入式验证(demo) → stdlib 可视化开关 →       │
-│     API 稳定化                                  │
+│ 前置：打包接线（pyproject + console script）     │
+│   ↓                                             │
+│ 主线：module-user-store 实施                     │
+│   store/配置链 → run-packed → 管理面 → init 目录 │
+│   共享层 module_harness/store.py = 生态契约      │
+│   ↓                                             │
+│ 收口：API 稳定化（冻结面含 store 枚举契约）       │
 ├───────────────────────────────────────────────┤
-│ 生态（独立仓库，各自 roadmap）：                  │
+│ 独立线（并行，接缝处对接主线）：                  │
+│   M2 ppt-writer ← 发布/安装闭环验收 store        │
+│   嵌入式验证(demo)  ← 前置仅打包                 │
+│   stdlib 可视化开关 ← 完全独立                   │
+├───────────────────────────────────────────────┤
+│ 生态（独立仓库，各自 roadmap，前置 = 收口）：      │
 │   TUI(SpecModule_tui) ← 富交互终端               │
 │   MCP(SpecModule_mcp)   ←  M2 验收             │
-│   Web(SpecModule_webview) ← 双 module 接入验收  │
+│   Web(SpecModule_webview) ← 双 module 接入 +    │
+│     模块可视化管理吃 store 枚举契约              │
 └───────────────────────────────────────────────┘
 并行机制：内置工具提炼（开发中通用价值 → 内置 script/harness/模板）
 流程约定：跨形态共享的逻辑进共享层，重复出现才抽，不为将来抽象
 ```
 
-依赖链：库先稳定（打包/嵌入/API），生态项目再各自落地。每 Phase 独立 spec → plan → 实现。
-AGENT/Web 形态消费库沉淀的查询函数。实践线 M1 先于 M2（基础验证 → 重量级验证）。
+依赖链：打包接线 → 主线 store（实施）→ API 稳定化（收口）→ 生态项目各自落地；独立线
+（M2 / 嵌入验证 / stdlib 开关）与主线并行，M2 发布环节对接主线做 store 验收。每 Phase
+独立 spec → plan → 实现。AGENT/Web 形态消费库沉淀的查询函数与 store 枚举契约。实践线
+M1 已交付（example/），转为 store 首个发布 fixture；M2（基础验证后重量级）随后。

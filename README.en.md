@@ -35,6 +35,12 @@ SpecModule/
 │   ├── loader.py          #   Module loading + dependency validation
 │   ├── builtins.py        #   Built-in harness set
 │   ├── events.py          #   EventBus + typed events
+│   ├── entry.py           #   ModuleEntry contract + directory discovery
+│   ├── scaffold.py        #   init scaffolding (single-file + --as-dir directory form)
+│   ├── store.py           #   Store shared layer (home/search paths/enumeration/install mgmt)
+│   ├── feed.py            #   Zero-dep run feed (http.server; CLI feed command)
+│   ├── query.py           #   Shared query layer (timeline/checkpoints; CLI/MCP/Web reuse)
+│   ├── cli.py             #   specmodule CLI (18 subcommands, argparse, zero deps)
 │   ├── templates/         #   Built-in task templates
 │   └── tests/             #   pytest suite (incl. real-LLM smoke)
 └── docs/                  # Design docs, implementation plans, roadmap
@@ -43,16 +49,23 @@ SpecModule/
 ## Install Dependencies
 
 ```bash
+# Library: pip install (pyproject.toml + console script `specmodule`)
+pip install specmodule
+
+# Development (this repo): source + test deps
 pip install -r requirements.txt
 ```
 
 | Package | Purpose | Required |
 |---------|---------|----------|
+| **`specmodule`** | The library itself (PyPI name; `pyproject.toml` packages `llm` + `module_harness` + `specmodule` CLI) | ✅ Yes |
 | **`tickflow-py`** | Petri-net workflow engine. ⚠️ The PyPI package is named `tickflow-py`, but the **import name remains `tickflow`** (`import tickflow`, not `import tickflow_py`). Upstream: https://github.com/MountLynx/tickflow- | ✅ Yes |
 | `anthropic` | Claude backend (when `provider=anthropic`) | Depends on provider |
 | `openai` | OpenAI & compatible backends (when `provider=openai` / `openai-compatible`) | Depends on provider |
 | `jsonschema` | Schema validation for `json_schema` output format (skips validation, JSON-only check if not installed) | Recommended |
 | `pytest` | Test suite (`python -m pytest module_harness/tests/ -q`) | Dev only |
+
+The CLI ships with the package (`specmodule run/status/review/...`, 18 subcommands, see `docs/cli-usage.md`); non-module users follow the store loop: `specmodule setup` (configure key) → `install` (install module) → `list`/`run` → `update`/`uninstall`.
 
 ## Quick Start
 
@@ -150,6 +163,58 @@ loaded = ModuleLoader().load(dist)
 await loaded.run({"source_text": "Hello", "style": "casual"})
 ```
 
+## Embedded Use (host project imports the library)
+
+After `pip install specmodule`, another project can `import` the library's
+public API directly and embed SpecModule as an LLM toolkit in its own service /
+IDE plugin / web backend. Minimal demo in
+[`examples/embed_minimal/`](examples/embed_minimal/main.py) (includes `--mock`
+key-free smoke):
+
+```bash
+pip install specmodule
+cd examples/embed_minimal && python main.py --mock
+```
+
+```python
+from module_harness import (
+    EventBus, HarnessConfig, HarnessRegistry, Module,
+    TemplateLoader, OutputFormat, register_builtin_harnesses,
+)
+from llm import LLMConfig, create_llm_client
+
+client = create_llm_client(LLMConfig.from_env())   # .env / env vars
+bus = EventBus()
+
+reg = HarnessRegistry(llm_client=client, event_bus=bus)
+register_builtin_harnesses(reg)                    # spec_to_tasklist built-in set
+reg.harness("translate", HarnessConfig(
+    prompt_core="Translate the following text to Chinese: {text}",
+    output_format=OutputFormat(type="json_object"),
+))
+
+loader = TemplateLoader(); loader.load_builtins()
+module = Module(
+    spec={"source_text": "Hello world", "style": "formal"},
+    template_name="translate",
+    llm_client=client, event_bus=bus, registry=reg, template_loader=loader,
+    persist=False, status_file=False, keep_records=False,   # zero disk / zero residue
+)
+await module.run()
+```
+
+Embedding notes:
+
+- **Events decoupled from records** (`decouple-embed-events`) — passing
+  `event_bus` delivers `OutputValidated` / `HarnessFailed` events to the host
+  without dragging in audit or persistence; no bus → silent zero overhead.
+- **Zero-residue optional** — `persist=False` + `status_file=False` +
+  `keep_records=False` leaves nothing on disk.
+- **Built-in harnesses registered explicitly** — translation/review/alignment
+  harnesses are not implicitly loaded; call `register_builtin_harnesses(reg)`.
+- The public surface = `module_harness` top-level exports (`Module / HarnessRegistry /
+  SubModule / Translator / query` shared layer...); don't reach into internal modules.
+
 ## Core Concepts
 
 ### Three Node Types
@@ -214,7 +279,14 @@ Multiple Modules can coexist in the same process. Bodies are registered under `{
 
 ## Current Status
 
-**18 core features implemented** (framework-capability stage). Now entering stage two: the user-facing layer — data-exposure SDK → CLI + history review → agent interface → web visualization, driven by real-world modules as acceptance cases. See [module-roadmap.md](docs/progress/module-roadmap.md) for the full roadmap.
+**Library core framework capabilities complete** (18 items); **library mainline
+complete** (2026-08-22): packaging wiring (`pyproject.toml` + `specmodule` CLI
+shipped with the library), full module-user-store series (store home / config
+fallback chain / unified enumeration for run / CLI management setup-install-list-
+info-uninstall-publish-update / init directory form), independent lines (embed
+verification demo + stdlib visualization feed). Remaining: M2 practice line (store
+acceptance), API stabilization, ecosystem projects (TUI/MCP/Web). See
+[module-roadmap.md](docs/progress/module-roadmap.md) for the full roadmap.
 
 ## Design Principles
 

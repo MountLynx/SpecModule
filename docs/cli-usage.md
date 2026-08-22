@@ -13,32 +13,63 @@
 python -m module_harness.cli --help
 ```
 
-四个子命令：`init` / `run` / `status` / `review`。
+十个子命令：`init` / `run` / `status` / `review` / `resume` / `checkpoint` / `checkpoints` / `snapshot` / `rollback` / `visualize`。
 
 ```
-usage: specmodule [-h] {init,run,status,review} ...
+usage: specmodule [-h] {init,run,status,review,resume,checkpoint,checkpoints,snapshot,rollback,visualize,feed,list,info,install,uninstall,setup,publish,update} ...
 ```
 
 ## 2. 命令概览
 
 | 命令 | 作用 | 形态 |
 |------|------|------|
-| `init` | 生成模块开发脚手架（单文件模块 + 项目文件补齐） | 非交互参数 |
+| `init` | 生成模块开发脚手架（单文件 `--as-dir` 目录形态 + 项目文件补齐） | 非交互参数 |
 | `run` | 按名选模块 + spec/tasklist，运行并实时显示 | 三级 verbose |
 | `status` | 查询某次运行状态（复用 `query_run_status`） | 文本 / JSON |
 | `review` | 审阅历史时间线（tick 分组 + 过滤） | 文本 / JSON |
+| `resume` | 从中断处续跑模块（tick 截断 / Ctrl+C 后，缺省续最新） | 三级 verbose |
+| `checkpoints` | 列出可用回退点（tick 快照 + manual 检查点） | 文本 / JSON |
+| `snapshot` | 检视/导出指定 tick 的运行时快照 | 文本 / JSON / 文件 |
+| `rollback` | 回退到指定 tick/manual 检查点并重跑（目标必填） | 三级 verbose |
+| `checkpoint` | 给指定 tick 快照起命名检查点（`manual:` 永久保留） | 非交互参数 |
+| `visualize` | 渲染 tasklist 对应图（mermaid 导出） | 文本 / 文件 |
+| `feed` | 零依赖运行 feed（http.server，浏览器轮询查看） | 服务 |
+| `list` | 列出全部可用模块（同名多来源全量展示） | 文本 / JSON |
+| `info` | 显示模块详情（元数据 + 来源 + 安装信息） | 文本 |
+| `install` | 安装模块到 store（本地 pack 目录或 git URL，校验零落盘） | 非交互参数 |
+| `uninstall` | 从 store 移除模块（目录 + manifest） | 非交互参数 |
+| `setup` | 一次性配置向导：provider/model/key → 写 store 级配置 | 交互 |
+| `publish` | 发布模块到 store（目录形态校验复制） | 非交互参数 |
+| `update` | 更新模块（manifest 脏检测；本地改动列清单交互确认） | 交互 / `--yes` / `--keep` |
 
 核心数据流：
 
 ```
-init: CLI → scaffold()（纯函数生成：modules/<name>.py + 项目文件缺啥补啥）
-run:  CLI → discover(modules/) → 解析 spec/tasklist → Module(llm_client, event_bus,
-        registry, hooks) → asyncio.run() → on_fire 逐 firing 实时打印 → 结束汇总
+init: CLI → scaffold()/scaffold_dir()（纯函数生成：modules/<name>.py 或
+        modules/<name>/ 目录骨架 + 项目文件缺啥补啥）
+run:  CLI → 统一解析（store.resolve_module：cwd/modules + $SPECMODULE_PATH +
+        store/modules + pip）→ entry 走 discover_modules / packed 走 ModuleLoader
+        → 解析 spec/tasklist → Module/SubModule → asyncio.run() → 实时打印 → 汇总
 status: CLI → query_run_status()（既有）→ 文本/JSON
 review: CLI → build_timeline()（共享层，MCP/Web 复用）→ filter_* → 文本/JSON
+resume: CLI → 统一解析 → Module.resume(rollback_to)（目标解析 → 兼容性校验 → 续跑）
+checkpoints: CLI → build_checkpoints()（共享层，MCP/Web 复用）→ 文本/JSON
+snapshot: CLI → SqliteBackend.list_snapshots/load_snapshot（指定 tick）→ 摘要/JSON/导出文件
+rollback: CLI → 同 resume 接线，仅目标必填（防误续最新）
+checkpoint: CLI → load_snapshot(tick) → save_checkpoint(label)（纯数据操作，跨进程）
+visualize: CLI → 统一解析 → tasklist（--tasklist 或 module_inputs 存档）→
+        TasklistTranslator 重建 Graph → to_mermaid()（纯静态，零执行）
+feed: CLI → RunFeedServer（ThreadingHTTPServer）→ 查询层组合 JSON（status/timeline/
+        checkpoints）→ 页面原生 JS 轮询
+install: CLI → validate_pack_dir（manifest + requires 校验，零 client）→ 复制进
+        store/modules → 写 manifests/<name>.json（来源/版本/每文件 sha256/时间）
+update: CLI → 按 manifest 来源重取 → check_updates 哈希比对 → 无差异直接替换 /
+        有差异列清单交互确认（--yes 覆盖 / --keep 保留）
+setup: CLI → input() 向导 → 写 store 级 .env + config.json（复用 scaffold 结构）
 ```
 
-查询组合逻辑沉淀在 `module_harness/query.py`（CLI/MCP/Web 三形态共用），CLI 只 import 不重实现。
+查询组合逻辑沉淀在 `module_harness/query.py` 与 `module_harness/store.py`
+（CLI/MCP/Web 三形态共用），CLI 只 import 不重实现。
 
 ---
 
@@ -159,7 +190,7 @@ L3 额外打印：
 
 ### Ctrl+C
 
-运行中 `Ctrl+C`：打印已执行 firing 数与提示，退出码 **2**。运行数据已落盘，可用 `status`/`review` 查询（本子集不提供续跑）。
+运行中 `Ctrl+C`：打印已执行 firing 数与提示，退出码 **2**。运行数据已落盘，可用 `status`/`review` 查询，并可用 `resume`（续最新）或 `rollback`（回退更早 tick）继续。
 
 ---
 
@@ -246,8 +277,8 @@ tick 3: Finalize ✗
 | 码 | 含义 |
 |----|------|
 | `0` | 成功 |
-| `1` | 错误（模块未找到 / spec 缺失 / schema 违规 / 模板未找到 / LLM 未配置 / 参数互斥 / 无运行记录 / tasklist 校验失败） |
-| `2` | `Ctrl+C`（运行中中断） |
+| `1` | 错误（模块未找到 / spec 缺失 / schema 违规 / 模板未找到 / LLM 未配置 / 参数互斥 / 无运行记录 / tasklist 校验失败 / 回退目标不存在 / 兼容性拒绝） |
+| `2` | `Ctrl+C`（运行中中断）；argparse 参数错误（如 `rollback` 缺目标） |
 
 错误信息走 stderr，统一 `SystemExit` + 非零退出码。
 
@@ -259,6 +290,10 @@ tick 3: Finalize ✗
 | LLM 未配置 | `LLM 未配置 API key……` | 配 `config.json` + `.env`，或加 `--mock` |
 | spec 违反 schema | `spec 校验失败: - 缺少字段 'raw_text'……` | 补全字段 |
 | tasklist 校验失败 | `tasklist 校验失败: - ...` | 修复 tasklist |
+| resume/rollback 无运行记录 | `无运行记录: <id>（先执行 specmodule run）` | 先执行 `run` |
+| resume/rollback 目标不存在 | `回退目标 '99' 不存在（可用 tick: [...]；manual: …）` + checkpoints 引导 | `checkpoints` 看回退点，换有效目标 |
+| resume/rollback 兼容性拒绝 | `Task 'A': inputs 引用 'Ghost' 不在新图中` | 修正 tasklist/模板，或回退到更早 tick |
+| snapshot tick 不存在 | `快照 tick 99 不存在（可用: [1, 2]）` | 先 `checkpoints` 看可用 tick |
 
 ---
 
@@ -320,13 +355,241 @@ python -m module_harness.cli run --module academic_writer \
 
 ---
 
-## 9. `init` — 生成模块开发脚手架
+## 9. `resume` — 从中断处续跑
 
 ```
-python -m module_harness.cli init <name> [--dir PATH] [--force] [--description "..."]
+python -m module_harness.cli resume [<rollback>] --module <名> [选项]
 ```
 
-生成单文件 python 原生模块骨架（`modules/<name>.py`）+ 项目文件缺啥补啥（幂等）。
+从先前中断的运行（Ctrl+C / `--max-ticks` 截断）处继续执行，不重跑已完成部分。
+接线镜像 `run`：同样的模块发现、spec 解析、模板/tasklist 二选一、三级 verbose
+显示与结束汇总；最后一步调库侧 `Module.resume`（目标解析 → 新图重建 →
+兼容性校验 → restore → 续跑）。
+
+### 参数
+
+| 参数 | 必填 | 默认 | 说明 |
+|------|------|------|------|
+| `<rollback>` | — | 最新 tick 快照 | 回退目标：tick 号（如 `1`）或 `manual:<label>` |
+| `--module <名>` | 是 | — | 模块名（须与先前 run 一致） |
+| `--modules-dir <dir>` | — | `modules/` | 模块目录 |
+| `--spec '<JSON>'` | 见下 | — | 内联 JSON spec（重建未执行部分） |
+| `--spec-file <path>` | 见下 | — | spec JSON 文件路径 |
+| `--template <名>` | — | `entry.default_template` | 模板名 |
+| `--tasklist <path>` | — | — | tasklist JSON 文件（跳过翻译，与 `--template` 互斥） |
+| `--run-id <id>` | — | 模块名 | 运行目录名（须与先前 run 一致） |
+| `--max-ticks <n>` | — | `100` | tick 上限；续跑后从回退 tick 起计的**绝对**上限 |
+| `--verbose {1,2,3}` | — | `1` | 实时显示级别（同 `run`） |
+| `--mock` | — | 关 | 免 key 假 LLM 冒烟（验证续跑接线） |
+
+spec 解析优先级与 `run` 一致（`--spec` > `--spec-file` > `entry.default_spec`）。
+
+### 回退目标语义
+
+- **缺省：最新 tick 快照**——Ctrl+C 中断后一条命令即可从断点续跑。
+- **tick 号**：快照编号 N 在 tick N-1 **结束后**落盘（如 flow 在 tick 0 执行
+  A 后被截断，可用快照即为 tick 1，代表"A 已完成"的推进状态）。
+- **`manual:<label>`**：从 API 层 `Module.checkpoint(label)` 创建的命名检查点恢复。
+- **目标不存在**：报错并列出该运行可用 tick/manual 清单（退出码 1），并提示
+  `specmodule checkpoints --run-id <id>` 查看回退点全景。
+- **无运行记录**：`无运行记录: <id>（先执行 specmodule run）`（退出码 1）。
+
+### 续跑语义
+
+- 未执行部分按**当前**参数重建：可传新 `--spec`（只影响尚未执行的节点）；
+  模板/tasklist 改动必须与已执行部分兼容——`check_resume_compat` 硬错误
+  （如 inputs 引用图中不存在的节点）直接拒绝（退出码 1），**既有快照不被触碰**；
+  非阻断的结构改动以警告提示（已执行节点修改不生效）。
+- 续跑记录写入**同一** run.sqlite：`status` / `review` 可查询中断前后完整历史。
+
+### 示例
+
+```bash
+# Ctrl+C 中断后，一条命令从断点续跑
+python -m module_harness.cli resume --module academic_writer --mock
+
+# 回到更早的 tick 重跑（如换 promptmode 前回退）
+python -m module_harness.cli resume 3 --module academic_writer \
+  --spec-file example/spec.academic_writer.json --verbose 2
+```
+
+### Ctrl+C
+
+续跑中再次 Ctrl+C：已执行 firing 保留，退出码 **2**，数据落盘可查（同 `run`）。
+
+---
+
+## 10. `checkpoint` — 创建命名检查点
+
+```
+python -m module_harness.cli checkpoint <label> [<tick>] [--run-id <id>]
+```
+
+给指定 tick 的运行时快照起**人类标签**，存入 checkpoints 表（`manual:` 永久
+保留，不随自动快照淘汰）。之后 `resume <label>` / `rollback <label>` 按名
+回退——不用记 tick 数字。
+
+**机制澄清**：checkpoint 不是写 tasklist 时声明的东西——tasklist 只描述
+流水线结构；每 tick 自动快照由引擎（`_persist_tick`）零声明落盘，命名点
+只是给已有快照的副本加标签。本命令是**纯数据操作、跨进程**：不需要运行中
+的 runner（快照已落盘），与 checkpoints/snapshot/rollback 同族。
+
+- 缺省 `<tick>` = 最新快照。
+- `label` 自动补 `manual:` 前缀（库侧 `resume`/`rollback` 目标解析要求）；
+  同名 label **覆盖**（打印提示）。
+- 参数：`--run-id` 缺省 = 最近运行。
+
+```
+$ specmodule checkpoint before-prompt-change
+已创建检查点 manual:before-prompt-change（tick 47）
+回退: specmodule rollback manual:before-prompt-change --module <名>（或 resume manual:before-prompt-change）
+```
+
+典型用法：跑完一轮满意的中间状态 → 命名 → 继续调整 prompt 重跑 →
+不满意时 `rollback manual:<label>` 一步回到命名点（数据保全已由自动快照
+承担，命名点只是便于按名回退）。
+
+---
+
+## 11. `checkpoints` — 列出可用回退点
+
+```
+python -m module_harness.cli checkpoints [--run-id <id>] [--json]
+```
+
+`resume` / `rollback` 的目标清单：run.sqlite 中**全部**可用回退点 = 每 tick
+轻量快照（snapshots 表，附带本 tick fired 节点轨迹）+ 手动检查点
+（checkpoints 表，API 层 `Module.checkpoint(label)` 创建，永久保留）。
+
+```
+可用回退点 (run_id=hello):
+  tick 1      fired: Greet
+  tick 2      fired: Loop1
+  manual:test  (tick 2)
+
+回退: specmodule resume <目标> --module <名>（缺省续最新；rollback <目标> 须显式指定目标）
+```
+
+- `--run-id` 缺省 = 最近运行。
+- `--json` 输出 `checkpoints_to_dict`（共享层，MCP/Web 复用）：
+
+```json
+{
+  "module_id": "hello",
+  "checkpoints": [
+    {"target": "1", "tick": 1, "kind": "tick", "fired": ["Greet"], "label": null},
+    {"target": "manual:test", "tick": 2, "kind": "manual", "fired": [], "label": "manual:test"}
+  ]
+}
+```
+
+`target` 字段即 `resume <目标>` / `rollback <目标>` 直传值。
+
+**典型闭环**：`run` 中断 → `review --failed` 定位问题 tick → `checkpoints`
+确认可回退点 → `rollback <tick>` 回到问题前微调重跑。
+
+---
+
+## 12. `snapshot` — 检视/导出快照
+
+```
+python -m module_harness.cli snapshot [<tick>] [--run-id <id>] [--json] [--out FILE]
+```
+
+检视指定 tick 的运行时快照；缺省 tick = 最新。
+
+- **默认（文本摘要）**：tick / status / fireable / fired + 各节点最新输出
+  （输出从 firings 表取——轻量快照剥离 records）。
+- **`--json`**：stdout 打印**完整** runner 快照 JSON（即 `runner.restore()` 输入）。
+- **`--out FILE`**：写完整快照 JSON 到文件——自包含（marking/run_state/
+  fireable/fired），可 `restore` 到新 runner，是跨进程调试/存档素材。
+  `--json` 与 `--out` 可并存（JSON 到 stdout + 写文件）。
+
+```
+快照 (run_id=hello):
+  tick: 2
+  status: idle
+  各节点最新输出:
+    Greet: {"greeting": "hello world"}
+```
+
+错误路径：无运行记录 / 指定 tick 不存在（附可用 tick 表）均退出码 1。
+
+---
+
+## 13. `rollback` — 回退到指定检查点重跑
+
+```
+python -m module_harness.cli rollback <目标> --module <名> [选项]
+```
+
+与 `resume` **同一次库调用**（`Module.resume`：目标解析 → 新图重建 →
+兼容性校验 → restore → 续跑），接线与参数完全一致（见 §9 参数表）。
+唯一差异：**`<目标>` 必填**——不会像 `resume` 那样缺省续最新，杜绝
+"想回退却续了最新状态"的误操作。进入回退前用 `checkpoints` 选目标。
+
+```bash
+# 换 promptmode 前回退到 tick 3 重跑
+python -m module_harness.cli rollback 3 --module academic_writer \
+  --spec-file example/spec.academic_writer.json --verbose 2
+
+# 回退到 API 创建的手动检查点
+python -m module_harness.cli rollback manual:test --module academic_writer --mock
+```
+
+错误路径与 `resume` 一致（目标不存在列出可用清单、兼容性硬错误拒绝且不触碰
+既有快照）。`rollback`/`resume`/`checkpoints` 组合即"快照-回退-续跑"完整闭环；
+进程内调试 API（`Module.snapshot/restore/checkpoint/rollback_to`）仍由库侧提供。
+
+---
+
+## 14. `visualize` — 渲染 tasklist 对应图（mermaid）
+
+```
+python -m module_harness.cli visualize --module <名> [--tasklist <file> | --run-id <id>] [--out FILE] [--template <名>]
+```
+
+把 tasklist 的流水线结构渲染成 mermaid 文本——回答"这次 tasklist 长什么样"
+（设计期/复盘用）。**纯静态**：只重建 Graph 并 `to_mermaid()`，零执行、不读
+快照、不关心运行进度（图是声明式数据的投影，与执行历史无关）。
+
+- **数据源**：`--tasklist <file>`（未运行的 tasklist 直接渲染，不依赖任何
+  运行记录）优先；否则读 run.sqlite 的 `module_inputs` 存档（最近一次
+  run/resume 的输入）。
+- **registry**：由模块入口 `build_registry` 构建（graph 解析需校验已注册的
+  guard/body）；llm_client 用 Mock 占位——**渲染不调用 LLM，免 key 可用**。
+- `--out FILE` 写文件（缺省 stdout）；`--template` 仅影响 registry 构建
+  （默认 `entry.default_template`）。
+
+输出示例（start 节点为 stadium 形状，guard 边标注）：
+
+```
+graph TD
+    A(["A"])
+    A --> B
+    Loop -->|has_issues| Fix
+    Fix --> Loop
+```
+
+错误路径：模块未找到（列出可用模块）、无运行记录且无 `--tasklist`，均退出码 1。
+
+---
+
+## 15. `init` — 生成模块开发脚手架
+
+```
+python -m module_harness.cli init <name> [--dir PATH] [--as-dir] [--force] [--description "..."]
+```
+
+两种形态（二选一，默认单文件）：
+
+- **单文件**（默认）：`modules/<name>.py` python 原生骨架（harness/script/模板/registry/入口
+  五区块）——代码密集模块通道。
+- **目录形态**（`--as-dir`）：`modules/<name>/` pack 同构骨架（`module.json` + `scripts/` +
+  `harnesses/` + `commands/` + `guards/` + `submodules/`）——与已装模块同构，简单写 module
+  的默认入口，可直接 `publish` / `install`。
+
+两种形态都补项目文件（幂等）。
 
 ### 参数
 
@@ -334,10 +597,13 @@ python -m module_harness.cli init <name> [--dir PATH] [--force] [--description "
 |------|------|------|
 | `<name>` | 是 | 模块名（合法 Python 标识符；同时是文件、`--module`、`entry.name`、默认 run_id——四处一致） |
 | `--dir <path>` | — | 生成位置（默认 cwd） |
-| `--force` | — | 覆盖已存在的模块文件（仅模块文件） |
+| `--as-dir` | — | 目录形态（pack 同构骨架；默认单文件） |
+| `--force` | — | 覆盖已存在的模块文件/目录（仅模块文件） |
 | `--description <str>` | — | 模块描述（展示用，不受标识符约束） |
 
 ### 生成布局
+
+单文件形态：
 
 ```
 <project>/
@@ -349,11 +615,25 @@ python -m module_harness.cli init <name> [--dir PATH] [--force] [--description "
 └─ README.md            用法 + config.json / .env 分工说明
 ```
 
+目录形态（`--as-dir`）：
+
+```
+<project>/
+├─ modules/<name>/
+│  ├─ module.json       声明 spec_schema / tasklist（pack 格式，与已装模块同构）
+│  ├─ scripts/greet.py  示例 script 组件
+│  ├─ harnesses/        LLM 调用配置（JSON 文件，含示例 README）
+│  ├─ commands/         shell 命令配置（JSON）
+│  ├─ guards/           guard 函数（loop 条件）
+│  └─ submodules/       嵌套子模块
+├─ config.json / .env.example / .gitignore / spec.example.json / README.md
+```
+
 ### 默认模板（立即冒烟）
 
-默认模板 `hello` 为 **harness → script 流水线**：harness 节点读入 spec 的 `message` 字段
-（prompt 占位符由 `{spec.message}` inputs 填充），script 节点消费其输出并回显。一个文件同时
-展示 harness 声明、script 组件、多节点 flow 三种契约。
+- 单文件：默认模板 `hello` 为 **harness → script 流水线**——harness 节点读入 spec 的
+  `message` 字段，script 节点消费其输出并回显。
+- 目录形态：固定 `[Greet]` script 骨架（零 LLM 依赖，`--mock` 或真实运行皆可）。
 
 ```bash
 # 免 key 冒烟（验证流水线接线，非内容质量）
@@ -363,8 +643,8 @@ python -m module_harness.cli run --module <name> --mock
 ### 冲突 / 幂等语义
 
 - 模块名非法（含空格/连字符/中文等）：报错退出码 1，**零文件生成**。
-- `modules/<name>.py` 已存在且未传 `--force`：报错退出码 1。
-- 项目文件（config.json 等）已存在一律**跳过不覆盖**；`--force` 仅覆盖模块文件。
+- `modules/<name>.py` / `modules/<name>/` 已存在且未传 `--force`：报错退出码 1。
+- 项目文件（config.json 等）已存在一律**跳过不覆盖**；`--force` 仅覆盖模块文件/目录。
 
 ### 配置分工
 
@@ -374,12 +654,85 @@ python -m module_harness.cli run --module <name> --mock
 
 ---
 
-## 10. 范围 / 后续迭代
+## 16. Store：家目录、配置链与模块管理
 
-本子集（Phase 0）**不含**（已记 roadmap，后续迭代）：
+### 家目录（`~/.specmodule`，`SPECMODULE_HOME` 可覆盖）
 
-- 截断/暂停续跑（Ctrl+C 保存状态 → `resume`）
-- `snapshot` / `rollback` CLI 命令（能力已就位：`Module.snapshot/restore/checkpoint/rollback_to`，仅缺命令形态）
-- `visualize`（mermaid 导出）
-- `init` 声明式形态（scripts/harnesses/submodules/modules 分目录 + loader 改造）与消费者 module 管理指令——python 原生单文件形态已在此实现
-- AGENT（MCP/ACP）与 Web 形态——直接消费 `query.py` 共享层
+```
+~/.specmodule/
+├─ modules/<name>/            pack 格式模块目录（唯一逻辑真相）
+├─ manifests/<name>.json      {source, version, files:{rel→sha256}, installed_at}
+├─ .env / config.json / rules.txt   用户级配置（回退层）
+└─ cache/                     临时 clone/下载缓存，可清
+```
+
+无项目用户（`pip install specmodule` 后不建项目）的隐式项目根——模块有地方放、
+API key 有地方配。搜索路径 = `cwd/modules` + `$SPECMODULE_PATH`（os.pathsep 分隔）
++ `store/modules` + pip entry points（`specmodule.modules` 组，附加来源）。
+
+### 配置回退链
+
+`os.environ`（最高，不覆盖已有键）→ 项目根 `.env`/`config.json`/`rules.txt` →
+store 家目录同名文件。项目根没有配置时不再静默无 key。
+
+### 管理命令
+
+```
+specmodule setup                     # 交互向导：provider/model/key → store 级 .env + config.json
+specmodule install <本地 pack 目录|git URL>   # 校验（零 client）→ 复制进 store → 写 manifest
+specmodule list [--json]             # 全部可用模块（同名多来源全量展示，含优先级）
+specmodule info <name>               # 元数据 + 来源 + 安装时间
+specmodule uninstall <name>          # 移除目录 + manifest
+specmodule publish <name> --from <dir>   # 目录形态校验复制（同 install）；单文件形态暂不支持
+specmodule update <name> [--yes|--keep]  # 按 manifest 来源重取 → 哈希比对 → 交互确认
+```
+
+- `install`/`publish` 校验失败零落盘（先 validate 后复制）；同名已存在报错不覆盖。
+- `update` 脏检测：本地改过的文件（与 manifest sha256 不同）列清单并交互确认，
+  **绝不静默覆盖**；`--yes` 覆盖 / `--keep` 保留本地（非交互）。
+- 已打包模块（packed/pip）可直接 `run`/`resume`/`rollback`/`visualize`（统一枚举解析）；
+  同名冲突按搜索路径优先级，`list` 全量展示。
+
+### 无项目用户完整闭环
+
+```bash
+pip install specmodule
+specmodule setup                     # 配 provider/model/key（写 store 级配置）
+specmodule install <模块 pack 目录或 git URL>
+specmodule list
+specmodule run --module <名> --spec '{"...": "..."}'
+specmodule update <名>               # 作者更新后同步（脏检测）
+specmodule uninstall <名>
+```
+
+---
+
+## 17. `feed` — 零依赖运行 feed
+
+```
+python -m module_harness.cli feed [--host 127.0.0.1] [--port 8000] [--run-id <id>]
+```
+
+stdlib `http.server` 起的只读服务：浏览器打开 `http://127.0.0.1:8000/`（或带
+`?run_id=<id>`）原生 JS 每 2s 轮询 `/feed.json`，展示运行状态阶段 / tick / 各节点
+最新输出 / 时间线 / 检查点。运行中即可看（每 tick 落盘），运行后完整看。
+零第三方依赖；富交互编辑器属生态项目 `SpecModule_webview`。
+
+---
+
+## 18. 范围 / 后续迭代
+
+本子集**不含**（已记 roadmap，后续迭代）：
+
+- 注册表 / 按名自动安装（npx 式 `run` 找不到就装）：依赖全局唯一名与策展，推迟到注册表时代。
+- 运行时共享组件库（store 内组件跨模块加载期引用）：无第二消费者，YAGNI。
+- 物理去重 / 内容寻址存储：sha256 仅作安装期元数据，不作路径。
+- 可视化 / 编辑器本身：属生态项目（TUI/Web），本库只提供 `feed` 极简开关与枚举契约。
+- zip/artifact URL 安装通道、模块版本矩阵。
+- `init --with-source` / `--from-pip` 两模板：pyproject 落地后 `--from-pip` 即常态、
+  `--with-source` 为框架开发用，大概率被吸收为流程说明而非新命令。
+
+快照/回退闭环已完整：`checkpoint`（命名）→ `checkpoints`（列出）→
+`snapshot`（检视/导出）→ `rollback`/`resume`（回退/续跑），外加 `visualize`
+（mermaid 渲染）；进程内调试 API（`Module.snapshot/restore/checkpoint/
+rollback_to`）为库侧能力，CLI 命令形态消费其持久化产物。

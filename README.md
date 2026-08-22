@@ -30,6 +30,12 @@ SpecModule/
 │   ├── loader.py          #   module 加载 + 依赖校验
 │   ├── builtins.py        #   内置 harness 集
 │   ├── events.py          #   EventBus + 类型化事件
+│   ├── entry.py           #   ModuleEntry 入口合约 + 目录发现
+│   ├── scaffold.py        #   init 脚手架生成（单文件 + --as-dir 目录形态）
+│   ├── store.py           #   store 共享层（家目录/搜索路径/枚举/安装管理）
+│   ├── feed.py            #   零依赖运行 feed（http.server，CLI feed 命令）
+│   ├── query.py           #   共享查询层（时间线/检查点，CLI/MCP/Web 复用）
+│   ├── cli.py             #   specmodule CLI（18 子命令，argparse 零依赖）
 │   ├── templates/         #   内置任务模板
 │   └── tests/             #   pytest 测试套件（含真实 LLM smoke）
 └── docs/                  # 设计文档、实现计划、路线图
@@ -38,16 +44,23 @@ SpecModule/
 ## 安装依赖
 
 ```bash
+# 库：pip 安装（pyproject.toml + console script `specmodule`）
+pip install specmodule
+
+# 开发（本仓库）：源码 + 测试依赖
 pip install -r requirements.txt
 ```
 
 | 包 | 用途 | 必需 |
 |----|------|------|
+| **`specmodule`** | 库本体（PyPI 名；`pyproject.toml` 打包：`llm` + `module_harness` + CLI `specmodule`） | ✅ 必需 |
 | **`tickflow-py`** | Petri 网工作流引擎。⚠️ PyPI 包名为 `tickflow-py`，**import 名仍为 `tickflow`**（`import tickflow`，不是 `import tickflow_py`）。上游仓库：https://github.com/MountLynx/tickflow- | ✅ 必需 |
 | `anthropic` | Claude 后端（`provider=anthropic` 时） | 按 provider 选装 |
 | `openai` | OpenAI 及兼容后端（`provider=openai` / `openai-compatible` 时） | 按 provider 选装 |
 | `jsonschema` | `json_schema` 输出格式校验（未安装则跳过 schema 校验，仅保证是 JSON） | 推荐 |
 | `pytest` | 测试套件（`python -m pytest module_harness/tests/ -q`） | 仅开发 |
+
+安装后 CLI 即用（`specmodule run/status/review/...`，18 个子命令，见 `docs/cli-usage.md`）；不写 module 的使用者走 store 闭环：`specmodule setup` 配 key → `install` 装模块 → `list`/`run` → `update`/`uninstall`。
 
 ## 快速开始
 
@@ -145,6 +158,56 @@ loaded = ModuleLoader().load(dist)
 await loaded.run({"source_text": "Hello", "style": "casual"})
 ```
 
+## 嵌入式使用（宿主项目 import 库）
+
+`pip install specmodule` 后另建项目直接 `import` 库面编程 API，把 SpecModule
+当 LLM 工具套件嵌入自己的服务/IDE 插件/Web 后端。最小 demo 见
+[`examples/embed_minimal/`](examples/embed_minimal/main.py)（包含 `--mock`
+免 key 冒烟，可直接运行验证）：
+
+```bash
+pip install specmodule
+cd examples/embed_minimal && python main.py --mock
+```
+
+```python
+from module_harness import (
+    EventBus, HarnessConfig, HarnessRegistry, Module,
+    TemplateLoader, OutputFormat, register_builtin_harnesses,
+)
+from llm import LLMConfig, create_llm_client
+
+client = create_llm_client(LLMConfig.from_env())   # .env / 环境变量
+bus = EventBus()
+
+reg = HarnessRegistry(llm_client=client, event_bus=bus)
+register_builtin_harnesses(reg)                    # spec_to_tasklist 等内置集
+reg.harness("translate", HarnessConfig(
+    prompt_core="将以下文本翻译为中文：{text}",
+    output_format=OutputFormat(type="json_object"),
+))
+
+loader = TemplateLoader(); loader.load_builtins()
+module = Module(
+    spec={"source_text": "Hello world", "style": "formal"},
+    template_name="translate",
+    llm_client=client, event_bus=bus, registry=reg, template_loader=loader,
+    persist=False, status_file=False, keep_records=False,   # 嵌入方零落盘/零残留
+)
+await module.run()
+```
+
+嵌入要点：
+
+- **事件与 records 解耦**（`decouple-embed-events`）——宿主传 `event_bus` 即收
+  `OutputValidated` / `HarnessFailed` 等事件做反馈，不拖审计与落盘；不传则静默零开销。
+- **零残留可选**——`persist=False` + `status_file=False` + `keep_records=False`
+  时嵌入方磁盘上不留任何 `.specmodule/` 产物。
+- **内置 harness 显式注册**——翻译/审核/对齐 harness 不走隐式加载，
+  宿主对 `HarnessRegistry` 调 `register_builtin_harnesses(reg)` 注册。
+- 库面 = `module_harness` 顶层导出（`Module / HarnessRegistry / SubModule /
+  Translator / query` 共享层……），导入勿触达内部子模块。
+
 ## 核心概念
 
 ### 三种节点类型
@@ -209,7 +272,12 @@ EventBus 提供两层事件——流程级（tickflow hooks：`on_fire`、`on_ti
 
 ## 当前状态
 
-**18 项核心功能已实现**（框架能力阶段），进入第二阶段：使用者层面（数据暴露 SDK → CLI + 历史审阅 → AGENT 接口 → Web 可视化，以真实落地 module 为验收驱动）。完整进度与路线图见 [module-roadmap.md](docs/progress/module-roadmap.md)。
+**库核心框架能力已完成**（18 项）；**库自身主线已完成**（2026-08-22）：打包接线
+（`pyproject.toml` + `specmodule` CLI 随库分发）、module-user-store 全系列
+（store 家目录 / 配置回退链 / 统一枚举 run 打通 / CLI 管理面 setup-install-list-info-
+uninstall-publish-update / init 目录形态）、独立线（嵌入式验证 demo + stdlib 可视化
+feed）。待做：M2 实践线（store 真实验收）、收口 API 稳定化、生态项目（TUI/MCP/Web）。
+完整进度与路线图见 [module-roadmap.md](docs/progress/module-roadmap.md)。
 
 ## 开发原则
 
