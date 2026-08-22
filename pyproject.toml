@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "specmodule"
+version = "0.1.0"
+description = "可审计、可调试、可完全掌控的 LLM 使用框架（tickflow + llm + module_harness）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["llm", "workflow", "petri-net", "agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "tickflow-py>=0.1.0",
+]
+
+[project.optional-dependencies]
+# LLM 后端 SDK：按 provider 选装（未安装时对应 provider 不可用）
+anthropic = ["anthropic"]
+openai = ["openai"]
+# json_schema 输出格式校验（未安装则跳过 schema 校验，仅保证是 JSON）
+validate = ["jsonschema"]
+# 测试（仅开发）
+dev = ["pytest"]
+
+[project.scripts]
+specmodule = "module_harness.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["llm*", "module_harness*"]
+exclude = ["module_harness.tests*", "llm.tests*"]
+
+[tool.setuptools.package-data]
+module_harness = ["templates/builtin/*.json"]
