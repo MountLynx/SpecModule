@@ -100,12 +100,16 @@ class SubModule:
         self,
         audit: bool,
         harness_overrides: dict[str, Any] | None = None,
+        *,
+        llm_client: Any = None,
+        event_bus: EventBus | None = None,
     ) -> HarnessRegistry:
         # 事件投递与 keep_records/persist 解耦：宿主传了 event_bus 就始终投递
         # （与 audit 无关）；未传则静默 EventBus.null()（嵌入零开销）。audit 只
         # 在 run() 里映射 keep_records。
-        bus = self._event_bus or EventBus.null()
-        reg = HarnessRegistry(llm_client=self._ensure_client(), event_bus=bus)
+        bus = event_bus if event_bus is not None else (self._event_bus or EventBus.null())
+        client = llm_client if llm_client is not None else self._ensure_client()
+        reg = HarnessRegistry(llm_client=client, event_bus=bus)
         for hc in self.harnesses:
             if not hc.name:
                 raise ValueError(f"harnesses 配置缺少 name: {hc}")
@@ -154,6 +158,9 @@ class SubModule:
         max_ticks: int = 100,
         harness_overrides: dict[str, Any] | None = None,
         persist: bool | None = None,
+        llm_client: Any = None,
+        event_bus: EventBus | None = None,
+        hooks: dict | None = None,
     ) -> list[Any]:
         """执行 submodule。
 
@@ -170,6 +177,8 @@ class SubModule:
           需失败原因等现场反馈时，传 event_bus 选择性订阅即可，无需开启审计
         - persist：False = 快速模式（NullBackend 全内存 + 无 status.json，
           零落盘零 I/O）；None = 按 mode 决定（"fast" → False，否则 True）
+        - llm_client/event_bus：覆盖实例级注入（宿主进程传入）；None 用实例值
+        - hooks：runner hooks 透传（观察通道，与 Module hooks 同语义）
         """
         errors = self.spec_schema.validate(spec)
         if errors:
@@ -181,12 +190,14 @@ class SubModule:
             use_tasklist = Tasklist.from_json(use_tasklist)
         review = None if tasklist is None else "spec_tasklist_review"
         use_persist = persist if persist is not None else (self.mode != "fast")
-        reg = self._build_registry(audit, harness_overrides)
+        use_client = llm_client if llm_client is not None else self._ensure_client()
+        use_bus = event_bus if event_bus is not None else self._event_bus
+        reg = self._build_registry(audit, harness_overrides, llm_client=use_client, event_bus=use_bus)
         module = Module(
             spec=spec,
             tasklist=use_tasklist,
-            llm_client=self._ensure_client(),
-            event_bus=self._event_bus,
+            llm_client=use_client,
+            event_bus=use_bus,
             module_id=self._module_id(),
             registry=reg,
             review_harness=review,
@@ -194,6 +205,7 @@ class SubModule:
             persist=use_persist,
             status_file=use_persist,
             modules=self.modules,
+            hooks=hooks,
         )
         return await module.run(max_ticks=max_ticks)
 

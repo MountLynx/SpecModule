@@ -58,8 +58,13 @@ class ModuleLoader:
             self._llm_client = create_llm_client(self._llm_config)
         return self._llm_client
 
-    def load(self, path: str | Path) -> SubModule:
-        """解析 module.json → 注册 provides → 校验 requires → 返回 SubModule。"""
+    def load(self, path: str | Path, *, lazy_client: bool = False) -> SubModule:
+        """解析 module.json → 注册 provides → 校验 requires → 返回 SubModule。
+
+        ``lazy_client=True``：校验/解析阶段不实例化 LLM client（D6——校验
+        无网络/key 需求）；SubModule 构造传 None，运行期惰性 from_env 或
+        由调用方经 ``run(llm_client=...)`` 注入。默认 False 保持旧语义。
+        """
         p = Path(path)
         manifest_path = p / "module.json"
         if not manifest_path.is_file():
@@ -134,7 +139,8 @@ class ModuleLoader:
             "guards": list(guards.items()),
             "modules": submodules,
         })
-        return cls(llm_client=self._ensure_client(), event_bus=self._event_bus)
+        client = None if lazy_client else self._ensure_client()
+        return cls(llm_client=client, event_bus=self._event_bus)
 
     def _load_harnesses(self, p: Path) -> list[HarnessConfig]:
         result: list[HarnessConfig] = []

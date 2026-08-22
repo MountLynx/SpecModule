@@ -274,3 +274,131 @@ def scaffold(
         result,
     )
     return result
+
+
+# ── 目录形态（init --dir）：与已装模块同构的 pack 目录骨架 ─────────────
+
+DIR_MODULE_JSON: dict[str, Any] = {
+    "name": "__NAME__",
+    "version": "0.1.0",
+    "description": "__DESCRIPTION__",
+    "submodule": True,
+    "spec_schema": {"input": {"message": "str"}, "output": {"message": "str"}},
+    "requires": [],
+    "modules": [],
+    "tasklist": {
+        "Tasks": {
+            "Greet": {
+                "type": "script",
+                "script": "greet",
+            },
+        },
+        "Flow": "[Greet]",
+    },
+}
+
+DIR_SCRIPT_TEMPLATE = '''\
+"""{name} 脚本组件：纯 Python 函数，注册后成为图节点。"""
+
+from __future__ import annotations
+
+
+def greet(view):
+    """回显上游输入（tasklist 固定：无上游依赖，直接输出）。"""
+    return {{"message": "hello from {name}"}}
+'''
+
+DIR_HARNESS_EXAMPLE = '''\
+"""{name} harness 组件示例（JSON 文件）：LLM 调用节点，三层 prompt。
+
+复制为 ``harnesses/<名>.json`` 并在 module.json 的 tasklist 中引用：
+    {{
+        "type": "harness",
+        "harness": "<名>",
+        "inputs": {{"text": "{{{{spec.message}}}}"}},
+        "outputformat": {{"type": "text"}}
+    }}
+"""
+
+'''
+
+DIR_README = """# {name}
+
+由 `specmodule init --dir {name}` 生成的目录形态模块骨架。
+
+与已装模块同构（pack 格式）：`module.json` 声明 spec_schema/tasklist，
+`scripts/` 放 Python 函数，`harnesses/` 放 LLM 调用配置（JSON），
+`commands/` 放 shell 命令配置。
+
+运行：
+
+```bash
+specmodule run --module {name} --spec '{{"message": "hi"}}' --mock
+specmodule publish {name} --from . --dir   # 或直接 install 本目录
+```
+"""
+
+
+def scaffold_dir(
+    name: str,
+    *,
+    base_dir: str | Path = ".",
+    force: bool = False,
+    description: str = "",
+) -> ScaffoldResult:
+    """生成目录形态模块骨架（--dir）：pack 同构目录 + 项目文件缺啥补啥。
+
+    与 ``scaffold``（单文件）同语义：模块名非法 → ValueError；模块目录
+    已存在且未 force → ValueError；force 仅覆盖模块目录，项目文件永不覆盖。
+    """
+    if not validate_module_name(name):
+        raise ValueError(
+            f"模块名 '{name}' 不是合法 Python 标识符"
+            "（须匹配 ^[A-Za-z_][A-Za-z0-9_]*$）"
+        )
+    base = Path(base_dir)
+    result = ScaffoldResult()
+    mod_dir = base / "modules" / name
+    if mod_dir.exists() and not force:
+        raise ValueError(f"模块目录已存在: {mod_dir}（用 --force 覆盖）")
+    mod_dir.mkdir(parents=True, exist_ok=True)
+    result.created.append(mod_dir)
+
+    manifest = dict(DIR_MODULE_JSON)
+    manifest["name"] = name
+    manifest["description"] = description or f"{name} — 脚手架生成的示例模块"
+    _write_if_missing(
+        mod_dir / "module.json",
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        result,
+    )
+    for sub in ("scripts", "harnesses", "commands", "guards", "submodules"):
+        d = mod_dir / sub
+        d.mkdir(exist_ok=True)
+        result.created.append(d)
+    _write_if_missing(
+        mod_dir / "scripts" / "greet.py",
+        DIR_SCRIPT_TEMPLATE.replace("{name}", name),
+        result,
+    )
+    _write_if_missing(
+        mod_dir / "harnesses" / "README.txt",
+        DIR_HARNESS_EXAMPLE.replace("{name}", name),
+        result,
+    )
+
+    # 项目文件缺啥补啥（幂等，永不覆盖）——与单文件形态共用。
+    _write_if_missing(base / "config.json", json.dumps(CONFIG_JSON, ensure_ascii=False, indent=2) + "\n", result)
+    _write_if_missing(base / ".env.example", ENV_EXAMPLE, result)
+    _write_if_missing(base / ".gitignore", GITIGNORE, result)
+    _write_if_missing(
+        base / "spec.example.json",
+        json.dumps(SPEC_EXAMPLE_JSON, ensure_ascii=False, indent=2) + "\n",
+        result,
+    )
+    _write_if_missing(
+        base / "README.md",
+        DIR_README.replace("{name}", name),
+        result,
+    )
+    return result

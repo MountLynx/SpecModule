@@ -174,3 +174,7 @@ class HarnessRegistry(Registry):
     def command_config(self, name: str) -> CommandConfig | None:
         """返回 command 的配置，若不是 command 返回 None。"""
         return self._command_cfgs.get(name)
+
+    def guard_names(self) -> list[str]:
+        """已注册 guard 名列表（publish 单文件转化枚举用）。"""
+        return list(getattr(self, "_guards", {}).keys())
