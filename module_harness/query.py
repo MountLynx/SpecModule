@@ -125,6 +125,79 @@ def filter_node(timeline: ReviewTimeline, node: str) -> ReviewTimeline:
     )
 
 
+@dataclass
+class CheckpointEntry:
+    """单个回退点（tick 快照或 manual 检查点）。"""
+
+    target: str            # resume/rollback 直传的目标（"3" 或 "manual:xxx"）
+    tick: int
+    kind: str              # "tick"（snapshots 表每 tick 快照）| "manual"（checkpoint() 命名点）
+    fired: list[str] = field(default_factory=list)  # tick 快照本 tick fire 的节点；manual 为空
+    label: str | None = None                         # manual label；tick 快照为 None
+
+
+@dataclass
+class CheckpointList:
+    """全部回退点，按 tick 升序（同 tick 的 manual 排 tick 快照后）。"""
+
+    module_id: str
+    entries: list[CheckpointEntry] = field(default_factory=list)
+
+
+def build_checkpoints(module_id: str, base_dir: Path | None = None) -> CheckpointList | None:
+    """列出可用回退点（snapshots 表 tick 快照 + checkpoints 表 manual 检查点）。
+
+    数据源：run.sqlite；无 DB / 读失败 → None（容错哲学同 build_timeline——
+    监控方绝不被 DB 锁搞崩）。`resume <target>` / `rollback <target>` 的
+    target 即条目 ``target`` 字段。
+    """
+    db_path = _run_db_path(module_id, base_dir)
+    if not db_path.exists():
+        return None
+    try:
+        from tickflow.persistence import SqliteBackend
+
+        backend = SqliteBackend(db_path)
+        try:
+            entries: list[CheckpointEntry] = []
+            for tick in backend.list_snapshots(module_id):
+                snap = backend.load_snapshot(module_id, tick)
+                fired = list(snap.get("fired", [])) if snap else []
+                entries.append(
+                    CheckpointEntry(
+                        target=str(tick), tick=tick, kind="tick", fired=fired
+                    )
+                )
+            entries.extend(
+                CheckpointEntry(target=label, tick=tick, kind="manual", label=label)
+                for label, tick in backend.list_checkpoints(module_id)
+            )
+        finally:
+            backend.close()
+    except Exception:
+        log.exception("读取 run.sqlite 失败（返回 None）: %s", db_path)
+        return None
+    entries.sort(key=lambda e: (e.tick, 0 if e.kind == "tick" else 1))
+    return CheckpointList(module_id=module_id, entries=entries)
+
+
+def checkpoints_to_dict(cl: CheckpointList) -> dict[str, Any]:
+    """JSON 出口（MCP/Web 直接消费同一函数）。"""
+    return {
+        "module_id": cl.module_id,
+        "checkpoints": [
+            {
+                "target": e.target,
+                "tick": e.tick,
+                "kind": e.kind,
+                "fired": list(e.fired),
+                "label": e.label,
+            }
+            for e in cl.entries
+        ],
+    }
+
+
 def timeline_to_dict(timeline: ReviewTimeline) -> dict[str, Any]:
     """JSON 出口（MCP/Web 直接消费同一函数）。"""
     return {
