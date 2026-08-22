@@ -19,49 +19,64 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 
-def _load_dotenv(project_root: Path) -> None:
-    """加载 .env 文件到 os.environ（若存在）。"""
-    env_path = project_root / ".env"
-    if not env_path.exists():
-        return
-    try:
-        with open(env_path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, _, value = line.partition("=")
-                key = key.strip()
-                value = value.strip().strip("\"'")
-                if key and key not in os.environ:
-                    os.environ[key] = value
-    except OSError:
-        pass
+def _load_dotenv(roots: Path | list[Path]) -> None:
+    """按候选根顺序加载 .env 到 os.environ（若存在）。
+
+    roots：单个根（旧签名兼容）或候选根列表（store 根 → 项目根，前者优先）。
+    既有约定保持：已存在于 os.environ 的键不被 .env 覆盖。
+    """
+    if isinstance(roots, Path):
+        roots = [roots]
+    for root in roots:
+        env_path = root / ".env"
+        if not env_path.exists():
+            continue
+        try:
+            with open(env_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, _, value = line.partition("=")
+                    key = key.strip()
+                    value = value.strip().strip("\"'")
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+        except OSError:
+            pass
 
 
-def _load_config_json(project_root: Path) -> dict[str, Any]:
-    """加载 config.json。不存在或格式错误时返回空 dict。"""
-    config_path = project_root / "config.json"
-    if not config_path.exists():
-        log.warning("config.json 未找到: %s", config_path)
-        return {}
-    try:
-        with open(config_path, encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError) as exc:
-        log.warning("config.json 解析失败: %s", exc)
-        return {}
+def _load_config_json(roots: Path | list[Path]) -> dict[str, Any]:
+    """按候选根顺序加载 config.json。全部缺失/格式错误时返回空 dict。"""
+    if isinstance(roots, Path):
+        roots = [roots]
+    for root in roots:
+        config_path = root / "config.json"
+        if not config_path.exists():
+            continue
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as exc:
+            log.warning("config.json 解析失败: %s", exc)
+            return {}
+    log.warning("config.json 未找到（候选: %s）", ", ".join(str(r) for r in roots))
+    return {}
 
 
-def _load_rules_txt(project_root: Path) -> str:
-    """加载 rules.txt 框架级输出格式约束。"""
-    rules_path = project_root / "rules.txt"
-    if not rules_path.exists():
-        return ""
-    try:
-        return rules_path.read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
+def _load_rules_txt(roots: Path | list[Path]) -> str:
+    """按候选根顺序加载 rules.txt（取第一个存在的）。"""
+    if isinstance(roots, Path):
+        roots = [roots]
+    for root in roots:
+        rules_path = root / "rules.txt"
+        if not rules_path.exists():
+            continue
+        try:
+            return rules_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+    return ""
 
 
 @dataclass
@@ -100,21 +115,34 @@ class LLMConfig:
         return self.models.get(name, {})
 
     @classmethod
-    def from_env(cls, project_root: Path | None = None, **overrides: Any) -> "LLMConfig":
-        """从 config.json + rules.txt + .env 加载配置。
+    def from_env(
+        cls,
+        project_root: Path | None = None,
+        store_root: Path | None = None,
+        **overrides: Any,
+    ) -> "LLMConfig":
+        """从 config.json + rules.txt + .env 加载配置（配置回退链）。
 
         Args:
-            project_root: 项目根目录
+            project_root: 项目根目录（最高候选）
+            store_root: store 家目录（用户级回退；项目根缺失时生效）
             **overrides: 覆盖配置项
+
+        回退链：os.environ（最高，不覆盖已有键）→ 项目根 → store 根。
         """
         if project_root is None:
             project_root = Path.cwd()
 
+        # 候选根：项目根优先，store 根兜底（None 过滤）
+        roots = [project_root]
+        if store_root is not None:
+            roots.append(store_root)
+
         # 1. 加载 .env -> os.environ（API key 等密钥）
-        _load_dotenv(project_root)
+        _load_dotenv(roots)
 
         # 2. 加载 config.json
-        cfg = _load_config_json(project_root)
+        cfg = _load_config_json(roots)
         providers: list[dict[str, Any]] = cfg.get("providers", [])
         models: list[dict[str, Any]] = cfg.get("models", [])
 
@@ -125,7 +153,7 @@ class LLMConfig:
             )
 
         # 3. 加载 rules.txt
-        system_rules = _load_rules_txt(project_root)
+        system_rules = _load_rules_txt(roots)
 
         # ── 选中 provider（取第一个）──
         p = providers[0]

@@ -40,6 +40,7 @@ from .consistency import (
     register_review_harness,
 )
 from .align import ALIGN_CHECK_CONFIG, register_align_check_harness
+from .builtins import BUILTIN_HARNESS_NAMES, register_builtin_harnesses
 from .translator import TasklistValidator, TemplateLoader, Translator
 from .graph_builder import TasklistTranslator
 from .module import Module
@@ -49,9 +50,13 @@ from .spec import SpecSchema
 from .status import ModuleStatus, query_run_status
 from .entry import ModuleEntry, discover_modules
 from .query import (
+    CheckpointEntry,
+    CheckpointList,
     ReviewEntry,
     ReviewTimeline,
+    build_checkpoints,
     build_timeline,
+    checkpoints_to_dict,
     filter_failed,
     filter_node,
     filter_tick,
@@ -62,6 +67,27 @@ from .checkpoint import (
     ResumeCheck,
     ResumeError,
     check_resume_compat,
+)
+from . import store as store_module
+from .store import (
+    ENTRY_POINT_GROUP,
+    ModuleSource,
+    apply_update,
+    cache_dir,
+    check_updates,
+    file_sha256,
+    install_pack,
+    list_modules,
+    load_manifest,
+    manifests_dir,
+    modules_dir,
+    parse_dotenv,
+    pip_entry_point_dirs,
+    resolve_module,
+    search_paths,
+    store_home,
+    uninstall_pack,
+    validate_pack_dir,
 )
 
 __all__ = [
@@ -118,6 +144,9 @@ __all__ = [
     # 对齐检查
     "ALIGN_CHECK_CONFIG",
     "register_align_check_harness",
+    # 内置 harness（翻译/审核/对齐）：宿主需显式注册到自己的 registry
+    "BUILTIN_HARNESS_NAMES",
+    "register_builtin_harnesses",
     # 运行状态查询
     "ModuleStatus",
     "query_run_status",
@@ -145,4 +174,28 @@ __all__ = [
     "filter_node",
     "filter_tick",
     "timeline_to_dict",
+    # 共享查询层（回退点列表：resume/rollback 目标清单）
+    "CheckpointEntry",
+    "CheckpointList",
+    "build_checkpoints",
+    "checkpoints_to_dict",
+    # store 共享层（module-user-store：家目录/枚举/安装管理）
+    "store_home",
+    "search_paths",
+    "list_modules",
+    "resolve_module",
+    "ModuleSource",
+    "ENTRY_POINT_GROUP",
+    "pip_entry_point_dirs",
+    "modules_dir",
+    "manifests_dir",
+    "cache_dir",
+    "validate_pack_dir",
+    "install_pack",
+    "load_manifest",
+    "uninstall_pack",
+    "check_updates",
+    "apply_update",
+    "file_sha256",
+    "parse_dotenv",
 ]
