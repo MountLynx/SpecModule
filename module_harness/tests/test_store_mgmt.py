@@ -97,6 +97,26 @@ class TestInstall:
         assert main(["install", str(cwd / "ghost")]) == 1
         assert "不存在" in capsys.readouterr().err
 
+    def test_install_git_worktree_excludes_dotgit(self, cwd, pack_src, store_home, capsys):
+        """回归：git URL 来源的 clone 工作树含 .git——不得复制进 store，
+        也不得计入 manifest files（否则 update 哈希比对被 .git 噪音污染）。"""
+        import shutil
+
+        src = cwd / "git_src"
+        shutil.copytree(pack_src, src)
+        (src / ".git").mkdir()
+        (src / ".git" / "index").write_text("noise", encoding="utf-8")
+        assert main(["install", str(src)]) == 0
+        dest = store_home / "modules" / "mgmt_mod"
+        assert not (dest / ".git").exists()
+        manifest = json.loads(
+            (store_home / "manifests" / "mgmt_mod.json").read_text(encoding="utf-8")
+        )
+        assert not any(".git" in f for f in manifest["files"])
+        # 同一来源再 update：.git 噪音不得触发"差异"（无内容变化直接替换）
+        assert main(["update", "mgmt_mod", "--yes"]) == 0
+        assert "无内容变化" in capsys.readouterr().out
+
 
 class TestListInfoUninstall:
     def test_list_after_install(self, cwd, pack_src, store_home, capsys):

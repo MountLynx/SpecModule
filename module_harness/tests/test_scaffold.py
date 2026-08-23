@@ -12,6 +12,7 @@ from module_harness.scaffold import (
     ScaffoldResult,
     build_module_source,
     scaffold,
+    scaffold_dir,
     validate_module_name,
 )
 
@@ -149,3 +150,61 @@ class TestSmoke:
         assert "Translate" in out
         assert "Echo" in out
         assert "mock output" in out
+
+
+class TestScaffoldDir:
+    """init --as-dir（目录形态）：pack 同构骨架 + 生成物可直接运行。"""
+
+    def test_full_tree(self, tmp_path):
+        r = scaffold_dir("M1", base_dir=tmp_path, description="示例")
+        assert isinstance(r, ScaffoldResult)
+        files = _all_files(tmp_path / "modules" / "M1")
+        assert files == {
+            "module.json",
+            "scripts/greet.py",
+            "harnesses/README.txt",
+        }
+        manifest = json.loads((tmp_path / "modules" / "M1" / "module.json").read_text(encoding="utf-8"))
+        assert manifest["name"] == "M1"
+        assert manifest["submodule"] is True
+        for f in PROJECT_FILES:
+            assert (tmp_path / f).exists()
+
+    def test_greet_script_runnable(self, tmp_path):
+        """回归：greet.py 模板的花括号必须渲染为字面量（曾输出 {{...}} 运行 TypeError）。"""
+        import importlib.util
+
+        scaffold_dir("M1", base_dir=tmp_path)
+        greet_path = tmp_path / "modules" / "M1" / "scripts" / "greet.py"
+        spec = importlib.util.spec_from_file_location("m1_greet", greet_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        assert mod.greet(None) == {"message": "hello from M1"}
+
+    def test_harness_example_is_literal_json(self, tmp_path):
+        """回归：harnesses/README.txt 的 JSON 示例不得残留 {{ 转义痕迹。"""
+        scaffold_dir("M1", base_dir=tmp_path)
+        text = (tmp_path / "modules" / "M1" / "harnesses" / "README.txt").read_text(encoding="utf-8")
+        assert "{{" not in text
+        assert '"type": "harness"' in text
+
+    def test_dir_readme_no_escaped_braces(self, tmp_path):
+        scaffold_dir("M1", base_dir=tmp_path)
+        text = (tmp_path / "README.md").read_text(encoding="utf-8")
+        assert "{{" not in text
+        assert "--spec '{\"message\": \"hi\"}'" in text
+
+    def test_cli_init_as_dir_and_run(self, tmp_path, monkeypatch, capsys):
+        """验收：init --as-dir 产物可直接 run --mock（曾因 {{}} 模板 bug 运行崩溃）。"""
+        monkeypatch.chdir(tmp_path)
+        assert main(["init", "M1", "--as-dir"]) == 0
+        code = main(
+            [
+                "run", "--module", "M1", "--mock", "--modules-dir", str(tmp_path / "modules"),
+                "--spec", '{"message": "hi"}',
+            ]
+        )
+        out = capsys.readouterr().out
+        assert code == 0
+        assert "运行完成" in out
+        assert "hello from M1" in out

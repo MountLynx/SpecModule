@@ -560,6 +560,43 @@ class TestVisualize:
         assert _visualize(cwd, "--module", "ghost") == 1
         assert "未找到" in capsys.readouterr().err
 
+    def test_run_id_defaults_to_module_dir_not_latest(self, cwd, modules_dir, capsys):
+        # 坑1：缺省 run_id = 模块同名运行目录——全局更新的干扰目录被忽略
+        from module_harness.checkpoint import ModuleInputStore
+
+        assert _run(cwd, "--module", "resume_hello", "--mock") == 0
+        capsys.readouterr()
+        # 造 mtime 更新的干扰运行目录（存档引用未注册 harness；旧逻辑
+        # _latest_run_id 会捡到它 → harness not found）
+        store = ModuleInputStore("zzz_ghost")
+        store.save_module_inputs(
+            {"spec": {}},
+            {
+                "Tasks": {"Ghost": {"type": "harness", "harness": "ghost_harness"}},
+                "Flow": "[Ghost]",
+            },
+        )
+        store.close()
+        assert _visualize(cwd, "--module", "resume_hello") == 0
+        out = capsys.readouterr().out
+        assert "graph TD" in out and "A --> B" in out
+        assert "Ghost" not in out
+
+    def test_tasklist_registry_mismatch_hint(self, cwd, modules_dir, capsys):
+        # 坑2：tasklist 引用 registry 未注册元件 → 报错并列出可用模板
+        tl = cwd / "tl_ghost.json"
+        tl.write_text(
+            json.dumps({
+                "Tasks": {"Ghost": {"type": "harness", "harness": "ghost_harness"}},
+                "Flow": "[Ghost]",
+            }),
+            encoding="utf-8",
+        )
+        assert _visualize(cwd, "--module", "resume_hello", "--tasklist", str(tl)) == 1
+        err = capsys.readouterr().err
+        assert "ghost_harness" in err
+        assert "可用模板: resume_hello" in err
+
     def test_no_run_no_tasklist(self, cwd, modules_dir, capsys):
         # 无运行记录且无 --tasklist → 缺省最近运行失败
         assert _visualize(cwd, "--module", "resume_hello") == 1

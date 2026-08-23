@@ -65,7 +65,7 @@ README_MD = """# {name}
 python -m module_harness.cli run --module {name} --mock
 ```
 
-输出结尾应含 `回显: {{"message": "你好，世界"}}` 一类的节点摘要。
+输出结尾应含 `回显: {"message": "你好，世界"}` 一类的节点摘要。
 
 ## 真实 LLM 运行
 
@@ -75,7 +75,7 @@ python -m module_harness.cli run --module {name} --mock
 3. 运行：
 
 ```bash
-python -m module_harness.cli run --module {name} --spec '{{"message": "..."}}'
+python -m module_harness.cli run --module {name} --spec '{"message": "..."}'
 ```
 
 ## 配置分工
@@ -305,19 +305,19 @@ from __future__ import annotations
 
 def greet(view):
     """回显上游输入（tasklist 固定：无上游依赖，直接输出）。"""
-    return {{"message": "hello from {name}"}}
+    return {"message": "hello from {name}"}
 '''
 
 DIR_HARNESS_EXAMPLE = '''\
 """{name} harness 组件示例（JSON 文件）：LLM 调用节点，三层 prompt。
 
 复制为 ``harnesses/<名>.json`` 并在 module.json 的 tasklist 中引用：
-    {{
+    {
         "type": "harness",
         "harness": "<名>",
-        "inputs": {{"text": "{{{{spec.message}}}}"}},
-        "outputformat": {{"type": "text"}}
-    }}
+        "inputs": {"text": "{spec.message}"},
+        "outputformat": {"type": "text"}
+    }
 """
 
 '''
@@ -333,8 +333,8 @@ DIR_README = """# {name}
 运行：
 
 ```bash
-specmodule run --module {name} --spec '{{"message": "hi"}}' --mock
-specmodule publish {name} --from . --dir   # 或直接 install 本目录
+specmodule run --module {name} --spec '{"message": "hi"}' --mock
+specmodule publish {name} --from .
 ```
 """
 

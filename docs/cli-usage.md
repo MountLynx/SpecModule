@@ -7,13 +7,14 @@
 
 ## 1. 进入方式
 
-无打包（仓库无 pyproject），与 `python -m tickflow` 一致：
+`pip install specmodule` 后直接使用 `specmodule` 命令（console script）；仓库源码开发时用模块等价入口：
 
 ```bash
-python -m module_harness.cli --help
+pip install specmodule              # 安装（CLI 随库分发）
+python -m module_harness.cli --help # 源码 / 开发环境等价入口
 ```
 
-十个子命令：`init` / `run` / `status` / `review` / `resume` / `checkpoint` / `checkpoints` / `snapshot` / `rollback` / `visualize`。
+十八个子命令：`init` / `run` / `status` / `review` / `resume` / `checkpoint` / `checkpoints` / `snapshot` / `rollback` / `visualize` / `feed` / `list` / `info` / `install` / `uninstall` / `setup` / `publish` / `update`。
 
 ```
 usage: specmodule [-h] {init,run,status,review,resume,checkpoint,checkpoints,snapshot,rollback,visualize,feed,list,info,install,uninstall,setup,publish,update} ...
@@ -39,7 +40,7 @@ usage: specmodule [-h] {init,run,status,review,resume,checkpoint,checkpoints,sna
 | `install` | 安装模块到 store（本地 pack 目录或 git URL，校验零落盘） | 非交互参数 |
 | `uninstall` | 从 store 移除模块（目录 + manifest） | 非交互参数 |
 | `setup` | 一次性配置向导：provider/model/key → 写 store 级配置 | 交互 |
-| `publish` | 发布模块到 store（目录形态校验复制） | 非交互参数 |
+| `publish` | 发布模块到 store（目录形态校验复制；单文件形态经 SubModule 转化） | 非交互参数 |
 | `update` | 更新模块（manifest 脏检测；本地改动列清单交互确认） | 交互 / `--yes` / `--keep` |
 
 核心数据流：
@@ -554,12 +555,18 @@ python -m module_harness.cli visualize --module <名> [--tasklist <file> | --run
 快照、不关心运行进度（图是声明式数据的投影，与执行历史无关）。
 
 - **数据源**：`--tasklist <file>`（未运行的 tasklist 直接渲染，不依赖任何
-  运行记录）优先；否则读 run.sqlite 的 `module_inputs` 存档（最近一次
-  run/resume 的输入）。
+  运行记录）优先；否则读 run.sqlite 的 `module_inputs` 存档。存档的
+  run_id 缺省 = **模块同名运行目录**（`run` 的 `--run-id` 默认即模块名），
+  不是"全局最近运行"——显式 `--run-id` 可指向其他运行（如自定义 run-id）。
 - **registry**：由模块入口 `build_registry` 构建（graph 解析需校验已注册的
   guard/body）；llm_client 用 Mock 占位——**渲染不调用 LLM，免 key 可用**。
-- `--out FILE` 写文件（缺省 stdout）；`--template` 仅影响 registry 构建
+- `--out FILE` 写文件（缺省 stdout）；`--template` 决定 registry 构建
   （默认 `entry.default_template`）。
+- **⚠️ `--template` 必须与 tasklist 匹配**：渲染的图来自存档/文件的
+  tasklist，`--template` 只决定注册哪些 harness/script/guard。两者不一致时
+  （如存档来自 detailed 模板、registry 按默认模板构建）会报"未注册元件"
+  错误——此时错误信息会列出该模块全部可用模板，换对应 `--template` 即可；
+  已注册元件恰为超集时可能静默渲染出与预期不符的图，请核对模板与存档来源。
 
 输出示例（start 节点为 stadium 形状，guard 边标注）：
 
@@ -683,11 +690,14 @@ specmodule install <本地 pack 目录|git URL>   # 校验（零 client）→ �
 specmodule list [--json]             # 全部可用模块（同名多来源全量展示，含优先级）
 specmodule info <name>               # 元数据 + 来源 + 安装时间
 specmodule uninstall <name>          # 移除目录 + manifest
-specmodule publish <name> --from <dir>   # 目录形态校验复制（同 install）；单文件形态暂不支持
+specmodule publish <name> --from <dir>   # 目录形态校验复制（同 install）；单文件形态经等价 SubModule 转化
 specmodule update <name> [--yes|--keep]  # 按 manifest 来源重取 → 哈希比对 → 交互确认
 ```
 
 - `install`/`publish` 校验失败零落盘（先 validate 后复制）；同名已存在报错不覆盖。
+- **git URL 来源**（`http(s)://…` / `….git` / `git@…`）：`git clone --depth 1` 后校验——
+  **仓库根必须是 pack 目录**（`module.json` 在根，子目录放模块不支持）；clone 工作树的 `.git`
+  不复制进 store、不计入 manifest 哈希（`update` 脏检测不受版本库噪音干扰）。
 - `update` 脏检测：本地改过的文件（与 manifest sha256 不同）列清单并交互确认，
   **绝不静默覆盖**；`--yes` 覆盖 / `--keep` 保留本地（非交互）。
 - 已打包模块（packed/pip）可直接 `run`/`resume`/`rollback`/`visualize`（统一枚举解析）；

@@ -284,7 +284,12 @@ complete** (2026-08-22): packaging wiring (`pyproject.toml` + `specmodule` CLI
 shipped with the library), full module-user-store series (store home / config
 fallback chain / unified enumeration for run / CLI management setup-install-list-
 info-uninstall-publish-update / init directory form), independent lines (embed
-verification demo + stdlib visualization feed). Remaining: M2 practice line (store
+verification demo + stdlib visualization feed). **0.1.1 (2026-08-23)**: fixed
+`init --as-dir` scaffold template brace rendering (generated modules run directly
+with `--mock`); git-URL install refined — clone worktree `.git` is excluded from
+store and from manifest hashes (`update` dirty detection no longer sees
+version-control noise; git-source repos must be pack directories at the root —
+`module.json` at root). Remaining: M2 practice line (store
 acceptance), API stabilization, ecosystem projects (TUI/MCP/Web). See
 [module-roadmap.md](docs/progress/module-roadmap.md) for the full roadmap.
 

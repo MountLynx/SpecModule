@@ -317,12 +317,14 @@ def install_pack(
         )
     import shutil
 
-    shutil.copytree(src, dest)
+    # git URL 来源的 src 是 clone 工作树：.git 是版本库元数据，不属于模块
+    # 内容——不复制、不写入 manifest（否则 update 哈希比对被 .git 噪音污染）。
+    shutil.copytree(src, dest, ignore=shutil.ignore_patterns(".git"))
     try:
         files = {
             str(p.relative_to(dest)): file_sha256(p)
             for p in dest.rglob("*")
-            if p.is_file()
+            if p.is_file() and ".git" not in p.parts
         }
         manifest_path = manifests_dir() / f"{target_name}.json"
         manifest_path.write_text(json.dumps({
@@ -405,11 +407,11 @@ def check_updates(name: str, src: Path) -> dict[str, Any]:
     untracked: list[str] = []
     local_modified: list[str] = []
 
-    # 来源侧
+    # 来源侧（.git 为 clone 工作树元数据，与模块内容无关——忽略）
     src_files = {
         str(p.relative_to(src)): p
         for p in src.rglob("*")
-        if p.is_file()
+        if p.is_file() and ".git" not in p.parts
     }
     for rel, sp in src_files.items():
         if rel in recorded:
@@ -457,14 +459,15 @@ def apply_update(name: str, src: Path) -> None:
     if dest.exists():
         shutil.move(str(dest), str(backup))
     try:
-        shutil.copytree(src, dest)
+        # .git 同 install：clone 元数据不落 store
+        shutil.copytree(src, dest, ignore=shutil.ignore_patterns(".git"))
         shutil.rmtree(backup, ignore_errors=True)
         old = load_manifest(name) or {}
         manifest = validate_pack_dir(src)
         files = {
             str(p.relative_to(dest)): file_sha256(p)
             for p in dest.rglob("*")
-            if p.is_file()
+            if p.is_file() and ".git" not in p.parts
         }
         mp = manifests_dir() / f"{name}.json"
         mp.write_text(json.dumps({

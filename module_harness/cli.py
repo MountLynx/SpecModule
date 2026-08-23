@@ -795,19 +795,15 @@ def _cmd_visualize(args: argparse.Namespace) -> int:
     res = _resolve_module_cmd(args)
     if res is None:
         return 1
-    # 数据源：--tasklist 文件优先；否则 module_inputs 存档
+    # 数据源：--tasklist 文件优先；否则 module_inputs 存档。
+    # run_id 缺省 = 模块同名运行目录（run 的 run_id 默认即模块名）——不
+    # 用全局最新（_latest_run_id），避免其他模块/测试残留目录干扰。
     if args.tasklist:
         tasklist = _load_tasklist(args.tasklist)
         spec = None
         run_id = args.module
     else:
-        run_id = args.run_id or _latest_run_id()
-        if run_id is None:
-            print(
-                "无运行记录（先执行 specmodule run，或传 --tasklist 直接渲染）",
-                file=sys.stderr,
-            )
-            return 1
+        run_id = args.run_id or args.module
         store = ModuleInputStore(run_id)
         try:
             inputs = store.load_module_inputs()
@@ -823,6 +819,7 @@ def _cmd_visualize(args: argparse.Namespace) -> int:
         spec = Spec(inputs["spec"])
     # registry 构建（与 run 同款模组接线；渲染零 LLM，Mock 占位）
     event_bus = EventBus()
+    template_hint: str | None = None  # entry 形态可用模板（校验失败时提示）
     if res.submodule is not None:
         # packed 形态：SubModule 的固定 tasklist + 注册表
         tasklist = tasklist or res.submodule.tasklist
@@ -832,6 +829,7 @@ def _cmd_visualize(args: argparse.Namespace) -> int:
         modules = res.submodule.modules
     else:
         entry = res.entry
+        template_hint = "、".join(entry.templates)
         if entry.build_registry is not None:
             registry = entry.build_registry(
                 MockLLMClient(), args.template or entry.default_template, event_bus
@@ -847,6 +845,15 @@ def _cmd_visualize(args: argparse.Namespace) -> int:
         graph, _ = builder.build(tasklist, spec)
     except ValueError as e:
         print(f"错误: {e}", file=sys.stderr)
+        if template_hint:
+            print(
+                "提示: registry 按模板 "
+                f"'{args.template or entry.default_template}' 构建，"
+                "tasklist 与之不匹配时会出现未注册元件——可用模板: "
+                f"{template_hint}；存档/文件的 tasklist 可能来自其他模板，"
+                "试试对应 --template（如仍失败可传 --tasklist 直接渲染文件）",
+                file=sys.stderr,
+            )
         return 1
     text = graph.to_mermaid()
     if args.out:
@@ -1407,7 +1414,7 @@ def main(argv: list[str] | None = None) -> int:
     p_visualize.add_argument(
         "--template", help="模板名（默认 entry.default_template；仅影响 registry 构建）"
     )
-    p_visualize.add_argument("--run-id", help="运行 id（缺省最近运行；与 --tasklist 互斥）")
+    p_visualize.add_argument("--run-id", help="运行 id（缺省 = 模块同名运行目录；与 --tasklist 互斥）")
     p_visualize.add_argument(
         "--out", help="写 mermaid 文本到文件（缺省打印 stdout）"
     )
@@ -1456,7 +1463,7 @@ def main(argv: list[str] | None = None) -> int:
     p_setup.set_defaults(func=_cmd_setup)
 
     p_publish = sub.add_parser(
-        "publish", help="发布模块到 store（目录形态校验复制；单文件形态暂不支持）"
+        "publish", help="发布模块到 store（目录形态校验复制；单文件形态经 SubModule 转化）"
     )
     p_publish.add_argument("name", help="模块名")
     p_publish.add_argument("--from", dest="from_dir", default=".", help="发布源目录（默认 cwd）")

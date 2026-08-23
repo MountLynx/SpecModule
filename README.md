@@ -276,7 +276,10 @@ EventBus 提供两层事件——流程级（tickflow hooks：`on_fire`、`on_ti
 （`pyproject.toml` + `specmodule` CLI 随库分发）、module-user-store 全系列
 （store 家目录 / 配置回退链 / 统一枚举 run 打通 / CLI 管理面 setup-install-list-info-
 uninstall-publish-update / init 目录形态）、独立线（嵌入式验证 demo + stdlib 可视化
-feed）。待做：M2 实践线（store 真实验收）、收口 API 稳定化、生态项目（TUI/MCP/Web）。
+feed）。**0.1.1（2026-08-23）**：`init --as-dir` 脚手架模板花括号渲染修复（生成物可直接
+`run --mock`）；git URL 来源安装完善——clone 工作树的 `.git` 不落 store、`update`
+脏检测不再被版本库噪音干扰（git 来源仓库根须为 pack 目录：`module.json` 在根）。
+待做：M2 实践线（store 真实验收）、收口 API 稳定化、生态项目（TUI/MCP/Web）。
 完整进度与路线图见 [module-roadmap.md](docs/progress/module-roadmap.md)。
 
 ## 开发原则
