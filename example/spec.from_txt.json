@@ -1,0 +1,3 @@
+{
+  "raw_text": "灵感草稿：关于用大模型做 code review 的一些想法。\n\n我们 propose 一个基于 LLM 的代码评审系统。这个系统，嗯，主要是自动 review pull request。代码评审是很重要的，code review 能发现 bug，能提升代码质量。现在很多团队 code review 都靠人肉，很慢，而且 review 的质量取决于 reviewer 的经验。\n\n我们的方法：用 LLM 先分析 diff，然后生成 comments。comments 按 severity 分类，比如 critical、warning、suggestion。我们做了实验，在 200 个 PR 上测了，效果不错。实验结果 accuracy 达到 85%，比 baseline 高 15 个百分点。baseline 是一个简单的规则系统。85% 的 accuracy 意味着大部分问题都能被发现，准确率 85% 说明方法有效。\n\n我们用了 few-shot 的方法，prompt 里有例子。还有，我们分析了 failure cases，发现主要问题是 context 不够，比如缺少整个 repo 的背景知识。上下文不足会导致漏报。\n\n总结：LLM-based code review 是可行的，我们的系统能减少人工负担。未来工作：引入 repo-level context，做更大规模的实验。更大规模实验。\n"
+}
