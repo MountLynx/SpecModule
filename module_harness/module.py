@@ -32,20 +32,21 @@ from .checkpoint import (
 log = logging.getLogger(__name__)
 
 
-def _persist_dir(module_id: str) -> Path:
-    """``<工作目录>/.specmodule/runs/<run_id>/run.sqlite``（D9）。
+def _persist_dir(module_id: str, base_dir: Path | None = None) -> Path:
+    """``<base_dir>/.specmodule/runs/<run_id>/run.sqlite``（D9）。
 
     run_id = module_id：一个任务一次运行一个子目录、一个独立 SQLite 数据库。
+    base_dir 缺省 = 当前工作目录。
     """
-    return Path.cwd() / ".specmodule" / "runs" / module_id / "run.sqlite"
+    return (base_dir or Path.cwd()) / ".specmodule" / "runs" / module_id / "run.sqlite"
 
 
-def _status_path(module_id: str) -> Path:
-    """``<工作目录>/.specmodule/runs/<module_id>/status.json``（roadmap #7）。
+def _status_path(module_id: str, base_dir: Path | None = None) -> Path:
+    """``<base_dir>/.specmodule/runs/<module_id>/status.json``（roadmap #7）。
 
     阶段级运行状态文件：与 run.sqlite 同目录，跨进程查询的轻量通道。
     """
-    return Path.cwd() / ".specmodule" / "runs" / module_id / "status.json"
+    return (base_dir or Path.cwd()) / ".specmodule" / "runs" / module_id / "status.json"
 
 
 class Module:
@@ -65,6 +66,7 @@ class Module:
         event_bus: EventBus | None = None,
         template_loader: TemplateLoader | None = None,
         module_id: str | None = None,
+        base_dir: Path | None = None,
         registry: HarnessRegistry | None = None,
         review_harness: str | None = "spec_tasklist_review",
         keep_records: bool = True,
@@ -88,6 +90,7 @@ class Module:
         self.status_file = status_file
         self.review_result: ConsistencyReport | None = None
         self.module_id = module_id or f"mod_{uuid.uuid4().hex[:8]}"
+        self._base_dir = base_dir or Path.cwd()
         self._llm_client = llm_client
         # submodule 引用解析表 {tasklist 名: SubModule 类}：TasklistValidator 校验
         # submodule 节点（T2）与 TasklistTranslator 构建嵌套子图（T6）共用
@@ -124,7 +127,7 @@ class Module:
         """
         if not self.status_file:
             return
-        path = _status_path(self.module_id)
+        path = _status_path(self.module_id, self._base_dir)
         tmp = path.with_suffix(".json.tmp")
         try:
             tmp.parent.mkdir(parents=True, exist_ok=True)
@@ -193,7 +196,7 @@ class Module:
         graph, reg = builder.build(tasklist, spec=self.spec)
         self._last_tasklist = tasklist
         backend = (
-            SqliteBackend(_persist_dir(self.module_id))
+            SqliteBackend(_persist_dir(self.module_id, self._base_dir))
             if self.persist
             else NullBackend()
         )
@@ -288,7 +291,7 @@ class Module:
         """
         out: list[tuple[int, str | list[str], str]] = []
         if self.persist:
-            backend = SqliteBackend(_persist_dir(self.module_id))
+            backend = SqliteBackend(_persist_dir(self.module_id, self._base_dir))
             try:
                 for tick in backend.list_snapshots(self.module_id):
                     snap = backend.load_snapshot(self.module_id, tick)
@@ -357,7 +360,7 @@ class Module:
         if not self.persist:
             return
         if self._input_store is None:
-            self._input_store = ModuleInputStore(self.module_id)
+            self._input_store = ModuleInputStore(self.module_id, self._base_dir)
         assert self._last_tasklist is not None
         self._input_store.save_module_inputs(
             self.spec.to_dict(), self._last_tasklist.to_dict()
@@ -395,7 +398,7 @@ class Module:
             )
 
         # 1. 回退目标解析 + 已执行节点（同一连接，避免多次打开 run.sqlite）
-        backend = SqliteBackend(_persist_dir(self.module_id))
+        backend = SqliteBackend(_persist_dir(self.module_id, self._base_dir))
         try:
             snap = self._resolve_target(backend, self.module_id, rollback_to)
             if snap is None:
@@ -418,7 +421,7 @@ class Module:
             backend.close()
 
         # 2. 旧输入存档（警告 1 对比源；覆盖前读取）
-        store = ModuleInputStore(self.module_id)
+        store = ModuleInputStore(self.module_id, self._base_dir)
         try:
             old_inputs = store.load_module_inputs()
         finally:
