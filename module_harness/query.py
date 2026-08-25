@@ -214,3 +214,70 @@ def timeline_to_dict(timeline: ReviewTimeline) -> dict[str, Any]:
             for e in timeline.entries
         ],
     }
+
+
+@dataclass
+class QueryValueResult:
+    """细粒度查询结果：tick + 命中值 / 未命中时的可用键（MCP peek 用）。"""
+
+    tick: int | None
+    value: Any = None
+    found: bool = True
+    available: list[str] | None = None
+
+
+_ROOT_FIELDS = ("phase", "status", "tick", "fireable", "fired", "error", "updated_at")
+
+
+def _resolve_path(root: Any, segments: list[str]) -> tuple[bool, Any, list[str] | None]:
+    """按段导航 dict/list；未命中返回 (False, None, 失败处可用键/下标)。"""
+    cur = root
+    for seg in segments:
+        if isinstance(cur, dict):
+            if seg in cur:
+                cur = cur[seg]
+                continue
+            return False, None, sorted(str(k) for k in cur)
+        if isinstance(cur, list):
+            if seg.isdigit() and int(seg) < len(cur):
+                cur = cur[int(seg)]
+                continue
+            return False, None, [str(i) for i in range(len(cur))]
+        return False, None, []
+    return True, cur, None
+
+
+def query_value(
+    module_id: str, path: str, *, base_dir: Path | None = None
+) -> QueryValueResult | None:
+    """查询运行中 dict 的特定键当前值（MCP peek 工具库侧实现）。
+
+    寻址语法：dot-path，整数段 = list 下标。
+    - 顶层标量：phase / status / tick / fireable / fired / error / updated_at
+    - 输出：``outputs.<node>.<key...>``（节点最新输出内部键）
+    - 可变状态：``state.<node>.<key...>``（含 _llm_raw 等调试字段）
+    未开始/无数据 → None（容错哲学同 query_run_status）；空 path → ValueError。
+    """
+    if not path:
+        raise ValueError("path 不能为空")
+    from .status import query_run_status
+
+    st = query_run_status(module_id, base_dir)
+    if st is None:
+        return None
+    segments = path.split(".")
+    root = segments[0]
+    if root in ("outputs", "state"):
+        base = st.outputs if root == "outputs" else st.node_states
+        found, value, available = _resolve_path(base, segments[1:])
+        return QueryValueResult(
+            tick=st.tick, value=value, found=found, available=available
+        )
+    if root in _ROOT_FIELDS:
+        if len(segments) > 1:
+            return QueryValueResult(tick=st.tick, found=False, available=[])
+        return QueryValueResult(tick=st.tick, value=getattr(st, root))
+    return QueryValueResult(
+        tick=st.tick, found=False,
+        available=["outputs", "state", *_ROOT_FIELDS],
+    )

@@ -52,6 +52,7 @@ from .entry import ModuleEntry, discover_modules
 from .query import (
     CheckpointEntry,
     CheckpointList,
+    QueryValueResult,
     ReviewEntry,
     ReviewTimeline,
     build_checkpoints,
@@ -60,6 +61,7 @@ from .query import (
     filter_failed,
     filter_node,
     filter_tick,
+    query_value,
     timeline_to_dict,
 )
 from .checkpoint import (
@@ -169,6 +171,8 @@ __all__ = [
     # 共享查询层（roadmap Phase 0：CLI/MCP/Web 复用）
     "ReviewEntry",
     "ReviewTimeline",
+    "QueryValueResult",
+    "query_value",
     "build_timeline",
     "filter_failed",
     "filter_node",
