@@ -1,0 +1,12 @@
+{
+  "Tasks": {
+    "A": {
+      "type": "harness",
+      "harness": "summarize",
+      "inputs": {"text": "{spec.text}", "max_words": "{spec.max_words}"},
+      "outputformat": {"type": "json_object"}
+    },
+    "B": {"type": "script", "script": "format_summary", "inputs": {"data": "A"}}
+  },
+  "Flow": "[A] --> B"
+}

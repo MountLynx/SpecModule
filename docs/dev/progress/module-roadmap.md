@@ -128,7 +128,7 @@ publish / update 脏检测）+ 嵌入式验证 + stdlib 可视化开关（feed�
 
 **准备（先于主线执行，2026-08-22 提案）**
 - [ ] **文档基线收拾（repo-docs-tidy 变更）**：提交 cli-resume 落地实现 + 规划层（本 roadmap 重构 +
-  module-user-store 提案产物）、文档核对对齐（README / README.en / docs/SpecModule.md / AGENTS.md）、
+  module-user-store 提案产物）、文档核对对齐（README / README.en / docs/concepts/SpecModule.md / AGENTS.md）、
   `specmodule-lib-ecosystem` 收尾归档 → 实施前的干净基线。详见 `openspec/changes/repo-docs-tidy/`
 
 **前置（主线第 0 步，persona 起点）**
@@ -136,7 +136,7 @@ publish / update 脏检测）+ 嵌入式验证 + stdlib 可视化开关（feed�
   （CLI 随库分发；`pip install specmodule` 自此成立；wheel 构建 + clean venv 安装 +
   init/run 冒烟验证通过）→ module-user-store 任务 1.1
 - [x] **init 单文件形态（已实现）**：`specmodule init <name>` 生成 `modules/<name>.py` 骨架 +
-  项目文件缺啥补啥（2026-08-21 cli-init-scaffold 归档；`docs/cli-usage.md#15`）；目录形态见主线 5.x
+  项目文件缺啥补啥（2026-08-21 cli-init-scaffold 归档；`docs/references/cli-usage.md#15`）；目录形态见主线 5.x
 
 **主线（module-user-store 实施）✅ 已完成（2026-08-22）**
 - [x] **store 家目录与配置回退链**：`~/.specmodule`（modules/manifests/cache）+ 用户级配置
@@ -249,7 +249,7 @@ publish / update 脏检测）+ 嵌入式验证 + stdlib 可视化开关（feed�
 **背景**：example 模块开发（灵感式写作 → 学术英语，含两阶段"原始↔当前稿"事实审阅 loop）
 引出"模块组合"讨论。**原判定（本段早先版本）基于错误前提**：把声明式 submodule 节点
 曲解为"图级组合"（"仅省 flow 骨架几行边"），转而采纳"嵌套执行"。用户期望的是组合/封装
-的**声明式能力**，不是省骨架。2026-08-10 修正，见 `docs/superpowers/specs/2026-08-10-submodule-node-design.md`。
+的**声明式能力**，不是省骨架。2026-08-10 修正，见 `docs/dev/superpowers/specs/2026-08-10-submodule-node-design.md`。
 
 **三种复用模型（修正后）**：
 
@@ -283,7 +283,7 @@ Loop1/Loop2 为 submodule 节点引用 fact_review_loop；`academic_writer_detai
 输出 final_text + modification_notes）、demo 入口（`--mock` 免 key 冒烟 +
 `--detailed`）、示例草稿、两级用户 README、mock 测试（`pytest example/ -q`，17 项）。
 框架缺口修复已随 436dbcc 前的系列提交落地。设计见
-`docs/superpowers/specs/2026-08-10-academic-writer-design.md`（状态：已实现）。
+`docs/dev/superpowers/specs/2026-08-10-academic-writer-design.md`（状态：已实现）。
 
 ---
 

@@ -203,5 +203,5 @@ async def resume(self, rollback_to: str, max_ticks: int = 100) -> list[NodeState
 
 ## 文档更新
 
-- `docs/progress/module-roadmap.md`：标记 #5 完成（17 → 18/19），更新"待实现"与实现顺序说明
+- `docs/dev/progress/module-roadmap.md`：标记 #5 完成（17 → 18/19），更新"待实现"与实现顺序说明
 - `AGENTS.md`：如有必要补充 auto_checkpoints / module_inputs 表约定

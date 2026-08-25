@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.13, pytest, asyncio, unittest.mock（`MagicMock`/`AsyncMock`）。
 
-**设计文档:** `docs/superpowers/specs/2026-08-05-spec-tasklist-input-design.md`
+**设计文档:** `docs/dev/superpowers/specs/2026-08-05-spec-tasklist-input-design.md`
 
 **基线:** `python -m pytest module_harness/tests/ -q -m "not smoke"` → 125 passed（smoke 为真实 LLM 测试，不参与）。
 
@@ -24,7 +24,7 @@
 | `module_harness/__init__.py` | 修改 | 导出新符号 |
 | `module_harness/tests/test_consistency.py` | 新建 | 审核层单元测试 |
 | `module_harness/tests/test_module.py` | 修改 | tasklist 通道测试 + fixture 注册审核 harness |
-| `docs/progress/module-roadmap.md` | 修改 | #1 #4 标记完成 |
+| `docs/dev/progress/module-roadmap.md` | 修改 | #1 #4 标记完成 |
 
 `translator.py` / `graph_builder.py` / `tickflow` / `llm` **零修改**。
 
@@ -754,9 +754,9 @@ git commit -m "feat: add spec+tasklist input channel with consistency review to 
 ### Task 4: Roadmap 更新 + 收尾
 
 **Files:**
-- Modify: `docs/progress/module-roadmap.md`
+- Modify: `docs/dev/progress/module-roadmap.md`
 
-- [ ] **Step 1: 更新 roadmap** — `docs/progress/module-roadmap.md` 三处修改：
+- [ ] **Step 1: 更新 roadmap** — `docs/dev/progress/module-roadmap.md` 三处修改：
 
 1. 头部（第 3 行 `> 最后更新`）与速览（第 11 行）：
 
@@ -789,7 +789,7 @@ Expected: PASS — 149 passed
 - [ ] **Step 3: Commit**
 
 ```bash
-git add docs/progress/module-roadmap.md
+git add docs/dev/progress/module-roadmap.md
 git commit -m "docs: mark roadmap #1 spec+tasklist input & #4 consistency review done"
 ```
 

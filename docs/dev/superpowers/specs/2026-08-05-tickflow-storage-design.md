@@ -150,7 +150,7 @@ def firings_of(self, session_id: str, node: str) -> list[tuple[int, Any]]:
 
 - **run_id = module_id**（Module 构造时的 `module_id`；SubModule 每次 `run()` 生成的 `{name}_{uuid[:6]}`）——一个任务一次运行一个子目录、一个独立 sqlite 数据库（互不干扰，删一个任务目录即删其全部记录）
 - **持久化开关**：`Module(persist=True)`（默认）自动创建上述路径（`mkdir(parents=True)`）；`persist=False` 走 tickflow 默认临时文件（D6），无 `.specmodule` 残留
-- **默认持久化的理由**：准则 2（历史审计落盘）+ 项目愿景（docs/SpecModule.md："状态记录以最终实现前端可视化展示与监控为准"）——历史必须跨运行存在，前端/SDK/审计才有数据可查
+- **默认持久化的理由**：准则 2（历史审计落盘）+ 项目愿景（docs/concepts/SpecModule.md："状态记录以最终实现前端可视化展示与监控为准"）——历史必须跨运行存在，前端/SDK/审计才有数据可查
 - 敏感数据考量：默认落盘意味着 LLM 产出（代码、prompt）持久化到工作目录——`persist=False` 即关闭开关；文档明示此默认行为（无隐式行为原则）
 - **retention/清理策略（保留最近 N 次、按大小、手动清理）不在本次范围**——随可视化与第二层用户体验优化后续设计（第 9 节）
 
@@ -191,7 +191,7 @@ class LightDigest(SubModule):
 **行为变化**（API 新增，默认行为增强，需文档化）：
 
 1. **默认持久化**：每次 `Module.run` 在 `.specmodule/runs/<run_id>/` 生成独立 sqlite（D9），跨运行历史可查
-2. **嵌入模式（`SubModule.run(audit=False)` / `keep_records=False`）同样落盘**（除非 `mode="fast"`）：`_persist_firing` 与 `keep_records` 正交。**定位更新**：docs/SpecModule.md 的"取消快照状态等开销"演变为"内存不保留 + 落盘；轻量任务用 `mode="fast"` 全内存"——嵌入模式由此获得完整历史（之前是丢弃），`SubModule.run` docstring 同步更新
+2. **嵌入模式（`SubModule.run(audit=False)` / `keep_records=False`）同样落盘**（除非 `mode="fast"`）：`_persist_firing` 与 `keep_records` 正交。**定位更新**：docs/concepts/SpecModule.md 的"取消快照状态等开销"演变为"内存不保留 + 落盘；轻量任务用 `mode="fast"` 全内存"——嵌入模式由此获得完整历史（之前是丢弃），`SubModule.run` docstring 同步更新
 3. Module 层不暴露临时文件态（tickflow 层 `backend=None` 默认临时文件仍保留，供直接使用引擎的场景）
 4. 快照/回滚：module_harness 当前不使用（roadmap #6 待实现）；持久 backend 使未来 Module 封装 checkpoint/rollback 时落盘开箱可用
 
@@ -286,7 +286,7 @@ class LightDigest(SubModule):
 |------|------|
 | `tickflow/` | 从 Graph 仓库复制同步（排除 `__pycache__`），独立 commit |
 | `AGENTS.md` | 架构规则 3 更新：`_edges` 描述补 "windowed (last 2)"、`_records` 补 "audit persisted via backend" |
-| `docs/SpecModule.md` | 嵌入模式定位更新："取消快照状态等开销" → "内存不保留 + 落盘（完整历史可查）"；新增 `.specmodule/runs/` 持久化约定说明 |
+| `docs/concepts/SpecModule.md` | 嵌入模式定位更新："取消快照状态等开销" → "内存不保留 + 落盘（完整历史可查）"；新增 `.specmodule/runs/` 持久化约定说明 |
 | `module_harness/module.py` | 新增 `persist: bool = True` 参数（True=持久 D9 / False=快速模式 NullBackend）+ `_build_runner_async` 构造 backend（D11） |
 | `module_harness/submodule.py` | 新增 `mode: Literal["persist", "fast"] = "persist"` 类属性 + 透传；`audit=False` docstring 补充"仍默认落盘，mode='fast' 除外" |
 | `module_harness/` | 其余功能代码零改动；`module_harness/tests` 全量回归（192 项非 smoke）+ 上节 persist 测试 |

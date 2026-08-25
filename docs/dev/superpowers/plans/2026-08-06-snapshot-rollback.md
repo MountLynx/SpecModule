@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.13, pytest, sqlite3 (WAL), tickflow `AsyncRunner`/`RunState`/`Graph`, `dataclasses.asdict`。
 
-**Spec:** `docs/superpowers/specs/2026-08-06-snapshot-rollback-design.md`
+**Spec:** `docs/dev/superpowers/specs/2026-08-06-snapshot-rollback-design.md`
 
 ---
 
@@ -20,7 +20,7 @@
 | `module_harness/module.py`（修改） | `Module._runner` 持有、`snapshot`/`restore`/`checkpoint`/`rollback_to`/`list_checkpoints`/`resume`、自动检查点 hook、module_inputs 存档 |
 | `module_harness/__init__.py`（修改） | 导出新符号 |
 | `module_harness/tests/test_checkpoint.py`（新建） | 全部新测试（单元 + 集成） |
-| `docs/progress/module-roadmap.md`（修改） | 标记 #5 完成（17 → 18/19） |
+| `docs/dev/progress/module-roadmap.md`（修改） | 标记 #5 完成（17 → 18/19） |
 
 **关键既有接口（已核实，不要重新发明）：**
 - `Runner.snapshot() → dict`（`tickflow/runner.py:290`），`Runner.restore(snap)`（:302）
@@ -1477,7 +1477,7 @@ git commit -m "test(checkpoint): loop 中途 resume 状态续跑集成测试"
 
 **Files:**
 - Modify: `module_harness/__init__.py`
-- Modify: `docs/progress/module-roadmap.md`
+- Modify: `docs/dev/progress/module-roadmap.md`
 
 - [ ] **Step 1: 导出新符号**
 
@@ -1506,7 +1506,7 @@ from .checkpoint import (
 
 - [ ] **Step 2: 更新 roadmap**
 
-`docs/progress/module-roadmap.md`：
+`docs/dev/progress/module-roadmap.md`：
 
 1. 顶部计数 "17/19" → "18/19"
 2. 从"待实现 🔲"删除 `### 5. 快照/回滚 Module 封装` 整节，在"已完成 ✅"表格追加一行：
@@ -1528,7 +1528,7 @@ Expected: PASS（tickflow 未修改，应全绿）
 - [ ] **Step 4: Commit**
 
 ```bash
-git add module_harness/__init__.py docs/progress/module-roadmap.md
+git add module_harness/__init__.py docs/dev/progress/module-roadmap.md
 git commit -m "feat: 导出快照/回滚 API + roadmap 标记 #5 完成（18/19）"
 ```
 

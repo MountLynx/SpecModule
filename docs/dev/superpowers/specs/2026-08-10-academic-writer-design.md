@@ -1,7 +1,7 @@
 # 灵感写作 → 学术英语（academic_writer）设计文档
 
 > 日期：2026-08-10 | 状态：已实现（example/，mock 测试 + demo 入口；实现计划见
-> docs/superpowers/plans/2026-08-10-academic-writer-example.md）
+> docs/dev/superpowers/plans/2026-08-10-academic-writer-example.md）
 > 状态更新（2026-08-10）：两个框架缺口已修复（随框架实现落地，见 2026-08-10-submodule-node-design.md）；Loop1/Loop2 组合方式改为 submodule 一等节点（本设计的嵌套执行表述作废）。
 > 状态更新（2026-08-10 晚）：**外壳修正**——`academic_writer` 改为普通 `Module`（过程式组装），
 > **仅 `fact_review_loop` 是 SubModule**。修正前把两个模块都定义成 SubModule 类，系基于错误的
@@ -215,7 +215,7 @@ SubModule（可打包、可被任意模块引用）；academic_writer 消费它�
 | `example/sample_raw_text.txt` | 示例灵感草稿（中英混杂、重复） |
 | `example/test_loop.py` / `example/test_writer.py` | mock 验证 |
 | `example/README.md` | 两级用户使用说明（开发场景：类定义/pack；使用场景：spec 运行） |
-| `docs/superpowers/specs/2026-08-10-academic-writer-design.md` | 本设计 |
+| `docs/dev/superpowers/specs/2026-08-10-academic-writer-design.md` | 本设计 |
 
 框架文件变更（translator.py / submodule.py / loader.py / module_harness/tests）已随框架实现落地，不在此列。
 

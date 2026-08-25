@@ -194,9 +194,9 @@ class SubModule:
 | `module_harness/__init__.py` | 导出同步 |
 | `module_harness/tests/test_submodule_node.py` | 新建：节点级测试 |
 | `module_harness/tests/test_translator.py` / `test_submodule.py` | 补缺口修复测试 |
-| `docs/progress/module-roadmap.md` | 修正 168-186 决策记录（见下） |
-| `docs/superpowers/specs/2026-08-05-submodule-design.md` | 更新定位（双重身份 + modules 声明 + pack 内置） |
-| `docs/superpowers/specs/2026-08-10-academic-writer-design.md` | Loop1/Loop2 改为 submodule 节点 |
+| `docs/dev/progress/module-roadmap.md` | 修正 168-186 决策记录（见下） |
+| `docs/dev/superpowers/specs/2026-08-05-submodule-design.md` | 更新定位（双重身份 + modules 声明 + pack 内置） |
+| `docs/dev/superpowers/specs/2026-08-10-academic-writer-design.md` | Loop1/Loop2 改为 submodule 节点 |
 
 ## 文档更新要点（module-roadmap.md 168-186）
 

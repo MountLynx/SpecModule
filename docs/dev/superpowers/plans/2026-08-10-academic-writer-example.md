@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.13, asyncio, pytest + unittest.mock（AsyncMock/MagicMock）, tickflow 引擎（零修改）。
 
-**前置阅读：** 设计文档 `docs/superpowers/specs/2026-08-10-academic-writer-design.md`（状态：已确认，待实现）；框架实现 `module_harness/submodule.py`（`SubModule.guards/modules` 类属性、`run(persist=False)`、`pack()` 导出 guards//submodules/）。
+**前置阅读：** 设计文档 `docs/dev/superpowers/specs/2026-08-10-academic-writer-design.md`（状态：已确认，待实现）；框架实现 `module_harness/submodule.py`（`SubModule.guards/modules` 类属性、`run(persist=False)`、`pack()` 导出 guards//submodules/）。
 
 **关键框架事实（已核实）：**
 - DSL：guard 边 `--|guard|-->`、OR-join 声明 `Merge.join: OR`（test_checkpoint.py:404 同款）
@@ -34,8 +34,8 @@
 | `example/demo_loop.py` | loop 真实运行入口（`--mock` 免 key 冒烟） | 新建（T3） |
 | `example/demo_writer.py` | 完整流水线真实运行入口（`--mock` 免 key 冒烟） | 新建（T3） |
 | `example/README.md` | 两级用户使用说明（开发场景/使用场景） | 新建（T4） |
-| `docs/progress/module-roadmap.md` | 「本次 example 计划」标记完成 | 修改（T5） |
-| `docs/superpowers/specs/2026-08-10-academic-writer-design.md` | 状态 待实现 → 已实现 | 修改（T5） |
+| `docs/dev/progress/module-roadmap.md` | 「本次 example 计划」标记完成 | 修改（T5） |
+| `docs/dev/superpowers/specs/2026-08-10-academic-writer-design.md` | 状态 待实现 → 已实现 | 修改（T5） |
 
 测试命令：`python -m pytest example/ -q`（本计划任务通用）；全量回归 `python -m pytest module_harness/tests/ -q`（约 5 分钟，T5 执行）。
 
@@ -1099,7 +1099,7 @@ submodule 节点上，传播到子模块内部全部 harness。
 python -m pytest example/ -q        # mock 测试（无需 API key）
 ```
 
-设计文档：`docs/superpowers/specs/2026-08-10-academic-writer-design.md`
+设计文档：`docs/dev/superpowers/specs/2026-08-10-academic-writer-design.md`
 ````
 
 - [ ] **Step 2: 提交**
@@ -1114,10 +1114,10 @@ git commit -m "docs: example README — 两级用户使用说明（使用场景 
 ## Task 5: 文档状态更新 + 全量回归
 
 **Files:**
-- Modify: `docs/progress/module-roadmap.md`（「本次 example 计划」段落，约 194-199 行）
-- Modify: `docs/superpowers/specs/2026-08-10-academic-writer-design.md`（状态行，第 4 行）
+- Modify: `docs/dev/progress/module-roadmap.md`（「本次 example 计划」段落，约 194-199 行）
+- Modify: `docs/dev/superpowers/specs/2026-08-10-academic-writer-design.md`（状态行，第 4 行）
 
-- [ ] **Step 1: roadmap 更新**（`docs/progress/module-roadmap.md`，把「本次 example 计划（记于此处）」两条 bullet 追加完成标注）
+- [ ] **Step 1: roadmap 更新**（`docs/dev/progress/module-roadmap.md`，把「本次 example 计划（记于此处）」两条 bullet 追加完成标注）
 
 在「**本次 example 计划**（记于此处）：」段落后追加：
 
@@ -1128,10 +1128,10 @@ git commit -m "docs: example README — 两级用户使用说明（使用场景 
 fact_review_loop，输出 final_text + modification_notes）、demo 入口
 （`--mock` 免 key 冒烟）、示例草稿、两级用户 README、mock 测试（`pytest example/ -q`）。
 框架缺口修复已随 436dbcc 前的系列提交落地。设计见
-`docs/superpowers/specs/2026-08-10-academic-writer-design.md`（状态：已实现）。
+`docs/dev/superpowers/specs/2026-08-10-academic-writer-design.md`（状态：已实现）。
 ```
 
-- [ ] **Step 2: 设计文档状态更新**（`docs/superpowers/specs/2026-08-10-academic-writer-design.md`）
+- [ ] **Step 2: 设计文档状态更新**（`docs/dev/superpowers/specs/2026-08-10-academic-writer-design.md`）
 
 第 3-4 行：
 
@@ -1143,7 +1143,7 @@ fact_review_loop，输出 final_text + modification_notes）、demo 入口
 
 ```markdown
 > 日期：2026-08-10 | 状态：已实现（example/，mock 测试 + demo 入口；实现计划见
-> docs/superpowers/plans/2026-08-10-academic-writer-example.md）
+> docs/dev/superpowers/plans/2026-08-10-academic-writer-example.md）
 ```
 
 - [ ] **Step 3: 全量回归**
@@ -1157,7 +1157,7 @@ Expected: 342 passed, 2 xfailed（与基线一致，零回归）
 - [ ] **Step 4: 提交**
 
 ```bash
-git add docs/progress/module-roadmap.md docs/superpowers/specs/2026-08-10-academic-writer-design.md
+git add docs/dev/progress/module-roadmap.md docs/dev/superpowers/specs/2026-08-10-academic-writer-design.md
 git commit -m "docs: roadmap / academic-writer 设计标记 example 落地完成（fact_review_loop + academic_writer）"
 ```
 

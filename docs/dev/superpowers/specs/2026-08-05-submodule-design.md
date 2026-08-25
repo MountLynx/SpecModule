@@ -276,7 +276,7 @@ SubModule.run(spec)            # 或 run(spec, tasklist=自定义)
 | `module_harness/module.py` | **小改**：`keep_records: bool = True` 构造参数 |
 | `module_harness/__init__.py` | **追加导出**：SubModule、ModuleLoader、SpecSchema、script |
 | `module_harness/tests/test_submodule.py` | **新建**：上表测试 |
-| `docs/progress/module-roadmap.md` | 实现完成后更新 #5 状态 |
+| `docs/dev/progress/module-roadmap.md` | 实现完成后更新 #5 状态 |
 
 ## 与已有模块的关系
 

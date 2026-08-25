@@ -191,5 +191,5 @@ def register_align_check_harness(reg: HarnessRegistry, name: str = "align_check"
 
 ## 文档更新
 
-- `docs/progress/module-roadmap.md`：标记 #7、#2 完成（15 → 17/19），更新实现顺序说明
+- `docs/dev/progress/module-roadmap.md`：标记 #7、#2 完成（15 → 17/19），更新实现顺序说明
 - `AGENTS.md` 如有必要补充 .specmodule/runs 约定引用

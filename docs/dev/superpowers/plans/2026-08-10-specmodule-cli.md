@@ -18,7 +18,7 @@ python -m pytest module_harness/tests/test_cli.py -q
 python -m pytest module_harness/tests/ example/ -q   # 全量回归
 ```
 
-**设计依据：** `docs/superpowers/specs/2026-08-10-specmodule-cli-design.md`
+**设计依据：** `docs/dev/superpowers/specs/2026-08-10-specmodule-cli-design.md`
 
 ---
 
@@ -62,7 +62,7 @@ Task 1/2/3 三个叶子理论可并行（`subagent-driven-development` 可一次
 | `example/academic_writer.py` | 修改 | `_build_registry` 增加 `event_bus` 参数（向后兼容） |
 | `example/modules/academic_writer.py` | 新建 | M1 模块入口（ModuleEntry 声明） |
 | `example/spec.academic_writer.json` | 新建 | 验收用 spec 示例 |
-| `docs/progress/module-roadmap.md` | 修改 | Phase 0 子集交付记录 + 后续迭代清单 |
+| `docs/dev/progress/module-roadmap.md` | 修改 | Phase 0 子集交付记录 + 后续迭代清单 |
 
 ---
 
@@ -1519,7 +1519,7 @@ git commit -m "test: CLI 测试——run/status/review 命令路径（hello/fail
 
 **Files:**
 - Create: `example/spec.academic_writer.json`（M1 验收示例 spec）
-- Modify: `docs/progress/module-roadmap.md`（Phase 0 子集交付记录 + 后续迭代）
+- Modify: `docs/dev/progress/module-roadmap.md`（Phase 0 子集交付记录 + 后续迭代）
 
 - [ ] **Step 1: 创建 M1 示例 spec**
 
@@ -1534,11 +1534,11 @@ git commit -m "test: CLI 测试——run/status/review 命令路径（hello/fail
 
 - [ ] **Step 2: 更新 roadmap（Phase 0 子集交付）**
 
-`docs/progress/module-roadmap.md` 中 `### Phase 0：CLI 使用者界面 + 历史审阅`
+`docs/dev/progress/module-roadmap.md` 中 `### Phase 0：CLI 使用者界面 + 历史审阅`
 标题下、`**说明**` 之前插入：
 
 ```markdown
-**✅ 子集已交付（2026-08-10，spec：docs/superpowers/specs/2026-08-10-specmodule-cli-design.md）**：
+**✅ 子集已交付（2026-08-10，spec：docs/dev/superpowers/specs/2026-08-10-specmodule-cli-design.md）**：
 - `specmodule run` — 按名选模块 + spec/tasklist（终端内联或文件）+ 三级实时显示（tick/节点/状态 → +产出预览 → 完整块）+ `--mock` 冒烟 + `--verbose {1,2,3}`
 - `specmodule status` — 复用 `query_run_status`（文本/JSON）
 - `specmodule review` — tick 时间线 + `--tick/--node/--failed` 过滤 + `--json`
@@ -1576,6 +1576,6 @@ Expected: 合法 JSON（module_id/latest_tick/entries 结构）
 - [ ] **Step 6: 提交**
 
 ```bash
-git add example/spec.academic_writer.json docs/progress/module-roadmap.md
+git add example/spec.academic_writer.json docs/dev/progress/module-roadmap.md
 git commit -m "docs: Phase 0 CLI 子集交付记录 + M1 验收示例 spec（roadmap 后续迭代更新）"
 ```

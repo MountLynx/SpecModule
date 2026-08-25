@@ -30,7 +30,7 @@
 | 修改 | `module_harness/tests/test_graph_builder.py` | token 解析测试 |
 | 创建 | `module_harness/tests/test_align.py` | align_check 测试 |
 | 创建 | `module_harness/tests/test_run_status.py` | 查询 API + 阶段机测试 |
-| 修改 | `docs/progress/module-roadmap.md` | 标记 #7、#2 完成 |
+| 修改 | `docs/dev/progress/module-roadmap.md` | 标记 #7、#2 完成 |
 
 **测试基线**（改动前）：`python -m pytest module_harness/tests/ -q` → 209 passed, 1 failed（smoke 真实 LLM 测试，环境相关，非本次范围）, 1 xfailed。所有任务完成后应保持 209+新增 passed，且不新增 failed。
 
@@ -1195,7 +1195,7 @@ git commit -m "feat(module): lifecycle phase machine writes status.json atomical
 ### Task 5: roadmap 文档更新 + 全量回归
 
 **Files:**
-- Modify: `docs/progress/module-roadmap.md`
+- Modify: `docs/dev/progress/module-roadmap.md`
 
 - [ ] **Step 1: 更新 roadmap**
 
@@ -1239,6 +1239,6 @@ Expected: 229 passed（基线 209 + 新增 20：Task1 3 + Task2 6 + Task3 5 + Ta
 - [ ] **Step 3: Commit**
 
 ```bash
-git add docs/progress/module-roadmap.md
+git add docs/dev/progress/module-roadmap.md
 git commit -m "docs: mark run-status query (#7) and align check (#2) done (17/19)"
 ```

@@ -8,7 +8,7 @@
 
 **Tech Stack:** pytest + pytest-asyncio + DeepSeek API (via OpenAI SDK)
 
-**Spec:** `docs/superpowers/specs/2026-07-27-smoke-test-design.md`
+**Spec:** `docs/dev/superpowers/specs/2026-07-27-smoke-test-design.md`
 
 ---
 
@@ -474,7 +474,7 @@ python -m pytest module_harness/tests/ -q --ignore=module_harness/tests/smoke
 - [ ] **Step 4: Commit**
 
 ```bash
-git add module_harness/tests/smoke/ docs/superpowers/
+git add module_harness/tests/smoke/ docs/dev/superpowers/
 git commit -m "test: add real-LLM smoke tests (DeepSeek)"
 ```
 

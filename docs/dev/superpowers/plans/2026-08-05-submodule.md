@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.13，pytest + unittest.mock（AsyncMock/MagicMock），tickflow（零修改），llm 客户端（mock 注入）。
 
-**设计 spec:** `docs/superpowers/specs/2026-08-05-submodule-design.md`（已确认）。运行测试用 `python -m pytest module_harness/tests/<file> -q`。
+**设计 spec:** `docs/dev/superpowers/specs/2026-08-05-submodule-design.md`（已确认）。运行测试用 `python -m pytest module_harness/tests/<file> -q`。
 
 **测试基础模式**（所有任务共用，来自现有 test_module.py）：
 
@@ -44,7 +44,7 @@ mock_llm.complete.return_value = LLMResponse(
 | `module_harness/tests/test_spec.py` | 修改 | SpecSchema 测试 |
 | `module_harness/tests/test_module.py` | 修改 | keep_records 测试 |
 | `module_harness/tests/test_submodule.py` | 新建 | submodule/pack/loader 全套测试 |
-| `docs/progress/module-roadmap.md` | 修改 | #5 标记完成 |
+| `docs/dev/progress/module-roadmap.md` | 修改 | #5 标记完成 |
 
 依赖顺序：Task 1→2 独立；Task 3（keep_records）先于 Task 5（SubModule.run 使用）；Task 4（builtins）先于 Task 5；Task 5 先于 Task 6（pack 方法在同一文件）、Task 7（loader 消费 pack 产物）。
 
@@ -1083,7 +1083,7 @@ git commit -m "feat: add ModuleLoader with manifest parsing and requires validat
 
 **Files:**
 - Modify: `module_harness/__init__.py`
-- Modify: `docs/progress/module-roadmap.md`
+- Modify: `docs/dev/progress/module-roadmap.md`
 - Test: 全量 `module_harness/tests/`
 
 - [ ] **Step 1: 读 `module_harness/__init__.py` 现状**，按其现有结构追加导出。
@@ -1108,7 +1108,7 @@ Expected: 输出 `ok`
 Run: `python -m pytest module_harness/tests/ -q`
 Expected: 全部 PASS（含既有 14 个测试文件 + test_submodule.py）
 
-- [ ] **Step 5: 更新 roadmap**——`docs/progress/module-roadmap.md`：
+- [ ] **Step 5: 更新 roadmap**——`docs/dev/progress/module-roadmap.md`：
 
 1. 「完成度速览」`已实现：14 / 待实现：5` → `已实现：15 / 待实现：4`
 2. 把「待实现 🔲」中的「### 4. submodule（含模块打包/发布）」整段移至「已实现 ✅」，表格行：
@@ -1122,7 +1122,7 @@ Expected: 全部 PASS（含既有 14 个测试文件 + test_submodule.py）
 - [ ] **Step 6: 提交**
 
 ```bash
-git add module_harness/__init__.py docs/progress/module-roadmap.md
+git add module_harness/__init__.py docs/dev/progress/module-roadmap.md
 git commit -m "docs: mark submodule (#5) done; export SubModule/ModuleLoader API"
 ```
 

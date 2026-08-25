@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.13, pytest + unittest.mock, sqlite3（WAL）, asyncio。
 
-**Spec:** `docs/superpowers/specs/2026-08-06-redundancy-cleanup-design.md`
+**Spec:** `docs/dev/superpowers/specs/2026-08-06-redundancy-cleanup-design.md`
 
 > **执行修订（2026-08-06，落地后）**：Task 4/5 的"最小快照"（剥离
 > edges/fire_counts/state）在同步到上游 Graph 仓库时被其自有测试
@@ -43,7 +43,7 @@
 | 新建 `module_harness/tests/test_snapshot_storage.py` | 每 tick 最小快照落盘/restore 等价/latest_firings 测试 |
 | `module_harness/tests/test_checkpoint.py` | AutoCheckpointStore 块重写；resume 改 tick 号；hook 测试改写 |
 | `module_harness/tests/test_run_status.py` | query_run_status 测试改写 + fired 字段 |
-| `docs/progress/module-roadmap.md` + 旧 spec 标注 | 文档更新 |
+| `docs/dev/progress/module-roadmap.md` + 旧 spec 标注 | 文档更新 |
 
 ---
 
@@ -1632,11 +1632,11 @@ git commit -m "feat(status): query_run_status 从 firings 读最新输出/状态
 ## Task 12: 文档更新
 
 **Files:**
-- Modify: `docs/progress/module-roadmap.md`、`docs/superpowers/specs/2026-08-06-snapshot-rollback-design.md`、`docs/superpowers/specs/2026-08-07-lightweight-snapshot-design.md`
+- Modify: `docs/dev/progress/module-roadmap.md`、`docs/dev/superpowers/specs/2026-08-06-snapshot-rollback-design.md`、`docs/dev/superpowers/specs/2026-08-07-lightweight-snapshot-design.md`
 
 - [ ] **Step 1: roadmap #5 行更新**
 
-`docs/progress/module-roadmap.md` 第 48 行"快照/回滚封装"描述改为：
+`docs/dev/progress/module-roadmap.md` 第 48 行"快照/回滚封装"描述改为：
 
 ```
 | **快照/回滚封装** — 每 tick 最小快照（剥离 records/edges/state，O(边数)，tickflow `_persist_tick` 落盘）+ 精确 tick 号回退 `resume(tick)` + 跨进程续跑 + 进程内 `snapshot()`/`restore()`/`checkpoint()`/`rollback_to()` + 兼容性校验（2 硬错误 + 3 警告）+ `list_checkpoints()` 显示 (tick, fired) | `ModuleInputStore` + `check_resume_compat` + `Module.resume` | `checkpoint.py`, `module.py` |
@@ -1644,7 +1644,7 @@ git commit -m "feat(status): query_run_status 从 firings 读最新输出/状态
 
 - [ ] **Step 2: 旧 spec 标注**
 
-`docs/superpowers/specs/2026-08-06-snapshot-rollback-design.md` 文件头追加：
+`docs/dev/superpowers/specs/2026-08-06-snapshot-rollback-design.md` 文件头追加：
 
 ```markdown
 > **退役标注（2026-08-06）**：`auto_checkpoints` 表已退役（冗余清理设计 S2）——
@@ -1652,7 +1652,7 @@ git commit -m "feat(status): query_run_status 从 firings 读最新输出/状态
 > 本设计的自动检查点/环形保留部分不再适用。
 ```
 
-`docs/superpowers/specs/2026-08-07-lightweight-snapshot-design.md` 文件头追加：
+`docs/dev/superpowers/specs/2026-08-07-lightweight-snapshot-design.md` 文件头追加：
 
 ```markdown
 > **范围扩展（2026-08-06）**：轻量快照进一步最小化——持久路径快照剥离
@@ -1664,7 +1664,7 @@ git commit -m "feat(status): query_run_status 从 firings 读最新输出/状态
 - [ ] **Step 3: 提交**
 
 ```bash
-git add docs/progress/module-roadmap.md docs/superpowers/specs/2026-08-06-snapshot-rollback-design.md docs/superpowers/specs/2026-08-07-lightweight-snapshot-design.md
+git add docs/dev/progress/module-roadmap.md docs/dev/superpowers/specs/2026-08-06-snapshot-rollback-design.md docs/dev/superpowers/specs/2026-08-07-lightweight-snapshot-design.md
 git commit -m "docs: 冗余清理落地标注（roadmap #5 + 旧 spec 退役说明）"
 ```
 

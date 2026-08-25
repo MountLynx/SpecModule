@@ -118,4 +118,4 @@ submodule 节点上，传播到子模块内部全部 harness。
 python -m pytest example/ -q        # mock 测试（无需 API key）
 ```
 
-设计文档：`docs/superpowers/specs/2026-08-10-academic-writer-design.md`
+设计文档：`docs/dev/superpowers/specs/2026-08-10-academic-writer-design.md`

@@ -2,8 +2,8 @@
 
 > 使用者层面（usage scenario）入口：终端选择模块、传 spec/tasklist、运行并观察 / 审阅工作流。
 > 二级用户只写 spec/tasklist，不写 Python；模块入口由开发者在 `modules/<name>.py` 声明。
-> 配套设计：`docs/superpowers/specs/2026-08-10-specmodule-cli-design.md`
-> 实施计划：`docs/superpowers/plans/2026-08-10-specmodule-cli.md`
+> 配套设计：`docs/dev/superpowers/specs/2026-08-10-specmodule-cli-design.md`
+> 实施计划：`docs/dev/superpowers/plans/2026-08-10-specmodule-cli.md`
 
 ## 1. 进入方式
 

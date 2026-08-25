@@ -4,11 +4,11 @@
 
 **Goal:** 让 `submodule` 成为 tasklist 一等节点类型（黑盒嵌入运行子模块，LLM 配置传播，打包内置），并修复两个前置框架缺口（`_check_flow` 丢 registry、SubModule 无 guards 通道）。
 
-**Architecture:** 定义单元 = `SubModule` 类（双重身份），父模块类属性 `modules` 声明引用；`graph_builder._register_submodule` 把 submodule 节点注册为 async body，运行时以嵌入模式（`audit=False, persist=False`）`await child.run()` 取终点输出；`pack()`/`ModuleLoader` 递归导出/加载 `submodules/` 与 `guards/`。Spec: `docs/superpowers/specs/2026-08-10-submodule-node-design.md`。
+**Architecture:** 定义单元 = `SubModule` 类（双重身份），父模块类属性 `modules` 声明引用；`graph_builder._register_submodule` 把 submodule 节点注册为 async body，运行时以嵌入模式（`audit=False, persist=False`）`await child.run()` 取终点输出；`pack()`/`ModuleLoader` 递归导出/加载 `submodules/` 与 `guards/`。Spec: `docs/dev/superpowers/specs/2026-08-10-submodule-node-design.md`。
 
 **Tech Stack:** Python 3.13, asyncio, pytest + unittest.mock（AsyncMock/MagicMock）, tickflow 引擎（零修改）。
 
-**前置阅读：** 设计文档 `docs/superpowers/specs/2026-08-10-submodule-node-design.md`；已验证的 loop 模式参考 `module_harness/tests/test_checkpoint.py:900-1000`（counter 自循环 + guard 读 `view["node"].value`）。
+**前置阅读：** 设计文档 `docs/dev/superpowers/specs/2026-08-10-submodule-node-design.md`；已验证的 loop 模式参考 `module_harness/tests/test_checkpoint.py:900-1000`（counter 自循环 + guard 读 `view["node"].value`）。
 
 ---
 
@@ -25,7 +25,7 @@
 | `module_harness/tests/test_validator.py` | 缺口 1 测试 + 校验器 submodule 分支测试 | T1, T2 |
 | `module_harness/tests/test_submodule.py` | guards 收集/loop 运行、harness_overrides、persist、modules 类属性、pack 导出 | T3, T4, T5, T7 |
 | `module_harness/tests/test_submodule_node.py` | **新建**：TaskDefinition roundtrip + 节点行为测试 | T2, T6 |
-| `docs/progress/module-roadmap.md` 等 | 文档更新 | T8 |
+| `docs/dev/progress/module-roadmap.md` 等 | 文档更新 | T8 |
 
 测试命令（全部任务通用）：`python -m pytest module_harness/tests/<file> -q`
 
@@ -1254,7 +1254,7 @@ git commit -m "feat: pack/loader 支持 guards 导出加载 + submodules 递归�
 ## Task 8: 文档更新
 
 **Files:**
-- Modify: `docs/progress/module-roadmap.md`、`docs/superpowers/specs/2026-08-05-submodule-design.md`、`docs/superpowers/specs/2026-08-10-academic-writer-design.md`
+- Modify: `docs/dev/progress/module-roadmap.md`、`docs/dev/superpowers/specs/2026-08-05-submodule-design.md`、`docs/dev/superpowers/specs/2026-08-10-academic-writer-design.md`
 
 - [ ] **Step 1: roadmap「模块组合讨论与决策」修正**（`module-roadmap.md:168-186` 整段替换为：）
 
@@ -1264,7 +1264,7 @@ git commit -m "feat: pack/loader 支持 guards 导出加载 + submodules 递归�
 **背景**：example 模块开发（灵感式写作 → 学术英语，含两阶段"原始↔当前稿"事实审阅 loop）
 引出"模块组合"讨论。**原判定（本段早先版本）基于错误前提**：把声明式 submodule 节点
 曲解为"图级组合"（"仅省 flow 骨架几行边"），转而采纳"嵌套执行"。用户期望的是组合/封装
-的**声明式能力**，不是省骨架。2026-08-10 修正，见 `docs/superpowers/specs/2026-08-10-submodule-node-design.md`。
+的**声明式能力**，不是省骨架。2026-08-10 修正，见 `docs/dev/superpowers/specs/2026-08-10-submodule-node-design.md`。
 
 **三种复用模型（修正后）**：
 
@@ -1308,7 +1308,7 @@ Expected: 全部 PASS
 - [ ] **Step 5: 提交**
 
 ```bash
-git add docs/progress/module-roadmap.md docs/superpowers/specs/2026-08-05-submodule-design.md docs/superpowers/specs/2026-08-10-academic-writer-design.md
+git add docs/dev/progress/module-roadmap.md docs/dev/superpowers/specs/2026-08-05-submodule-design.md docs/dev/superpowers/specs/2026-08-10-academic-writer-design.md
 git commit -m "docs: 修正 roadmap 模块组合决策（submodule 一等节点）；更新 submodule/academic-writer 设计定位"
 ```
 

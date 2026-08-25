@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.13、stdlib `sqlite3`（WAL）、`tempfile` + `weakref.finalize`（临时库生命周期）、pytest（含 pytest-asyncio）。
 
-**Spec:** `docs/superpowers/specs/2026-08-05-tickflow-storage-design.md`（下文简称"spec"）
+**Spec:** `docs/dev/superpowers/specs/2026-08-05-tickflow-storage-design.md`（下文简称"spec"）
 
 ---
 
@@ -50,7 +50,7 @@
 | `module_harness/submodule.py` | `mode: Literal["persist", "fast"] = "persist"` 类属性 + run() 透传 + docstring |
 | `module_harness/tests/test_storage_persist.py` | **新增**——spec §6 SpecModule 侧 4 项测试 |
 | `AGENTS.md` | 架构规则 3：`_edges` 补 "windowed (last 2)"、`_records` 补 backend 落盘 |
-| `docs/SpecModule.md` | 嵌入模式定位更新 + `.specmodule/runs/` 约定说明 |
+| `docs/concepts/SpecModule.md` | 嵌入模式定位更新 + `.specmodule/runs/` 约定说明 |
 | `.gitignore` | 追加 `.specmodule/` |
 
 ---
@@ -1599,10 +1599,10 @@ cd "C:\Users\xingy\Desktop\开发\SpecModule" && git add module_harness/tests/te
 
 ---
 
-### Task B5: 文档更新（AGENTS.md / docs/SpecModule.md / .gitignore）
+### Task B5: 文档更新（AGENTS.md / docs/concepts/SpecModule.md / .gitignore）
 
 **Files:**
-- Modify: `AGENTS.md`, `docs/SpecModule.md`, `.gitignore`
+- Modify: `AGENTS.md`, `docs/concepts/SpecModule.md`, `.gitignore`
 
 - [ ] **Step 1: `AGENTS.md`**——架构规则 3 替换为：
 
@@ -1610,7 +1610,7 @@ cd "C:\Users\xingy\Desktop\开发\SpecModule" && git add module_harness/tests/te
 3. **Single source of truth:** `RunState` (tickflow) is the sole runtime state container. Three layers: `_edges` (fast input resolution, windowed to last 2 firings per node), `_state` (per-node mutable state), `_records` (full audit, gated by `keep_records`; persisted via backend when one is attached). Never create parallel state tracking.
 ```
 
-- [ ] **Step 2: `docs/SpecModule.md`**——submodule 段落（约 52 行）替换为：
+- [ ] **Step 2: `docs/concepts/SpecModule.md`**——submodule 段落（约 52 行）替换为：
 
 ```markdown
 submodule是tasklist固定、spec强模板化的一个module，其spec和tasklist是固定的，不能修改。嵌入模式（audit=False）内存不保留审计，但记录仍落盘（`.specmodule/runs/<run_id>/run.sqlite`，完整历史可查）；轻量任务用 `mode = "fast"` 全内存零落盘。形成一个特定输入得到特定输出的固定的“箱子”。
@@ -1631,7 +1631,7 @@ submodule是tasklist固定、spec强模板化的一个module，其spec和tasklis
 - [ ] **Step 4: Commit**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && git add AGENTS.md docs/SpecModule.md .gitignore && git commit -m "docs: embedded-mode persistence positioning + .specmodule/runs convention (D9/D11)"
+cd "C:\Users\xingy\Desktop\开发\SpecModule" && git add AGENTS.md docs/concepts/SpecModule.md .gitignore && git commit -m "docs: embedded-mode persistence positioning + .specmodule/runs convention (D9/D11)"
 ```
 
 ---
@@ -1686,7 +1686,7 @@ cd "C:\Users\xingy\Desktop\开发\SpecModule" && git add -A && git commit -m "ch
 
 ## Execution Handoff
 
-计划已保存到 `docs/superpowers/plans/2026-08-05-tickflow-storage.md`。两种执行方式：
+计划已保存到 `docs/dev/superpowers/plans/2026-08-05-tickflow-storage.md`。两种执行方式：
 
 1. **SubAgent 驱动（推荐）**——每个任务派发独立 subagent，任务间双阶段 review，快速迭代
 2. **Inline 执行**——本会话内用 executing-plans 按任务批执行，检查点 review

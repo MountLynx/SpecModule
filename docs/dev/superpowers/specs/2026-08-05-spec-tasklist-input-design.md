@@ -218,7 +218,7 @@ module_harness/module.py             + tasklist/review_harness 参数 + 分支
 module_harness/__init__.py           + 导出新符号
 module_harness/tests/test_consistency.py  ★ 新建
 module_harness/tests/test_module.py  + tasklist 通道测试
-docs/progress/module-roadmap.md      + #1 #4 标记完成
+docs/dev/progress/module-roadmap.md      + #1 #4 标记完成
 ```
 
 ## 与已有模块的关系
