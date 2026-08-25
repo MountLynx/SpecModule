@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from llm import LLMConfig, create_llm_client
-from llm.client import LLMResponse
+from llm.mock import MockLLMClient
 
 from tickflow.persistence import SqliteBackend
 
@@ -57,24 +57,6 @@ from . import store
 from .spec import Spec, Tasklist
 from .status import query_run_status
 from .translator import TemplateLoader
-
-
-class MockLLMClient:
-    """--mock 冒烟用：通用假客户端（免 key / 免网络）。
-
-    output_format=json_object 时返回宽松合法 JSON（通过 validator）；text
-    时返回占位文本。翻译通道（script 翻译器）不经 LLM，天然可用。
-    """
-
-    async def complete(self, **kwargs: Any) -> LLMResponse:
-        fmt = kwargs.get("output_format") or {}
-        if fmt.get("type") == "json_object":
-            content = json.dumps(
-                {"result": "mock output", "summary": "mock", "issues": []}
-            )
-        else:
-            content = "mock output"
-        return LLMResponse(content=content)
 
 
 def _preview(value: Any, width: int = 80) -> str:

@@ -9,6 +9,7 @@ from .client import (
     LLMResponse,
     create_llm_client,
 )
+from .mock import MockLLMClient
 
 __all__ = [
     "LLMConfig",
@@ -18,4 +19,5 @@ __all__ = [
     "Message",
     "LLMResponse",
     "create_llm_client",
+    "MockLLMClient",
 ]
