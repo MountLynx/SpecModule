@@ -58,6 +58,7 @@ from .query import (
     build_checkpoints,
     build_timeline,
     checkpoints_to_dict,
+    create_checkpoint,
     filter_failed,
     filter_node,
     filter_tick,
@@ -185,6 +186,7 @@ __all__ = [
     "CheckpointList",
     "build_checkpoints",
     "checkpoints_to_dict",
+    "create_checkpoint",
     # store 共享层（module-user-store：家目录/枚举/安装管理）
     "store_home",
     "search_paths",

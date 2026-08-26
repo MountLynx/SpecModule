@@ -40,6 +40,7 @@ def run_db_path(module_id: str, base_dir: Path | None = None) -> Path:
     """``<base>/.specmodule/runs/<module_id>/run.sqlite``（与 Module 对齐）。
 
     公开 API：CLI/MCP/Web 消费（路径规则单一来源）。
+    base_dir 缺省 = Path.cwd()（服务器进程 cwd ≠ agent cwd，消费方宜显式传）。
     """
     base = base_dir if base_dir is not None else Path.cwd()
     return base / ".specmodule" / "runs" / module_id / "run.sqlite"
@@ -199,6 +200,46 @@ def checkpoints_to_dict(cl: CheckpointList) -> dict[str, Any]:
             for e in cl.entries
         ],
     }
+
+
+def create_checkpoint(
+    module_id: str,
+    label: str,
+    *,
+    tick: int | None = None,
+    base_dir: Path | None = None,
+) -> dict[str, Any]:
+    """给 tick 快照起命名检查点（复制到 checkpoints 表，manual 永久保留）。
+
+    纯数据操作、跨进程：不依赖运行中的 runner——快照已每 tick 落盘，命名 =
+    给已有快照加人类标签，之后 ``resume/rollback manual:<label>`` 按名回退。
+    label 自动补 ``manual:`` 前缀（目标解析要求）；tick 缺省 = 最新。
+
+    Raises:
+        KeyError: 无运行记录 / 无 tick 快照 / tick 不存在（消息携带可用清单）。
+    """
+    db_path = run_db_path(module_id, base_dir)
+    if not db_path.exists():
+        raise KeyError(f"无运行记录: {module_id}（先执行 run）")
+    from tickflow.persistence import SqliteBackend
+
+    backend = SqliteBackend(db_path)
+    try:
+        ticks = backend.list_snapshots(module_id)
+        if not ticks:
+            raise KeyError(f"无可恢复快照: {module_id}（运行未产生任何 tick 快照）")
+        target = max(ticks) if tick is None else tick
+        if target not in ticks:
+            raise KeyError(f"快照 tick {target} 不存在（可用: {sorted(ticks)}）")
+        snap = backend.load_snapshot(module_id, target)
+        if snap is None:
+            raise KeyError(f"快照 tick {target} 读取失败（数据损坏？）")
+        old_labels = [lbl for lbl, _ in backend.list_checkpoints(module_id)]
+        label = label if label.startswith("manual:") else "manual:" + label
+        backend.save_checkpoint(module_id, label, snap)
+    finally:
+        backend.close()
+    return {"label": label, "tick": target, "overwritten": label in old_labels}
 
 
 def timeline_to_dict(timeline: ReviewTimeline) -> dict[str, Any]:

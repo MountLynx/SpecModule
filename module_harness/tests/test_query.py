@@ -5,11 +5,14 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from tickflow.persistence import SqliteBackend
 from tickflow.state import NodeState
 
 from module_harness.query import (
     build_timeline,
+    create_checkpoint,
     filter_failed,
     filter_node,
     filter_tick,
@@ -122,3 +125,53 @@ class TestRunDbPath:
     def test_default_base_is_cwd(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         assert run_db_path("mod_x") == tmp_path / ".specmodule" / "runs" / "mod_x" / "run.sqlite"
+
+
+def _seed_snapshots(tmp_path, module_id="mod_c", ticks=(1, 2)):
+    """写 N 个 tick 快照（含 fired 字段，供 checkpoint/summary 消费）。"""
+    run_dir = tmp_path / ".specmodule" / "runs" / module_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    backend = SqliteBackend(run_dir / "run.sqlite")
+    for t in ticks:
+        backend.save_snapshot(module_id, t, {"tick": t, "status": "running",
+                                             "fired": [f"n{t}"], "fireable": []})
+    backend.close()
+
+
+class TestCreateCheckpoint:
+    def test_names_latest_by_default(self, tmp_path):
+        _seed_snapshots(tmp_path)
+        out = create_checkpoint("mod_c", "good", base_dir=tmp_path)
+        assert out == {"label": "manual:good", "tick": 2, "overwritten": False}
+        backend = SqliteBackend(run_db_path("mod_c", base_dir=tmp_path))
+        try:
+            assert backend.list_checkpoints("mod_c") == [("manual:good", 2)]
+        finally:
+            backend.close()
+
+    def test_explicit_tick_and_prefix_passthrough(self, tmp_path):
+        _seed_snapshots(tmp_path)
+        out = create_checkpoint("mod_c", "manual:early", tick=1, base_dir=tmp_path)
+        assert out == {"label": "manual:early", "tick": 1, "overwritten": False}
+
+    def test_overwrite_same_label(self, tmp_path):
+        _seed_snapshots(tmp_path)
+        create_checkpoint("mod_c", "good", base_dir=tmp_path)
+        out = create_checkpoint("mod_c", "good", tick=1, base_dir=tmp_path)
+        assert out["overwritten"] is True
+
+    def test_missing_run_raises(self, tmp_path):
+        with pytest.raises(KeyError, match="无运行记录"):
+            create_checkpoint("mod_c", "x", base_dir=tmp_path)
+
+    def test_no_snapshots_raises(self, tmp_path):
+        run_dir = tmp_path / ".specmodule" / "runs" / "mod_c"
+        run_dir.mkdir(parents=True)
+        SqliteBackend(run_dir / "run.sqlite").close()
+        with pytest.raises(KeyError, match="无可恢复快照"):
+            create_checkpoint("mod_c", "x", base_dir=tmp_path)
+
+    def test_missing_tick_raises_with_available(self, tmp_path):
+        _seed_snapshots(tmp_path)
+        with pytest.raises(KeyError, match=r"可用: \[1, 2\]"):
+            create_checkpoint("mod_c", "x", tick=5, base_dir=tmp_path)

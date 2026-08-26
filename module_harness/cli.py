@@ -46,6 +46,7 @@ from .query import (
     build_checkpoints,
     build_timeline,
     checkpoints_to_dict,
+    create_checkpoint,
     filter_failed,
     filter_node,
     filter_tick,
@@ -716,50 +717,21 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
 
 
 def _cmd_checkpoint(args: argparse.Namespace) -> int:
-    """给指定 tick 快照起命名检查点（复制到 checkpoints 表，manual 永久保留）。
-
-    纯数据操作、跨进程：不依赖运行中的 runner——快照已每 tick 落盘，
-    命名 = 给已有快照加人类标签，之后 ``resume/rollback manual:<label>``
-    按名回退。label 自动补 ``manual:`` 前缀（库侧目标解析要求）。
-    """
+    """给指定 tick 快照起命名检查点（数据走共享层 create_checkpoint）。"""
     run_id = args.run_id or _latest_run_id()
     if run_id is None:
         print("无运行记录（先执行 specmodule run）", file=sys.stderr)
         return 1
-    db_path = _persist_dir(run_id)
-    if not db_path.exists():
-        print(f"无运行记录: {run_id}（先执行 specmodule run）", file=sys.stderr)
-        return 1
-    label = args.label if args.label.startswith("manual:") else "manual:" + args.label
-    backend = SqliteBackend(db_path)
     try:
-        ticks = backend.list_snapshots(run_id)
-        if not ticks:
-            print(
-                f"无可恢复快照: {run_id}（运行未产生任何 tick 快照）",
-                file=sys.stderr,
-            )
-            return 1
-        tick = args.tick if args.tick is not None else max(ticks)
-        if tick not in ticks:
-            print(
-                f"快照 tick {tick} 不存在（可用: {ticks or '无'}）",
-                file=sys.stderr,
-            )
-            return 1
-        snap = backend.load_snapshot(run_id, tick)
-        if snap is None:
-            print(f"快照 tick {tick} 读取失败（数据损坏？）", file=sys.stderr)
-            return 1
-        old_labels = [lbl for lbl, _ in backend.list_checkpoints(run_id)]
-        backend.save_checkpoint(run_id, label, snap)
-    finally:
-        backend.close()
-    msg = f"已创建检查点 {label}（tick {tick}）"
-    if label in old_labels:
+        out = create_checkpoint(run_id, args.label, tick=args.tick)
+    except KeyError as e:
+        print(f"错误: {e}", file=sys.stderr)
+        return 1
+    msg = f"已创建检查点 {out['label']}（tick {out['tick']}）"
+    if out["overwritten"]:
         msg += "（覆盖同名）"
     print(msg)
-    print(f"回退: specmodule rollback {label} --module <名>（或 resume {label}）")
+    print(f"回退: specmodule rollback {out['label']} --module <名>（或 resume {out['label']}）")
     return 0
 
 

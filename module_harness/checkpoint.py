@@ -27,16 +27,11 @@ from typing import Any
 from tickflow import Graph
 
 from .graph_builder import _is_constant_ref
+from .query import run_db_path as _run_db_path  # 路径规则单一来源（query.run_db_path）
 from .spec import TaskDefinition, Tasklist
 from .translator import prepare_flow
 
 log = logging.getLogger(__name__)
-
-
-def _run_db_path(module_id: str, base_dir: Path | None = None) -> Path:
-    """``<base_dir>/.specmodule/runs/<module_id>/run.sqlite``（与 Module._persist_dir 对齐）。"""
-    base = base_dir if base_dir is not None else Path.cwd()
-    return base / ".specmodule" / "runs" / module_id / "run.sqlite"
 
 
 def tasklist_to_dict(tl: Tasklist) -> dict[str, Any]:
