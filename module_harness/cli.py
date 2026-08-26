@@ -424,9 +424,9 @@ def _run_resume_cmd(args: argparse.Namespace, *, require_target: bool) -> int:
     """续跑/回退共用实现：镜像 run 接线，最后一步换 Module.resume。
 
     回退目标：显式 tick 号 / ``manual:<label>`` 直传库解析（无效目标由库
-    KeyError 携带可用清单）；``require_target=False``（resume）缺省 = 最新
-    tick 快照（CLI 侧读取 backend，与 module.py resume 内部同一读取方式）；
-    ``require_target=True``（rollback）目标必填，防"想回退却续了最新"。
+    KeyError 携带可用清单）；``require_target=False``（resume）缺省（None）
+    由库解析为最新 tick 快照；``require_target=True``（rollback）目标必填，
+    防"想回退却续了最新"。
     """
     res = _resolve_module_cmd(args)
     if res is None:
@@ -474,28 +474,15 @@ def _run_resume_cmd(args: argparse.Namespace, *, require_target: bool) -> int:
                 registry = HarnessRegistry(llm_client=llm_client, event_bus=event_bus)
             tasklist = _load_tasklist(args.tasklist) if args.tasklist else None
             modules = entry.submodules
-        # 回退目标：显式直传；缺省 = 最新 tick 快照
+        # 回退目标：显式直传；resume 缺省（None）由库解析为最新 tick 快照
         rollback_to = args.rollback
-        if rollback_to is None:
-            if require_target:
-                print(
-                    "rollback 需要显式回退目标——可用: specmodule checkpoints --run-id "
-                    f"{module_id} 查看全部回退点（resume <目标> 亦可，缺省续最新）",
-                    file=sys.stderr,
-                )
-                return 1
-            backend = SqliteBackend(db_path)
-            try:
-                ticks = backend.list_snapshots(module_id)
-            finally:
-                backend.close()
-            if not ticks:
-                print(
-                    f"无可恢复快照: {module_id}（运行未产生任何 tick 快照）",
-                    file=sys.stderr,
-                )
-                return 1
-            rollback_to = max(ticks)
+        if rollback_to is None and require_target:
+            print(
+                "rollback 需要显式回退目标——可用: specmodule checkpoints --run-id "
+                f"{module_id} 查看全部回退点（resume <目标> 亦可，缺省续最新）",
+                file=sys.stderr,
+            )
+            return 1
         display = RunDisplay(args.verbose)
         mod = Module(
             spec=spec,

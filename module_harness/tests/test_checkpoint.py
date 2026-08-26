@@ -1021,3 +1021,44 @@ class TestResumeLoop:
         assert [f.node for f in firings] == ["counter"]
         # 重跑的 counter 输出应为 n=3（state 从 2 继续），而非从 1 重来
         assert firings[0].output == {"n": 3}
+
+
+class TestResumeDefaultTarget:
+    @pytest.mark.asyncio
+    async def test_resume_default_target_is_latest(self, mock_llm, tmp_path, monkeypatch):
+        """rollback_to 缺省 = 最新 tick 快照（截断续跑语义）。"""
+        monkeypatch.chdir(tmp_path)
+        mod = Module(spec={"x": 1}, tasklist=_chain_tasklist(), llm_client=mock_llm,
+                     review_harness=None, module_id="mod_latest",
+                     registry=_script_reg(mock_llm))
+        await mod.run(max_ticks=1)          # 截断：A 已跑（tick 1 快照），B/C 未跑
+        mod.close()
+        mod2 = Module(spec={"x": 1}, tasklist=_chain_tasklist(), llm_client=mock_llm,
+                      review_harness=None, module_id="mod_latest",
+                      registry=_script_reg(mock_llm))
+        try:
+            await mod2.resume(max_ticks=10)  # rollback_to 缺省 → tick 1
+        finally:
+            mod2.close()
+        from tickflow.persistence import SqliteBackend
+        backend = SqliteBackend(tmp_path / ".specmodule" / "runs" / "mod_latest" / "run.sqlite")
+        try:
+            ticks = backend.list_snapshots("mod_latest")
+        finally:
+            backend.close()
+        assert max(ticks) >= 3              # A→B→C 全部跑完
+
+    def test_resume_none_without_snapshots_raises(self, mock_llm, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        run_dir = tmp_path / ".specmodule" / "runs" / "mod_empty"
+        run_dir.mkdir(parents=True)
+        from tickflow.persistence import SqliteBackend
+        SqliteBackend(run_dir / "run.sqlite").close()   # 空库（无快照）
+        mod = Module(spec={"x": 1}, tasklist=_chain_tasklist(), llm_client=mock_llm,
+                     review_harness=None, module_id="mod_empty",
+                     registry=_script_reg(mock_llm))
+        try:
+            with pytest.raises(KeyError, match="无可恢复快照"):
+                asyncio.run(mod.resume())
+        finally:
+            mod.close()

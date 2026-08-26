@@ -380,17 +380,13 @@ class Module:
         else:
             self._write_phase("done")
 
-    async def resume(self, rollback_to: int | str, max_ticks: int = 100):
+    async def resume(self, rollback_to: int | str | None = None, max_ticks: int = 100):
         """跨进程续跑：从 tick 号/手动检查点恢复 + 用当前 spec/tasklist 重建未执行部分。
 
-        流程：回退目标解析（tick 号 → snapshots 表；manual:xxx → checkpoints
-        表）→ 新图全量重建 → 兼容性校验（硬错误拒绝，不触碰 runner）→
-        restore → 归档新输入 → 续跑。
-
-        要求 persist=True（快照依赖 SQLite backend）。
-
-        max_ticks 是绝对 tick 上限：从 restore 的 tick 起继续计数（如
-        restore 于 tick 95，则默认 100 只剩 5 个 tick 可跑）。
+        rollback_to=None → 最新 tick 快照（"从中断处续跑"缺省）。流程：回退目标
+        解析（tick 号 → snapshots 表；manual:xxx → checkpoints 表；None →
+        max(ticks)）→ 新图全量重建 → 兼容性校验（硬错误拒绝）→ restore →
+        归档新输入 → 续跑。要求 persist=True；max_ticks 是绝对 tick 上限。
         """
         if not self.persist:
             raise RuntimeError(
@@ -400,6 +396,13 @@ class Module:
         # 1. 回退目标解析 + 已执行节点（同一连接，避免多次打开 run.sqlite）
         backend = SqliteBackend(_persist_dir(self.module_id, self._base_dir))
         try:
+            if rollback_to is None:
+                ticks = backend.list_snapshots(self.module_id)
+                if not ticks:
+                    raise KeyError(
+                        f"无可恢复快照: {self.module_id}（运行未产生任何 tick 快照）"
+                    )
+                rollback_to = max(ticks)
             snap = self._resolve_target(backend, self.module_id, rollback_to)
             if snap is None:
                 ticks = backend.list_snapshots(self.module_id)
