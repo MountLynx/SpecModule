@@ -50,6 +50,7 @@ from .query import (
     filter_failed,
     filter_node,
     filter_tick,
+    load_snapshot_summary,
     timeline_to_dict,
 )
 from .registry import HarnessRegistry
@@ -651,42 +652,44 @@ def _cmd_checkpoints(args: argparse.Namespace) -> int:
 
 
 def _cmd_snapshot(args: argparse.Namespace) -> int:
-    """检视/导出指定 tick 的运行时快照。
+    """检视/导出指定 tick 的运行时快照（摘要走共享层 load_snapshot_summary）。
 
-    默认：文本摘要（状态 / fired / fireable / 各节点最新输出，输出从 firings
-    表取——轻量快照剥离 records）；``--json``：stdout 打印完整 runner 快照
-    JSON（即 ``runner.restore()`` 输入）；``--out FILE``：写完整快照 JSON 到
-    文件（自包含，可 restore 到新 runner，跨进程调试素材）。缺省 tick = 最新。
+    默认：文本摘要（状态 / fired / fireable / 各节点最新输出）——数据组合走
+    共享层（CLI/MCP/Web 复用），渲染是本命令；``--json``：stdout 打印完整
+    runner 快照 JSON（即 ``runner.restore()`` 输入）；``--out FILE``：写完整
+    快照 JSON 到文件（自包含，可 restore 到新 runner，跨进程调试素材）——
+    全量导出直读 backend。缺省 tick = 最新。
     """
     run_id = args.run_id or _latest_run_id()
     if run_id is None:
         print("无运行记录（先执行 specmodule run）", file=sys.stderr)
         return 1
-    db_path = _persist_dir(run_id)
-    if not db_path.exists():
-        print(f"无运行记录: {run_id}（先执行 specmodule run）", file=sys.stderr)
-        return 1
-    backend = SqliteBackend(db_path)
-    try:
-        ticks = backend.list_snapshots(run_id)
-        if not ticks:
-            print(
-                f"无可恢复快照: {run_id}（运行未产生任何 tick 快照）",
-                file=sys.stderr,
-            )
+    if args.json or args.out:
+        # 完整快照 JSON（runner.restore() 输入）：直读 backend
+        db_path = _persist_dir(run_id)
+        if not db_path.exists():
+            print(f"无运行记录: {run_id}（先执行 specmodule run）", file=sys.stderr)
             return 1
-        tick = args.tick if args.tick is not None else max(ticks)
-        if tick not in ticks:
-            print(
-                f"快照 tick {tick} 不存在（可用: {ticks or '无'}）",
-                file=sys.stderr,
-            )
-            return 1
-        snap = backend.load_snapshot(run_id, tick)
-        if snap is None:
-            print(f"快照 tick {tick} 读取失败（数据损坏？）", file=sys.stderr)
-            return 1
-        if args.json or args.out:
+        backend = SqliteBackend(db_path)
+        try:
+            ticks = backend.list_snapshots(run_id)
+            if not ticks:
+                print(
+                    f"无可恢复快照: {run_id}（运行未产生任何 tick 快照）",
+                    file=sys.stderr,
+                )
+                return 1
+            tick = args.tick if args.tick is not None else max(ticks)
+            if tick not in ticks:
+                print(
+                    f"快照 tick {tick} 不存在（可用: {ticks or '无'}）",
+                    file=sys.stderr,
+                )
+                return 1
+            snap = backend.load_snapshot(run_id, tick)
+            if snap is None:
+                print(f"快照 tick {tick} 读取失败（数据损坏？）", file=sys.stderr)
+                return 1
             text = json.dumps(snap, ensure_ascii=False, indent=2)
             if args.json:
                 print(text)
@@ -694,24 +697,29 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
                 Path(args.out).write_text(text, encoding="utf-8")
                 print(f"快照已导出: {args.out}（{len(text)} 字节）")
             return 0
-        # 各节点最新输出：firings 表取（S3 后快照无 records/edges）
-        latest = backend.latest_firings(run_id)
-        outputs = {d["node"]: d.get("output") for d in latest if d.get("node")}
-    finally:
-        backend.close()
+        finally:
+            backend.close()
+    # 文本摘要：共享层数据 + 本命令渲染
+    try:
+        s = load_snapshot_summary(run_id, tick=args.tick)
+    except KeyError as e:
+        print(f"错误: {e}", file=sys.stderr)
+        return 1
+    if s is None:
+        print(f"无运行记录: {run_id}（先执行 specmodule run）", file=sys.stderr)
+        return 1
     print(f"快照 (run_id={run_id}):")
-    print(f"  tick: {snap.get('tick', tick)}")
-    print(f"  status: {snap.get('status', '?')}")
-    if snap.get("cancel_reason"):
-        print(f"  cancel_reason: {snap['cancel_reason']}")
-    if snap.get("fireable"):
-        print(f"  fireable: {', '.join(snap['fireable'])}")
-    fired = list(snap.get("fired", []))
-    if fired:
-        print(f"  fired: {', '.join(fired)}")
-    if outputs:
+    print(f"  tick: {s['tick']}")
+    print(f"  status: {s['status']}")
+    if s.get("cancel_reason"):
+        print(f"  cancel_reason: {s['cancel_reason']}")
+    if s.get("fireable"):
+        print(f"  fireable: {', '.join(s['fireable'])}")
+    if s["fired"]:
+        print(f"  fired: {', '.join(s['fired'])}")
+    if s["outputs"]:
         print("  各节点最新输出:")
-        for node, out in outputs.items():
+        for node, out in s["outputs"].items():
             print(f"    {node}: {_preview(out)}")
     return 0
 

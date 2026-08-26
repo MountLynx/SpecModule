@@ -242,6 +242,50 @@ def create_checkpoint(
     return {"label": label, "tick": target, "overwritten": label in old_labels}
 
 
+def load_snapshot_summary(
+    module_id: str,
+    *,
+    tick: int | None = None,
+    base_dir: Path | None = None,
+) -> dict[str, Any] | None:
+    """检视某 tick 的运行时快照摘要（status/fireable/fired/各节点最新输出）。
+
+    outputs 取 firings 表各节点最新值（非该 tick 时点值——与 CLI snapshot
+    文本模式一致；时点输出用 review(tick=N) 查）。db 缺失 → None（查询容错，
+    同 build_timeline）；无快照/tick 不存在 → KeyError（消息携带可用清单）。
+    """
+    db_path = run_db_path(module_id, base_dir)
+    if not db_path.exists():
+        return None
+    from tickflow.persistence import SqliteBackend
+
+    backend = SqliteBackend(db_path)
+    try:
+        ticks = backend.list_snapshots(module_id)
+        if not ticks:
+            raise KeyError(f"无可恢复快照: {module_id}（运行未产生任何 tick 快照）")
+        target = max(ticks) if tick is None else tick
+        if target not in ticks:
+            raise KeyError(f"快照 tick {target} 不存在（可用: {sorted(ticks)}）")
+        snap = backend.load_snapshot(module_id, target)
+        if snap is None:
+            raise KeyError(f"快照 tick {target} 读取失败（数据损坏？）")
+        latest = backend.latest_firings(module_id)
+        outputs = {d["node"]: d.get("output") for d in latest if d.get("node")}
+    finally:
+        backend.close()
+    out: dict[str, Any] = {
+        "tick": snap.get("tick", target),
+        "status": snap.get("status", "?"),
+        "fireable": list(snap.get("fireable") or []),
+        "fired": list(snap.get("fired") or []),
+        "outputs": outputs,
+    }
+    if snap.get("cancel_reason"):
+        out["cancel_reason"] = snap["cancel_reason"]
+    return out
+
+
 def timeline_to_dict(timeline: ReviewTimeline) -> dict[str, Any]:
     """JSON 出口（MCP/Web 直接消费同一函数）。"""
     return {

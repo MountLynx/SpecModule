@@ -16,6 +16,7 @@ from module_harness.query import (
     filter_failed,
     filter_node,
     filter_tick,
+    load_snapshot_summary,
     run_db_path,
     timeline_to_dict,
 )
@@ -159,6 +160,11 @@ class TestCreateCheckpoint:
         create_checkpoint("mod_c", "good", base_dir=tmp_path)
         out = create_checkpoint("mod_c", "good", tick=1, base_dir=tmp_path)
         assert out["overwritten"] is True
+        backend = SqliteBackend(run_db_path("mod_c", base_dir=tmp_path))
+        try:
+            assert backend.list_checkpoints("mod_c") == [("manual:good", 1)]
+        finally:
+            backend.close()
 
     def test_missing_run_raises(self, tmp_path):
         with pytest.raises(KeyError, match="无运行记录"):
@@ -175,3 +181,36 @@ class TestCreateCheckpoint:
         _seed_snapshots(tmp_path)
         with pytest.raises(KeyError, match=r"可用: \[1, 2\]"):
             create_checkpoint("mod_c", "x", tick=5, base_dir=tmp_path)
+
+
+class TestLoadSnapshotSummary:
+    def test_no_db_returns_none(self, tmp_path):
+        assert load_snapshot_summary("mod_c", base_dir=tmp_path) is None
+
+    def test_latest_summary(self, tmp_path):
+        _seed_snapshots(tmp_path)
+        _seed(tmp_path, module_id="mod_c")
+        out = load_snapshot_summary("mod_c", base_dir=tmp_path)
+        assert out["tick"] == 2
+        assert out["status"] == "running"
+        assert out["fired"] == ["n2"]
+        assert out["outputs"] == {"A": "a2", "B": "b1"}
+        assert "cancel_reason" not in out
+
+    def test_explicit_tick(self, tmp_path):
+        _seed_snapshots(tmp_path)
+        out = load_snapshot_summary("mod_c", tick=1, base_dir=tmp_path)
+        assert out["tick"] == 1
+        assert out["fired"] == ["n1"]
+
+    def test_missing_tick_raises_with_available(self, tmp_path):
+        _seed_snapshots(tmp_path)
+        with pytest.raises(KeyError, match="不存在"):
+            load_snapshot_summary("mod_c", tick=9, base_dir=tmp_path)
+
+    def test_no_snapshots_raises(self, tmp_path):
+        run_dir = tmp_path / ".specmodule" / "runs" / "mod_c"
+        run_dir.mkdir(parents=True)
+        SqliteBackend(run_dir / "run.sqlite").close()
+        with pytest.raises(KeyError, match="无可恢复快照"):
+            load_snapshot_summary("mod_c", base_dir=tmp_path)
