@@ -36,15 +36,18 @@ class ReviewTimeline:
     latest_tick: int | None = None
 
 
-def _run_db_path(module_id: str, base_dir: Path | None) -> Path:
-    """``<base>/.specmodule/runs/<module_id>/run.sqlite``（与 Module 对齐）。"""
+def run_db_path(module_id: str, base_dir: Path | None = None) -> Path:
+    """``<base>/.specmodule/runs/<module_id>/run.sqlite``（与 Module 对齐）。
+
+    公开 API：CLI/MCP/Web 消费（路径规则单一来源）。
+    """
     base = base_dir if base_dir is not None else Path.cwd()
     return base / ".specmodule" / "runs" / module_id / "run.sqlite"
 
 
 def build_timeline(module_id: str, base_dir: Path | None = None) -> ReviewTimeline | None:
     """从 run.sqlite 构建审阅时间线。无 DB / 读失败 → None。"""
-    db_path = _run_db_path(module_id, base_dir)
+    db_path = run_db_path(module_id, base_dir=base_dir)
     if not db_path.exists():
         return None
     try:
@@ -151,7 +154,7 @@ def build_checkpoints(module_id: str, base_dir: Path | None = None) -> Checkpoin
     监控方绝不被 DB 锁搞崩）。`resume <target>` / `rollback <target>` 的
     target 即条目 ``target`` 字段。
     """
-    db_path = _run_db_path(module_id, base_dir)
+    db_path = run_db_path(module_id, base_dir=base_dir)
     if not db_path.exists():
         return None
     try:

@@ -62,6 +62,7 @@ from .query import (
     filter_node,
     filter_tick,
     query_value,
+    run_db_path,
     timeline_to_dict,
 )
 from .checkpoint import (
@@ -178,6 +179,7 @@ __all__ = [
     "filter_node",
     "filter_tick",
     "timeline_to_dict",
+    "run_db_path",
     # 共享查询层（回退点列表：resume/rollback 目标清单）
     "CheckpointEntry",
     "CheckpointList",

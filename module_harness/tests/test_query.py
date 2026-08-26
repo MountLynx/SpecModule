@@ -13,6 +13,7 @@ from module_harness.query import (
     filter_failed,
     filter_node,
     filter_tick,
+    run_db_path,
     timeline_to_dict,
 )
 
@@ -111,3 +112,13 @@ class TestTimelineToDict:
         assert d["entries"][0] == {
             "tick": 1, "node": "A", "status": "ok", "output": "a1", "error": None,
         }
+
+
+class TestRunDbPath:
+    def test_path_rule(self, tmp_path):
+        p = run_db_path("mod_x", base_dir=tmp_path)
+        assert p == tmp_path / ".specmodule" / "runs" / "mod_x" / "run.sqlite"
+
+    def test_default_base_is_cwd(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        assert run_db_path("mod_x") == tmp_path / ".specmodule" / "runs" / "mod_x" / "run.sqlite"
