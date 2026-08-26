@@ -18,6 +18,7 @@
 | [references/cli-usage.md](references/cli-usage.md) | 18 个子命令参数表/示例/错误/退出码（748 行） | 用 module | 2026-08-22（repo-docs-tidy） |
 | [references/spec-harness-syntax.md](references/spec-harness-syntax.md) | spec/tasklist/harness/template 声明语法 + 引用解析 + 错误矩阵 | 写 module | 2026-08-22（repo-docs-tidy） |
 | [references/tickflow-integration.md](references/tickflow-integration.md) | tasklist 执行语义：Graph 映射/join/guard/edges 窗口/死锁/快照粒度 | 写 module | 2026-08-24 |
+| [references/api.md](references/api.md) | 编程 API 参考：库面函数签名/行为/返回形状（按消费者增量生长，现覆盖 MCP 通道消费面） | 嵌入/二次开发 | 2026-08-26 |
 
 ## 概念层（concepts/）
 
