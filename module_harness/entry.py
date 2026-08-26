@@ -56,11 +56,12 @@ class ModuleEntry:
     ) -> Module:
         """统一接线：entry 数据 → Module（CLI/MCP 共用，消除接线重复）。
 
-        template/tasklist 二选一（Module 不变量）；tasklist 给出时
-        template_name 归一化为 None（与 CLI 语义一致）；template_name 缺省
-        回落 ``default_template``（与 CLI ``args.template or default_template``
-        语义一致）；未注册模板 → ValueError 携带可用清单。review=False →
-        review_harness=None（存档续跑等无需重审场景）；缺省用 entry.review_harness。
+        template/tasklist 二选一（Module 不变量）：tasklist 优先——给出时
+        template_name 置 None（两者同传时 tasklist 赢，CLI/MCP 侧互斥检查
+        在前）；template_name 缺省回落 ``default_template``（与 CLI
+        ``args.template or default_template`` 语义一致）；未注册模板 →
+        ValueError 携带可用清单。review=False → review_harness=None
+        （存档续跑等无需重审场景）；缺省用 entry.review_harness。
         """
         if tasklist is not None:
             template_name = None

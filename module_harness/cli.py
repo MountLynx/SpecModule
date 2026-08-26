@@ -357,11 +357,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
             # tasklist 路径：跳过翻译，template_name 置 None（与 Module
             # "template/tasklist 二选一"不变量对齐）
             template_name = None
-        event_bus = EventBus()
         display = RunDisplay(args.verbose)
         if res.submodule is not None:
             # packed 形态：SubModule.run（tasklist 固定，审核关闭）
             sub = res.submodule
+            event_bus = EventBus()
             if args.template:
                 print("--template 不适用于已打包模块（tasklist 固定）", file=sys.stderr)
                 return 1

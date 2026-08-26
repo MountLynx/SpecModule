@@ -196,3 +196,18 @@ class TestBuildModule:
             assert {f.node for f in firings} == {"A", "B"}
         finally:
             mod.close()
+
+    def test_review_default_passes_entry_review_harness(self, mock_llm, tmp_path, monkeypatch):
+        # 缺省 review=True：透传 entry.review_harness 的非 None 值
+        # （review=False 置 None 见 test_review_false_sets_none）
+        monkeypatch.chdir(tmp_path)
+        entry = ModuleEntry(name="bm4", description="",
+                            templates={}, review_harness="spec_tasklist_review")
+        tl = Tasklist(tasks={"A": TaskDefinition(type="script", script="echo")},
+                      flow="[A]")
+        mod = entry.build_module({"x": 1}, tasklist=tl,
+                                 llm_client=mock_llm, base_dir=tmp_path)
+        try:
+            assert mod.review_harness == "spec_tasklist_review"
+        finally:
+            mod.close()
