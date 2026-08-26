@@ -357,13 +357,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
             # tasklist 路径：跳过翻译，template_name 置 None（与 Module
             # "template/tasklist 二选一"不变量对齐）
             template_name = None
-        elif template_name is not None and template_name not in res.templates:
-            raise ValueError(
-                f"模板 '{template_name}' 未注册——可用: {', '.join(res.templates)}"
-            )
-        loader = TemplateLoader()
-        for name, data in res.templates.items():
-            loader.register(name, data)
         event_bus = EventBus()
         display = RunDisplay(args.verbose)
         if res.submodule is not None:
@@ -382,22 +375,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
             ))
             run_id = sub._module_id()
         else:
-            entry = res.entry
-            if entry.build_registry is not None:
-                registry = entry.build_registry(llm_client, template_name, event_bus)
-            else:
-                registry = HarnessRegistry(llm_client=llm_client, event_bus=event_bus)
-            mod = Module(
-                spec=spec,
+            # entry 形态：统一接线 build_module（模板校验/registry/loader/Module）
+            mod = res.entry.build_module(
+                spec,
                 template_name=template_name,
                 tasklist=_load_tasklist(args.tasklist) if args.tasklist else None,
                 llm_client=llm_client,
-                event_bus=event_bus,
-                template_loader=loader,
                 module_id=args.run_id or args.module,
-                registry=registry,
-                review_harness=entry.review_harness,
-                modules=entry.submodules,
                 hooks=display.hooks(),
             )
             asyncio.run(mod.run(max_ticks=args.max_ticks))
@@ -451,30 +435,8 @@ def _run_resume_cmd(args: argparse.Namespace, *, require_target: bool) -> int:
             # tasklist 路径：跳过翻译，template_name 置 None（与 Module
             # "template/tasklist 二选一"不变量对齐）
             template_name = None
-        elif template_name is not None and template_name not in res.templates:
-            raise ValueError(
-                f"模板 '{template_name}' 未注册——可用: {', '.join(res.templates)}"
-            )
-        loader = TemplateLoader()
-        for name, data in res.templates.items():
-            loader.register(name, data)
-        event_bus = EventBus()
-        if res.submodule is not None:
-            # packed 形态：与 run 相同的 SubModule 内部接线（固定 tasklist）
-            registry = res.submodule._build_registry(
-                False, llm_client=llm_client, event_bus=event_bus
-            )
-            tasklist = res.submodule.tasklist
-            modules = res.submodule.modules
-        else:
-            entry = res.entry
-            if entry.build_registry is not None:
-                registry = entry.build_registry(llm_client, template_name, event_bus)
-            else:
-                registry = HarnessRegistry(llm_client=llm_client, event_bus=event_bus)
-            tasklist = _load_tasklist(args.tasklist) if args.tasklist else None
-            modules = entry.submodules
         # 回退目标：显式直传；resume 缺省（None）由库解析为最新 tick 快照
+        # （须在 Module 构造前检查——构造即写 status.json idle，会覆盖前次终态）
         rollback_to = args.rollback
         if rollback_to is None and require_target:
             print(
@@ -484,19 +446,35 @@ def _run_resume_cmd(args: argparse.Namespace, *, require_target: bool) -> int:
             )
             return 1
         display = RunDisplay(args.verbose)
-        mod = Module(
-            spec=spec,
-            template_name=template_name,
-            tasklist=tasklist,
-            llm_client=llm_client,
-            event_bus=event_bus,
-            template_loader=loader,
-            module_id=module_id,
-            registry=registry,
-            review_harness=None if res.submodule is not None else res.entry.review_harness,
-            modules=modules,
-            hooks=display.hooks(),
-        )
+        if res.submodule is not None:
+            # packed 形态：与 run 相同的 SubModule 内部接线（固定 tasklist）
+            event_bus = EventBus()
+            registry = res.submodule._build_registry(
+                False, llm_client=llm_client, event_bus=event_bus
+            )
+            mod = Module(
+                spec=spec,
+                template_name=template_name,
+                tasklist=res.submodule.tasklist,
+                llm_client=llm_client,
+                event_bus=event_bus,
+                template_loader=TemplateLoader(),
+                module_id=module_id,
+                registry=registry,
+                review_harness=None,
+                modules=res.submodule.modules,
+                hooks=display.hooks(),
+            )
+        else:
+            # entry 形态：统一接线 build_module（模板校验/registry/loader/Module）
+            mod = res.entry.build_module(
+                spec,
+                template_name=template_name,
+                tasklist=_load_tasklist(args.tasklist) if args.tasklist else None,
+                llm_client=llm_client,
+                module_id=module_id,
+                hooks=display.hooks(),
+            )
         asyncio.run(mod.resume(rollback_to=rollback_to, max_ticks=args.max_ticks))
     except KeyboardInterrupt:
         n = len(display.firings) if display is not None else 0
@@ -519,7 +497,7 @@ def _run_resume_cmd(args: argparse.Namespace, *, require_target: bool) -> int:
         return 1
     # 结束汇总（display 此处必已赋值）
     assert display is not None
-    _print_final_summary(display, entry, module_id, label="续跑完成")
+    _print_final_summary(display, res, module_id, label="续跑完成")
     return 0
 
 
