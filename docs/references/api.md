@@ -7,7 +7,7 @@
 >
 > 首批内容 = MCP 消费通道（SpecModule_mcp）当前消费面。
 
-## module_harness.query —— 运行产物查询（只读）
+## module_harness.query —— 运行产物查询与跨进程控制
 
 查询函数**永不抛错**：run 目录不存在 / 无 DB / 无数据 → 返回 `None`，由调用方决定错误呈现。
 
@@ -19,6 +19,10 @@
 | `filter_node` | `(timeline: ReviewTimeline, node: str) -> ReviewTimeline` | 只留指定节点 |
 | `filter_failed` | `(timeline: ReviewTimeline) -> ReviewTimeline` | 只留失败条目 |
 | `query_value` | `(module_id: str, path: str, *, base_dir: Path \| None = None) -> QueryValueResult \| None` | dot-path 细粒度查询（见下）；run 不存在 → `None`；空 path → `ValueError` |
+| `build_checkpoints` | `(module_id: str, base_dir: Path \| None = None) -> CheckpointList \| None` | 列出全部回退点（tick 快照 + manual 检查点）；`checkpoints_to_dict` 出 `{module_id, checkpoints: [{target, tick, kind, fired, label}]}`，`target` 即 resume 目标 |
+| `create_checkpoint` | `(module_id: str, label: str, *, tick: int \| None = None, base_dir: Path \| None = None) -> dict` | 给 tick 快照（缺省最新）命名——复制进 checkpoints 表，覆盖同名；返回 `{label, tick, overwritten}`；无运行/无快照/tick 不存在 → `KeyError` 带可用清单 |
+| `load_snapshot_summary` | `(module_id: str, *, tick: int \| None = None, base_dir: Path \| None = None) -> dict \| None` | tick 快照摘要 `{tick, status, fireable, fired, outputs}`（outputs=各节点最新值，时点输出用 review(tick=N)）；db 缺失/读失败 → `None`（查询容错）；无快照/tick 不存在 → `KeyError` |
+| `run_db_path` | `(module_id: str, base_dir: Path \| None = None) -> Path` | run.sqlite 路径规则单一来源（`<base>/.specmodule/runs/<id>/run.sqlite`）；`base_dir` 缺省 = cwd（服务器进程 cwd ≠ agent cwd，消费方宜显式传） |
 
 `query_value` 寻址语法：顶层标量 `phase` / `status` / `tick` / `fireable` / `fired` / `error` / `updated_at`；
 输出 `outputs.<node>.<key...>`（节点最新输出内部键）；可变状态 `state.<node>.<key...>`（含 `_llm_raw`
@@ -57,6 +61,7 @@ entry 发现失败（缺 `entry` 变量 / 导入异常）逐文件跳过并 log�
 |------|------|------|
 | `discover_modules` | `(modules_dir: Path \| str) -> dict[str, ModuleEntry]` | 扫描 `*.py`（`_` 前缀跳过），收集模块级 `entry = ModuleEntry(...)` 变量；**键 = `entry.name`**（非文件名）；目录不存在 → 空 dict |
 | `ModuleEntry` | dataclass | 见下 |
+| `ModuleEntry.build_module` | 方法 | 统一接线 `(spec, *, template_name, tasklist, llm_client, module_id, base_dir, event_bus, hooks, review=True) -> Module`：loader 注册 + registry 构建 + Module 构造一步到位（CLI/MCP 共用，消除接线重复）；tasklist 优先——给出时 template 置 None；template_name 缺省回落 `default_template`；未注册模板 → `ValueError` 带**排序**可用清单；`review=False` → `review_harness=None`（存档续跑免重审） |
 
 `ModuleEntry` 字段：`name`、`description`、`templates`（`{模板名: TasklistTemplate JSON}`）、
 `submodules`（`{tasklist 名: SubModule 类}`）、`build_registry`（registry 构建器，可选）、
@@ -90,6 +95,11 @@ Module(
 firings 列表。**协程跑完整 run，无超时/取消 API**；`max_ticks` 是唯一运行上限（每次 LLM 调用
 超时 60s）。落盘产物 `<base_dir>/.specmodule/runs/<run_id>/{run.sqlite, status.json}`，跨进程可查。
 单写者约束：同一 `run_id` 并发写需调用方串行化。
+
+续跑：`await module.resume(rollback_to=None, max_ticks=100)` —— `rollback_to` 为 tick 号 /
+`"manual:<label>"` / `None`（缺省 = 最新 tick 快照）；目标不存在 → `KeyError` 带可用清单，
+且失败时 `status.json` 落 `aborted` + error（不丢信息）；兼容性硬错误 → `ResumeError`；
+`max_ticks` 为绝对 tick 上限（restore 于 tick 95 则默认只剩 5）。
 
 ## llm 引导（llm 包）
 
