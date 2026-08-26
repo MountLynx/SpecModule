@@ -202,6 +202,26 @@ def checkpoints_to_dict(cl: CheckpointList) -> dict[str, Any]:
     }
 
 
+def _resolve_tick_snapshot(
+    backend: Any, module_id: str, tick: int | None
+) -> tuple[int, dict[str, Any]]:
+    """tick 快照解析共用块：缺省最新 → 存在性校验 → 读取。
+
+    错误消息为 CLI/MCP 共享契约（create_checkpoint 与 load_snapshot_summary
+    逐字一致）：无快照 / tick 不存在（携带可用清单）/ 快照损坏。
+    """
+    ticks = backend.list_snapshots(module_id)
+    if not ticks:
+        raise KeyError(f"无可恢复快照: {module_id}（运行未产生任何 tick 快照）")
+    target = max(ticks) if tick is None else tick
+    if target not in ticks:
+        raise KeyError(f"快照 tick {target} 不存在（可用: {sorted(ticks)}）")
+    snap = backend.load_snapshot(module_id, target)
+    if snap is None:
+        raise KeyError(f"快照 tick {target} 读取失败（数据损坏？）")
+    return target, snap
+
+
 def create_checkpoint(
     module_id: str,
     label: str,
@@ -225,15 +245,7 @@ def create_checkpoint(
 
     backend = SqliteBackend(db_path)
     try:
-        ticks = backend.list_snapshots(module_id)
-        if not ticks:
-            raise KeyError(f"无可恢复快照: {module_id}（运行未产生任何 tick 快照）")
-        target = max(ticks) if tick is None else tick
-        if target not in ticks:
-            raise KeyError(f"快照 tick {target} 不存在（可用: {sorted(ticks)}）")
-        snap = backend.load_snapshot(module_id, target)
-        if snap is None:
-            raise KeyError(f"快照 tick {target} 读取失败（数据损坏？）")
+        target, snap = _resolve_tick_snapshot(backend, module_id, tick)
         old_labels = [lbl for lbl, _ in backend.list_checkpoints(module_id)]
         label = label if label.startswith("manual:") else "manual:" + label
         backend.save_checkpoint(module_id, label, snap)
@@ -251,8 +263,9 @@ def load_snapshot_summary(
     """检视某 tick 的运行时快照摘要（status/fireable/fired/各节点最新输出）。
 
     outputs 取 firings 表各节点最新值（非该 tick 时点值——与 CLI snapshot
-    文本模式一致；时点输出用 review(tick=N) 查）。db 缺失 → None（查询容错，
-    同 build_timeline）；无快照/tick 不存在 → KeyError（消息携带可用清单）。
+    文本模式一致；时点输出用 review(tick=N) 查）。db 缺失/读失败 → None
+    （查询容错，同 build_timeline——监控方绝不被 DB 锁搞崩）；无快照/tick
+    不存在 → KeyError（消息携带可用清单）。
     """
     db_path = run_db_path(module_id, base_dir)
     if not db_path.exists():
@@ -261,17 +274,14 @@ def load_snapshot_summary(
 
     backend = SqliteBackend(db_path)
     try:
-        ticks = backend.list_snapshots(module_id)
-        if not ticks:
-            raise KeyError(f"无可恢复快照: {module_id}（运行未产生任何 tick 快照）")
-        target = max(ticks) if tick is None else tick
-        if target not in ticks:
-            raise KeyError(f"快照 tick {target} 不存在（可用: {sorted(ticks)}）")
-        snap = backend.load_snapshot(module_id, target)
-        if snap is None:
-            raise KeyError(f"快照 tick {target} 读取失败（数据损坏？）")
+        target, snap = _resolve_tick_snapshot(backend, module_id, tick)
         latest = backend.latest_firings(module_id)
         outputs = {d["node"]: d.get("output") for d in latest if d.get("node")}
+    except KeyError:
+        raise
+    except Exception:
+        log.exception("读取 run.sqlite 失败（返回 None）: %s", db_path)
+        return None
     finally:
         backend.close()
     out: dict[str, Any] = {

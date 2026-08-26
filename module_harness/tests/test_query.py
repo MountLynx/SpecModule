@@ -205,7 +205,7 @@ class TestLoadSnapshotSummary:
 
     def test_missing_tick_raises_with_available(self, tmp_path):
         _seed_snapshots(tmp_path)
-        with pytest.raises(KeyError, match="不存在"):
+        with pytest.raises(KeyError, match=r"可用: \[1, 2\]"):
             load_snapshot_summary("mod_c", tick=9, base_dir=tmp_path)
 
     def test_no_snapshots_raises(self, tmp_path):
@@ -213,4 +213,24 @@ class TestLoadSnapshotSummary:
         run_dir.mkdir(parents=True)
         SqliteBackend(run_dir / "run.sqlite").close()
         with pytest.raises(KeyError, match="无可恢复快照"):
+            load_snapshot_summary("mod_c", base_dir=tmp_path)
+
+    def test_db_read_error_returns_none(self, tmp_path, monkeypatch):
+        _seed_snapshots(tmp_path)
+        from tickflow import persistence
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("db locked")
+
+        monkeypatch.setattr(persistence.SqliteBackend, "list_snapshots", boom)
+        assert load_snapshot_summary("mod_c", base_dir=tmp_path) is None
+
+    def test_corrupt_snapshot_raises(self, tmp_path, monkeypatch):
+        _seed_snapshots(tmp_path)
+        from tickflow import persistence
+
+        monkeypatch.setattr(
+            persistence.SqliteBackend, "load_snapshot", lambda *a, **k: None
+        )
+        with pytest.raises(KeyError, match="读取失败"):
             load_snapshot_summary("mod_c", base_dir=tmp_path)
