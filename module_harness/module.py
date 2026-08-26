@@ -393,7 +393,9 @@ class Module:
                 "resume 需要 persist=True（快照依赖 SQLite backend）"
             )
 
-        # 1. 回退目标解析 + 已执行节点（同一连接，避免多次打开 run.sqlite）
+        # 1. 回退目标解析 + 已执行节点（同一连接，避免多次打开 run.sqlite）；
+        #    解析失败先写 aborted+error 再抛——__init__ 已写 idle，不补写终态
+        #    会把先前 run 的状态覆盖成裸 idle（错误信息丢失）
         backend = SqliteBackend(_persist_dir(self.module_id, self._base_dir))
         try:
             if rollback_to is None:
@@ -420,6 +422,9 @@ class Module:
                 d["node"] for d in backend.list_firings(self.module_id)
                 if d.get("node") and int(d.get("tick", 0)) < int(snap.get("tick", 0))
             }
+        except KeyError as e:
+            self._write_phase("aborted", error=str(e))
+            raise
         finally:
             backend.close()
 

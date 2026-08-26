@@ -1026,27 +1026,64 @@ class TestResumeLoop:
 class TestResumeDefaultTarget:
     @pytest.mark.asyncio
     async def test_resume_default_target_is_latest(self, mock_llm, tmp_path, monkeypatch):
-        """rollback_to 缺省 = 最新 tick 快照（截断续跑语义）。"""
+        """rollback_to 缺省 = 最新 tick 快照（截断续跑语义）。
+
+        初始 run 截在 max_ticks=2：快照 {1,2}，A@1、B@2 已跑、C 未跑。缺省
+        回退必须是"最新"（tick 2）——若误回 tick 1，B 会重复 fire，下方
+        firings 全序断言即失败。
+        """
         monkeypatch.chdir(tmp_path)
         mod = Module(spec={"x": 1}, tasklist=_chain_tasklist(), llm_client=mock_llm,
                      review_harness=None, module_id="mod_latest",
                      registry=_script_reg(mock_llm))
-        await mod.run(max_ticks=1)          # 截断：A 已跑（tick 1 快照），B/C 未跑
+        await mod.run(max_ticks=2)          # 截断：A、B 已跑（快照 {1,2}），C 未跑
         mod.close()
         mod2 = Module(spec={"x": 1}, tasklist=_chain_tasklist(), llm_client=mock_llm,
                       review_harness=None, module_id="mod_latest",
                       registry=_script_reg(mock_llm))
         try:
-            await mod2.resume(max_ticks=10)  # rollback_to 缺省 → tick 1
+            await mod2.resume(max_ticks=10)  # rollback_to 缺省 → tick 2（最新）
         finally:
             mod2.close()
         from tickflow.persistence import SqliteBackend
         backend = SqliteBackend(tmp_path / ".specmodule" / "runs" / "mod_latest" / "run.sqlite")
         try:
             ticks = backend.list_snapshots("mod_latest")
+            firings = [d["node"] for d in backend.list_firings("mod_latest")]
         finally:
             backend.close()
         assert max(ticks) >= 3              # A→B→C 全部跑完
+        # 全序精确断言：正确回退 tick 2 → 只补跑 C；若误回 tick 1 → B 重复
+        assert firings == ["A", "B", "C"]
+
+    @pytest.mark.asyncio
+    async def test_resume_target_error_preserves_status_error(self, mock_llm, tmp_path, monkeypatch):
+        """resume 目标解析失败（KeyError）写 aborted+error，不被 __init__ idle 覆盖。
+
+        __init__ 构造即写 phase=idle；收编后目标解析 KeyError 发生在其后，
+        若不补写终态，跨进程消费者会把先前 run 的 aborted/running 误读成
+        裸 idle（错误信息丢失）。
+        """
+        monkeypatch.chdir(tmp_path)
+        mod = Module(spec={"x": 1}, tasklist=_chain_tasklist(), llm_client=mock_llm,
+                     review_harness=None, module_id="mod_stat",
+                     registry=_script_reg(mock_llm))
+        await mod.run(max_ticks=1)          # 产生快照
+        mod.close()
+        mod2 = Module(spec={"x": 1}, tasklist=_chain_tasklist(), llm_client=mock_llm,
+                      review_harness=None, module_id="mod_stat",
+                      registry=_script_reg(mock_llm))
+        try:
+            with pytest.raises(KeyError, match="不存在"):
+                await mod2.resume(rollback_to="不存在的")
+        finally:
+            mod2.close()
+        status = json.loads(
+            (tmp_path / ".specmodule" / "runs" / "mod_stat" / "status.json")
+            .read_text(encoding="utf-8")
+        )
+        assert status["phase"] == "aborted"   # 而非 __init__ 的裸 idle
+        assert "不存在" in status["error"]
 
     def test_resume_none_without_snapshots_raises(self, mock_llm, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
