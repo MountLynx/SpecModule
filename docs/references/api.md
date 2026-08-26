@@ -9,7 +9,7 @@
 
 ## module_harness.query —— 运行产物查询与跨进程控制
 
-查询函数**永不抛错**：run 目录不存在 / 无 DB / 无数据 → 返回 `None`，由调用方决定错误呈现。
+查询函数（timeline/checkpoints/snapshot 摘要）**永不抛错**：run 目录不存在 / 无 DB / 读失败 → 返回 `None`，由调用方决定错误呈现。控制操作（`create_checkpoint`）按约定抛 `KeyError` 携带可用清单；目标类无效参数同样以 `KeyError` 呈现（见各行）。
 
 | 函数 | 签名 | 行为 |
 |------|------|------|
