@@ -14,6 +14,10 @@ anthropic
 # provider=openai / openai-compatible 时所需
 openai
 
+# ── example/ppt_writer 使用 ─────────────────────────────────────────
+# spec → .pptx 渲染（渲染器零 LLM；缺失时渲染/模板工作流报含安装指引的清晰错误）
+python-pptx>=1.0
+
 # ── 输出校验（推荐）─────────────────────────────────────────────────
 # output_format=json_schema 时做 schema 校验；未安装则跳过校验，仅保证是 JSON
 jsonschema

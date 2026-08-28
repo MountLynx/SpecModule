@@ -70,7 +70,7 @@ CLI 双身份：既是使用者最基础入口，也是开发者终端工作台�
 publish / update 脏检测）+ 嵌入式验证 + stdlib 可视化开关（feed）
 已发布：**0.1.0**（2026-08-23 首发 PyPI）、**0.1.1**（同日：init --as-dir 脚手架模板
 花括号渲染修复、git URL 安装排除 .git 落盘与脏检测噪音）
-待做：M2 实践线（store 真实验收）、收口（API 稳定化，冻结面含 store 枚举契约）、
+待做：M2 发布→install→run 的 store 真实验收（M2 基础版已交付：ppt_writer 双模板）、收口（API 稳定化，冻结面含 store 枚举契约）、
 适配变更（旧设计与现有物按新逻辑调整）
 
 ---
@@ -149,8 +149,13 @@ publish / update 脏检测）+ 嵌入式验证 + stdlib 可视化开关（feed�
   保留为代码密集通道（`publish` 单文件转化按 D9 诚实报错）→ 任务 5.x
 
 **独立线（机制上不依赖主线，可与主线并行；接缝处标注）**
-- [ ] **M2 论文→PPT 实践线**（ppt-writer-module 变更）：框架能力验收（完整 spec 驱动 / 复杂流图 /
-  command+script / submodule 打包）；**发布→install→run 环节对接 store，作为主线首个真实验收用例**
+- [x] **M2 论文→PPT 实践线（基础版已完成，ppt-writer-module 变更，2026-08-25）**：
+  框架能力验收——完整 spec 驱动（page > section > 模板归一化）、双模板
+  （`ppt_render` 渲染 + `template_review` 制作工作流）、command 节点确定性渲染
+  （python-pptx 子进程，零 LLM，mock 冒烟可用）、硬合规 fail-fast + 模板资产
+  （reference/ + manifest）。待办：**发布→install→run 环节对接 store**（M2 产物
+  走 publish→install→run 闭环，主线首个真实验收用例）；stage 2（材料→内容生成）
+  为后续扩展
 - [x] **嵌入式验证（已完成）**：最小 demo 项目 `pip install specmodule` 后 `import Module / HarnessRegistry`
   跑通一个 workflow——证明库面干净、可嵌入（`examples/embed_minimal/`；暴露并修复
   `register_builtin_harnesses` 未从包顶层导出的库面缺口）
@@ -197,6 +202,11 @@ publish / update 脏检测）+ 嵌入式验证 + stdlib 可视化开关（feed�
 - 历史审阅：逐段优化前后对比
 
 #### M2 论文 → PPT（重量级，M1 后启动）
+
+> **状态（2026-08-25）**：基础版已交付（`ppt-writer-module` 变更）——完整内容
+> spec → 归一化 → command 渲染 .pptx + 模板制作工作流（双模板）。下述"章节拆解
+> → 大纲生成 → 逐页内容生成"为 stage 2（材料→内容生成），后续扩展；store
+> 发布闭环（publish→install→run）为 M2 产物对接主线的待办验收。
 
 **目标**：从论文（长文）生成演示文稿（PPT），每页内容与布局由完整细致 spec 定义。
 
@@ -345,4 +355,4 @@ Loop1/Loop2 为 submodule 节点引用 fact_review_loop；`academic_writer_detai
 依赖链：打包接线 → 主线 store（实施）→ API 稳定化（收口）→ 生态项目各自落地；独立线
 （M2 / 嵌入验证 / stdlib 开关）与主线并行，M2 发布环节对接主线做 store 验收。每 Phase
 独立 spec → plan → 实现。AGENT/Web 形态消费库沉淀的查询函数与 store 枚举契约。实践线
-M1 已交付（example/），转为 store 首个发布 fixture；M2（基础验证后重量级）随后。
+M1 已交付（example/），转为 store 首个发布 fixture；M2 基础版已交付（ppt_writer 双模板，example/ 内），store 发布闭环待验收。

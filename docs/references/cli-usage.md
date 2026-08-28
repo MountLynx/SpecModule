@@ -354,6 +354,36 @@ python -m module_harness.cli run --module academic_writer \
   --modules-dir example/modules --spec-file example/spec.academic_writer.json --mock
 ```
 
+### M2 实践线：ppt_writer（spec → .pptx，双模板）
+
+`ppt_writer` 把描述每页内容/布局的 spec 渲染成可机器校验的 .pptx（渲染零
+LLM，`--mock` 可跑），并提供模板制作工作流（审查 → 入库 `reference/` +
+manifest）。模板资产（`example/ppt_writer/reference/`：manifest.json +
+入库的 .pptx 模板）随模块目录走，渲染器按**模块文件相对路径**定位，不依赖
+启动目录。
+
+```bash
+# 免 key 冒烟（默认 3 页 spec，产出 ppt_writer_output.pptx）
+python -m module_harness.cli run --module ppt_writer --mock \
+  --modules-dir example/modules
+
+# 指定 spec（output/theme/sections/pages；page > section 默认 > 模板兜底）
+python -m module_harness.cli run --module ppt_writer --mock \
+  --modules-dir example/modules --spec-file my_deck.json
+
+# 模板制作工作流：草稿 → dump → 硬合规 → LLM 意见 → 合规入库
+#（--mock 下意见节点为占位文本不阻断；不合规输出逐项问题清单、零写入）
+python -m module_harness.cli run --module ppt_writer --template template_review \
+  --mock --modules-dir example/modules \
+  --spec '{"draft_pptx": "draft.pptx", "template_name": "content", "layout": 1, "kind": "content"}'
+
+# 审阅 / 查询
+python -m module_harness.cli review --run-id ppt_writer
+python -m module_harness.cli status --run-id ppt_writer --json
+```
+
+spec 契约与占位符命名约定见 `example/ppt_writer/README.md`。
+
 ---
 
 ## 9. `resume` — 从中断处续跑

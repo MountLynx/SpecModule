@@ -1,0 +1,33 @@
+{
+  "title": {
+    "file": "base.pptx",
+    "layout": 0,
+    "kind": "title"
+  },
+  "section": {
+    "file": "base.pptx",
+    "layout": 2,
+    "kind": "section"
+  },
+  "content": {
+    "file": "base.pptx",
+    "layout": 1,
+    "kind": "content"
+  },
+  "picture": {
+    "file": "base.pptx",
+    "layout": 8,
+    "kind": "picture"
+  },
+  "thanks": {
+    "file": "base.pptx",
+    "layout": 5,
+    "kind": "thanks"
+  },
+  "section_alt": {
+    "file": "base.pptx",
+    "layout": 2,
+    "kind": "section",
+    "master": 1
+  }
+}
