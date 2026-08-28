@@ -1,7 +1,7 @@
 # tickflow _edges 窗口化设计文档
 
 > 日期：2026-08-05 | 状态：待确认
-> 修改仓库：`C:\Users\xingy\Desktop\开发\Graph`（tickflow 主仓库）；设计记录归 SpecModule
+> 修改仓库：`../Graph`（tickflow 主仓库）；设计记录归 SpecModule
 
 ## 背景
 
@@ -121,7 +121,7 @@ self.run_state = RunState(keep_records=..., full_history_nodes=full_history)
 
 ## 文件变更清单
 
-**Graph 仓库（`C:\Users\xingy\Desktop\开发\Graph`）**：
+**Graph 仓库（`../Graph`）**：
 
 | 文件 | 变更 |
 |------|------|

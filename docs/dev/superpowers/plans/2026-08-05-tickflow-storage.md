@@ -28,7 +28,7 @@
 
 ## 仓库与文件结构
 
-**Phase A — Graph 主仓库（`C:\Users\xingy\Desktop\开发\Graph`，tickflow 唯一改动方）：**
+**Phase A — Graph 主仓库（`../Graph`，tickflow 唯一改动方）：**
 
 | 文件 | 职责（变更） |
 |------|-------------|
@@ -41,7 +41,7 @@
 | `tests/test_storage_window.py` | **新增**——spec §6 全部新测试 |
 | `tests/test_checkpoints.py` | 适配 `test_checkpoint_requires_backend`（D6 行为增强：默认即有 backend） |
 
-**Phase B — SpecModule（`C:\Users\xingy\Desktop\开发\SpecModule`）：**
+**Phase B — SpecModule（`../SpecModule`）：**
 
 | 文件 | 职责（变更） |
 |------|-------------|
@@ -57,14 +57,14 @@
 
 # Phase A — Graph 主仓库
 
-> 所有 Graph 仓库命令的 cwd 均为 `C:\Users\xingy\Desktop\开发\Graph`。
+> 所有 Graph 仓库命令的 cwd 均为 `../Graph`。
 
 ### Task A0: 基线确认
 
 - [ ] **Step 1: 跑全量基线**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests -q
+cd "../Graph" && python -m pytest tests -q
 ```
 
 Expected: `163 passed`（若基线非绿，先修复再继续）。
@@ -135,7 +135,7 @@ def test_json_backend_firing_at_and_firings_of(tmp_path):
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_storage_window.py -q
+cd "../Graph" && python -m pytest tests/test_storage_window.py -q
 ```
 
 Expected: FAIL——`AttributeError: 'SqliteBackend' object has no attribute 'firing_at'`。
@@ -285,13 +285,13 @@ Expected: FAIL——`AttributeError: 'SqliteBackend' object has no attribute 'fi
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_storage_window.py -q
+cd "../Graph" && python -m pytest tests/test_storage_window.py -q
 ```
 
 Expected: `3 passed`。再跑既有持久化测试确认协议扩展未破坏：
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_persistence.py -q
+cd "../Graph" && python -m pytest tests/test_persistence.py -q
 ```
 
 Expected: 全部通过（`test_sqlite_backend_*` 走新 schema；旧 `test_sqlite_backend_save_list_firings` 等 dict 调用含 `node` 键，`str(d.get("node",""))` 兜底）。
@@ -299,7 +299,7 @@ Expected: 全部通过（`test_sqlite_backend_*` 走新 schema；旧 `test_sqlit
 - [ ] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && git add tickflow/persistence.py tests/test_storage_window.py && git commit -m "feat(persistence): add firing_at/firings_of cold-query protocol (D8)"
+cd "../Graph" && git add tickflow/persistence.py tests/test_storage_window.py && git commit -m "feat(persistence): add firing_at/firings_of cold-query protocol (D8)"
 ```
 
 ---
@@ -393,7 +393,7 @@ def test_big_output_not_retained_in_memory():
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_storage_window.py -q
+cd "../Graph" && python -m pytest tests/test_storage_window.py -q
 ```
 
 Expected: FAIL——`len(rn.run_state._edges["A"])` 为 100（无界累积）。
@@ -496,7 +496,7 @@ full history and :meth:`audit` / :meth:`firings_of` query it on demand.
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_storage_window.py -q
+cd "../Graph" && python -m pytest tests/test_storage_window.py -q
 ```
 
 Expected: `6 passed`。**注意**：`audit_log()` 目前还走内存 `_records`（本任务未改 audit），`test_loop_window_bounded` 中 `len(rn.audit_log()) >= 100` 依赖 `keep_records=True` 默认值 + `_persistent` 尚为 False（runner 未传 backend，`persistent=False` → 内存 records 仍全量）——通过。
@@ -504,7 +504,7 @@ Expected: `6 passed`。**注意**：`audit_log()` 目前还走内存 `_records`�
 - [ ] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && git add tickflow/state.py tests/test_storage_window.py && git commit -m "feat(state): windowed _edges (last 2) with fire counts + persist queue (D1/D3)"
+cd "../Graph" && git add tickflow/state.py tests/test_storage_window.py && git commit -m "feat(state): windowed _edges (last 2) with fire counts + persist queue (D1/D3)"
 ```
 
 ---
@@ -573,7 +573,7 @@ def test_and_or_join_no_same_tick_crosstalk():
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_storage_window.py -q
+cd "../Graph" && python -m pytest tests/test_storage_window.py -q
 ```
 
 Expected: `test_index_resolves_from_backend` FAIL（`resolve(index)` 仍读 `_edges` 全量——本阶段 `_edges` 已窗口化但 index 未接库，窗口外返回 Missing → `c_outputs[-1]` 为 None）；`test_index_outside_window_missing_with_null_backend` 通过（窗口化已生效）；`test_and_or_join_no_same_tick_crosstalk` 通过（语义未变，回归护栏）。
@@ -621,7 +621,7 @@ Expected: `test_index_resolves_from_backend` FAIL（`resolve(index)` 仍读 `_ed
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_storage_window.py tests/test_loop.py -q
+cd "../Graph" && python -m pytest tests/test_storage_window.py tests/test_loop.py -q
 ```
 
 Expected: 全部通过（`test_loop.py` 的 `test_index_policy_pins_specific_fire` 验证"窗口优先"路径：C 每轮读 `A[1]`，同 tick 经窗口命中、更早经库命中）。
@@ -629,7 +629,7 @@ Expected: 全部通过（`test_loop.py` 的 `test_index_policy_pins_specific_fir
 - [ ] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && git add tickflow/state.py tests/test_storage_window.py && git commit -m "feat(state): resolve() dispatch — latest via window, index via window+backend (D2/D7)"
+cd "../Graph" && git add tickflow/state.py tests/test_storage_window.py && git commit -m "feat(state): resolve() dispatch — latest via window, index via window+backend (D2/D7)"
 ```
 
 ---
@@ -669,7 +669,7 @@ def test_firings_of_dispatch_backend_vs_window():
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_storage_window.py -q
+cd "../Graph" && python -m pytest tests/test_storage_window.py -q
 ```
 
 Expected: FAIL——`rn.run_state._records == []` 不成立（audit 尚未分派，内存仍全量累积）；`len(rn.firings_of("A")) == 5` 不成立（firings_of 仍只返回窗口 ≤2 条；`rn2` 的窗口断言本就成立）。
@@ -741,7 +741,7 @@ log = logging.getLogger(__name__)
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_storage_window.py -q
+cd "../Graph" && python -m pytest tests/test_storage_window.py -q
 ```
 
 Expected: `12 passed`。
@@ -749,7 +749,7 @@ Expected: `12 passed`。
 - [ ] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && git add tickflow/state.py tests/test_storage_window.py && git commit -m "feat(state): audit/firings_of backend dispatch with ceiling+dedup (D4/D7)"
+cd "../Graph" && git add tickflow/state.py tests/test_storage_window.py && git commit -m "feat(state): audit/firings_of backend dispatch with ceiling+dedup (D4/D7)"
 ```
 
 ---
@@ -809,7 +809,7 @@ def test_state_rebuilt_from_backend_after_restore(tmp_path):
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_storage_window.py -q
+cd "../Graph" && python -m pytest tests/test_storage_window.py -q
 ```
 
 Expected: `test_restore_then_index_resolves_from_backend` FAIL（restore 后新 RunState 未接 backend → index 走窗口，`A[3]` 窗口外 → Missing）；`test_state_rebuilt_from_backend_after_restore` FAIL（`truncate_after` 用空 `_records` 清空 `_state`）。
@@ -960,7 +960,7 @@ Expected: `test_restore_then_index_resolves_from_backend` FAIL（restore 后新 
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_storage_window.py tests/test_snapshot.py tests/test_node_state.py -q
+cd "../Graph" && python -m pytest tests/test_storage_window.py tests/test_snapshot.py tests/test_node_state.py -q
 ```
 
 Expected: 全部通过。`test_snapshot.py::test_restore_replays_identically` 是关键验证：restore 后 audit 经 ceiling 回卷为空（`all(f.tick < snap["tick"])` 成立），重放后 DB 去重保证 `replayed == final`。
@@ -968,7 +968,7 @@ Expected: 全部通过。`test_snapshot.py::test_restore_replays_identically` �
 - [ ] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && git add tickflow/state.py tickflow/runner.py tests/test_storage_window.py && git commit -m "feat(state): snapshot fire_counts, restore carries backend, truncate rebuilds state from DB (D5)"
+cd "../Graph" && git add tickflow/state.py tickflow/runner.py tests/test_storage_window.py && git commit -m "feat(state): snapshot fire_counts, restore carries backend, truncate rebuilds state from DB (D5)"
 ```
 
 ---
@@ -1026,7 +1026,7 @@ def test_checkpoint_works_with_default_backend():
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_storage_window.py -q
+cd "../Graph" && python -m pytest tests/test_storage_window.py -q
 ```
 
 Expected: FAIL——`test_default_backend_temp_db_cleaned_up`（`Runner` 无 `_temp_db_path` 属性，且 backend=None 不落盘）。
@@ -1112,7 +1112,7 @@ def _cleanup_temp_db(backend: SqliteBackend, path: str) -> None:
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_storage_window.py tests/test_checkpoints.py tests/test_audit_switch.py tests/test_persistence.py -q
+cd "../Graph" && python -m pytest tests/test_storage_window.py tests/test_checkpoints.py tests/test_audit_switch.py tests/test_persistence.py -q
 ```
 
 Expected: 全部通过。其中 `test_persistence.py::test_runner_without_backend_no_persistence` 仍通过——临时库在系统临时目录，`tmp_path` 为空。
@@ -1120,7 +1120,7 @@ Expected: 全部通过。其中 `test_persistence.py::test_runner_without_backen
 - [ ] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && git add tickflow/runner.py tests/test_storage_window.py tests/test_checkpoints.py && git commit -m "feat(runner): default temp SqliteBackend with lifecycle cleanup (D6); persist via flush queue"
+cd "../Graph" && git add tickflow/runner.py tests/test_storage_window.py tests/test_checkpoints.py && git commit -m "feat(runner): default temp SqliteBackend with lifecycle cleanup (D6); persist via flush queue"
 ```
 
 ---
@@ -1152,7 +1152,7 @@ def test_to_json_from_json_roundtrip_audit():
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_storage_window.py -q
+cd "../Graph" && python -m pytest tests/test_storage_window.py -q
 ```
 
 Expected: FAIL——`rn2.audit_log()` 为空（持久路径下快照 records 为空，from_json 重建的 RunState 无审计来源）。
@@ -1206,7 +1206,7 @@ Expected: FAIL——`rn2.audit_log()` 为空（持久路径下快照 records 为
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests/test_storage_window.py tests/test_snapshot.py tests/test_audit_switch.py -q
+cd "../Graph" && python -m pytest tests/test_storage_window.py tests/test_snapshot.py tests/test_audit_switch.py -q
 ```
 
 Expected: 全部通过（含既有 `test_to_json_from_json_roundtrip`、`test_async_runner_to_json_roundtrip`、`test_keep_records_false_to_json_has_empty_audit`——`keep_records=False` 时 audit 为空列表，`records` 键依旧不出现）。
@@ -1214,7 +1214,7 @@ Expected: 全部通过（含既有 `test_to_json_from_json_roundtrip`、`test_as
 - [ ] **Step 5: Commit**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && git add tickflow/state.py tickflow/runner.py tests/test_storage_window.py && git commit -m "feat(runner): to_json/from_json carry the audit trail (inject_audit)"
+cd "../Graph" && git add tickflow/state.py tickflow/runner.py tests/test_storage_window.py && git commit -m "feat(runner): to_json/from_json carry the audit trail (inject_audit)"
 ```
 
 ---
@@ -1265,7 +1265,7 @@ for a zero-I/O in-memory run, or a concrete backend for a persistent one.
 - [ ] **Step 2: 全量回归**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests -q
+cd "../Graph" && python -m pytest tests -q
 ```
 
 Expected: 全部通过。若有个别失败：按 spec §6 适配表处理——`_edges` 全量断言改为窗口断言或改走 `audit_log()`/`firings_of`；`test_restore_truncates_history` 的 `any(t >= snap["tick"])` 在窗口下仍成立（窗口最近两条产生于快照后），若失败检查 `truncate_after` 的序号回卷。
@@ -1273,27 +1273,27 @@ Expected: 全部通过。若有个别失败：按 spec §6 适配表处理——
 - [ ] **Step 3: Commit**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && git add README.md && git commit -m "docs: update state/persistence section for dual-layer storage (D6/D7)"
+cd "../Graph" && git add README.md && git commit -m "docs: update state/persistence section for dual-layer storage (D6/D7)"
 ```
 
 ---
 
 # Phase B — SpecModule
 
-> 所有 SpecModule 命令的 cwd 均为 `C:\Users\xingy\Desktop\开发\SpecModule`。
+> 所有 SpecModule 命令的 cwd 均为 `../SpecModule`。
 
 ### Task B1: 同步 tickflow 到 SpecModule
 
 - [ ] **Step 1: 整目录同步（排除 `__pycache__`）**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && rm -rf tickflow/__pycache__ && cp -r "C:\Users\xingy\Desktop\开发\Graph\tickflow" tickflow_tmp && rm -rf tickflow && mv tickflow_tmp tickflow && rm -rf tickflow/__pycache__
+cd "../SpecModule" && rm -rf tickflow/__pycache__ && cp -r "../Graph\tickflow" tickflow_tmp && rm -rf tickflow && mv tickflow_tmp tickflow && rm -rf tickflow/__pycache__
 ```
 
 - [ ] **Step 2: 验证无差异（README.md 除外，SpecModule 独有）**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && diff -rq "C:\Users\xingy\Desktop\开发\Graph\tickflow" tickflow --exclude=__pycache__ --exclude=README.md
+cd "../SpecModule" && diff -rq "../Graph\tickflow" tickflow --exclude=__pycache__ --exclude=README.md
 ```
 
 Expected: 无输出（无差异）。
@@ -1301,7 +1301,7 @@ Expected: 无输出（无差异）。
 - [ ] **Step 3: 快速冒烟**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && python -m pytest module_harness/tests/test_module.py -q
+cd "../SpecModule" && python -m pytest module_harness/tests/test_module.py -q
 ```
 
 Expected: `13 passed`（tickflow 同步后既有 module 测试不破坏）。
@@ -1309,7 +1309,7 @@ Expected: `13 passed`（tickflow 同步后既有 module 测试不破坏）。
 - [ ] **Step 4: Commit**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && git add tickflow && git commit -m "chore: sync tickflow from Graph repo (dual-layer storage: memory window + SQLite)"
+cd "../SpecModule" && git add tickflow && git commit -m "chore: sync tickflow from Graph repo (dual-layer storage: memory window + SQLite)"
 ```
 
 ---
@@ -1377,7 +1377,7 @@ def _persist_dir(module_id: str) -> Path:
 - [ ] **Step 2: 冒烟**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && python -m pytest module_harness/tests/test_module.py -q
+cd "../SpecModule" && python -m pytest module_harness/tests/test_module.py -q
 ```
 
 Expected: `13 passed`（默认 persist=True，测试在仓库根目录生成 `.specmodule/runs/<module_id>/run.sqlite`——B5 加 `.gitignore` 收纳）。
@@ -1385,7 +1385,7 @@ Expected: `13 passed`（默认 persist=True，测试在仓库根目录生成 `.s
 - [ ] **Step 3: Commit**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && git add module_harness/module.py && git commit -m "feat(module): persist two-state switch — default .specmodule/runs/<run_id>/run.sqlite (D9/D11)"
+cd "../SpecModule" && git add module_harness/module.py && git commit -m "feat(module): persist two-state switch — default .specmodule/runs/<run_id>/run.sqlite (D9/D11)"
 ```
 
 ---
@@ -1427,7 +1427,7 @@ cd "C:\Users\xingy\Desktop\开发\SpecModule" && git add module_harness/module.p
 - [ ] **Step 2: 冒烟**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && python -m pytest module_harness/tests/test_submodule.py -q
+cd "../SpecModule" && python -m pytest module_harness/tests/test_submodule.py -q
 ```
 
 Expected: 全部通过（既有 SubModule 测试默认 mode="persist"，在仓库根目录生成 `.specmodule/runs/<name>_<uuid>/`——B5 的 `.gitignore` 收纳）。
@@ -1435,7 +1435,7 @@ Expected: 全部通过（既有 SubModule 测试默认 mode="persist"，在仓�
 - [ ] **Step 3: Commit**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && git add module_harness/submodule.py && git commit -m "feat(submodule): mode Literal['persist','fast'] class attribute (D11)"
+cd "../SpecModule" && git add module_harness/submodule.py && git commit -m "feat(submodule): mode Literal['persist','fast'] class attribute (D11)"
 ```
 
 ---
@@ -1586,7 +1586,7 @@ async def test_submodule_mode_fast_no_persist(tmp_path, mock_llm, monkeypatch):
 - [ ] **Step 2: 跑测试确认通过**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && python -m pytest module_harness/tests/test_storage_persist.py -q
+cd "../SpecModule" && python -m pytest module_harness/tests/test_storage_persist.py -q
 ```
 
 Expected: `4 passed`。
@@ -1594,7 +1594,7 @@ Expected: `4 passed`。
 - [ ] **Step 3: Commit**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && git add module_harness/tests/test_storage_persist.py && git commit -m "test: persist two-state + SubModule run dirs + fast mode (D9/D11)"
+cd "../SpecModule" && git add module_harness/tests/test_storage_persist.py && git commit -m "test: persist two-state + SubModule run dirs + fast mode (D9/D11)"
 ```
 
 ---
@@ -1631,7 +1631,7 @@ submodule是tasklist固定、spec强模板化的一个module，其spec和tasklis
 - [ ] **Step 4: Commit**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && git add AGENTS.md docs/concepts/SpecModule.md .gitignore && git commit -m "docs: embedded-mode persistence positioning + .specmodule/runs convention (D9/D11)"
+cd "../SpecModule" && git add AGENTS.md docs/concepts/SpecModule.md .gitignore && git commit -m "docs: embedded-mode persistence positioning + .specmodule/runs convention (D9/D11)"
 ```
 
 ---
@@ -1641,7 +1641,7 @@ cd "C:\Users\xingy\Desktop\开发\SpecModule" && git add AGENTS.md docs/concepts
 - [ ] **Step 1: 非 smoke 全量回归**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && python -m pytest module_harness/tests -m "not smoke" -q
+cd "../SpecModule" && python -m pytest module_harness/tests -m "not smoke" -q
 ```
 
 Expected: `196 passed, 15 deselected`（192 既有 + 4 新增）。
@@ -1649,7 +1649,7 @@ Expected: `196 passed, 15 deselected`（192 既有 + 4 新增）。
 - [ ] **Step 2: Graph 侧回归（确认无相互影响）**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\Graph" && python -m pytest tests -q
+cd "../Graph" && python -m pytest tests -q
 ```
 
 Expected: 全部通过（若 test_checkpoints 适配后数量略变，以通过为准）。
@@ -1657,7 +1657,7 @@ Expected: 全部通过（若 test_checkpoints 适配后数量略变，以通过�
 - [ ] **Step 3: 清理仓库根目录测试残留**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && rm -rf .specmodule && git status --short
+cd "../SpecModule" && rm -rf .specmodule && git status --short
 ```
 
 Expected: 工作区干净（`.specmodule/` 已被 gitignore，`git status` 无此目录）。
@@ -1665,7 +1665,7 @@ Expected: 工作区干净（`.specmodule/` 已被 gitignore，`git status` 无�
 - [ ] **Step 4: Commit（若 Step 3 有意外变更）**
 
 ```bash
-cd "C:\Users\xingy\Desktop\开发\SpecModule" && git add -A && git commit -m "chore: clean test residue" || true
+cd "../SpecModule" && git add -A && git commit -m "chore: clean test residue" || true
 ```
 
 ---

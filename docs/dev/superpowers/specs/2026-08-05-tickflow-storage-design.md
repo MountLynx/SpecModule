@@ -268,7 +268,7 @@ class LightDigest(SubModule):
 
 ## 7. 文件变更清单
 
-### Graph 仓库（`C:\Users\xingy\Desktop\开发\Graph`，tickflow 主仓库）
+### Graph 仓库（`../Graph`，tickflow 主仓库）
 
 | 文件 | 变更 |
 |------|------|
@@ -280,7 +280,7 @@ class LightDigest(SubModule):
 | `README.md` | 运行状态/持久化章节更新（若涉及） |
 | `tests/*` | 上节适配 + 新增 |
 
-### SpecModule（`C:\Users\xingy\Desktop\开发\SpecModule`）
+### SpecModule（`../SpecModule`）
 
 | 文件 | 变更 |
 |------|------|
