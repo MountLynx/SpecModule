@@ -23,11 +23,19 @@
 | `create_checkpoint` | `(module_id: str, label: str, *, tick: int \| None = None, base_dir: Path \| None = None) -> dict` | 给 tick 快照（缺省最新）命名——复制进 checkpoints 表，覆盖同名；返回 `{label, tick, overwritten}`；无运行/无快照/tick 不存在 → `KeyError` 带可用清单 |
 | `load_snapshot_summary` | `(module_id: str, *, tick: int \| None = None, base_dir: Path \| None = None) -> dict \| None` | tick 快照摘要 `{tick, status, fireable, fired, outputs}`（outputs=各节点最新值，时点输出用 review(tick=N)）；db 缺失/读失败 → `None`（查询容错）；无快照/tick 不存在 → `KeyError` |
 | `run_db_path` | `(module_id: str, base_dir: Path \| None = None) -> Path` | run.sqlite 路径规则单一来源（`<base>/.specmodule/runs/<id>/run.sqlite`）；`base_dir` 缺省 = cwd（服务器进程 cwd ≠ agent cwd，消费方宜显式传） |
+| `build_run_graph` | `(module_name: str, run_id: str \| None = None, *, base_dir: Path \| None = None, template: str \| None = None, tasklist: dict \| Tasklist \| None = None, src: ModuleSource \| None = None) -> tuple[Graph, Tasklist] \| None` | 从运行存档（module_inputs 表）或直接给定的 tasklist 重建 tickflow Graph——可视化共用（CLI visualize / Web 图渲染）；零 LLM（registry 以 MockLLMClient 占位构建）；`tasklist` 给出时跳过存档（直渲染通道）；`src` 为预解析 ModuleSource（缺省 `store.resolve_module` 统一搜索路径解析）；返回 `(Graph, Tasklist)`，无存档且未传 tasklist → `None`；模块未找到/加载/构建失败 → `ValueError`（消息可直接面向用户）；packed/pip 模块无存档时回落模块自带 tasklist |
+| `graph_to_dict` | `(graph: Graph, tasklist: Tasklist) -> dict` | tickflow Graph + Tasklist → 前端可视化结构（唯一新数据形状，Web/TUI 共用），见下 |
 
 `query_value` 寻址语法：顶层标量 `phase` / `status` / `tick` / `fireable` / `fired` / `error` / `updated_at`；
 输出 `outputs.<node>.<key...>`（节点最新输出内部键）；可变状态 `state.<node>.<key...>`（含 `_llm_raw`
 等调试字段）；整数段 = list 下标。`QueryValueResult: {tick, value, found, available}`——路径未命中
 `found=False` 且 `available` 给出该前缀下的可用键。
+
+`graph_to_dict` 输出形状：`{"nodes": [{"id", "label", "type", "is_start", "join", "inputs"}],
+"edges": [{"from", "to", "guard"}], "starts": [...]}`。`type`/`inputs` 取 tasklist 原始声明
+（Graph 节点 inputs 有 field/producer 双键污染，不直接透出）；Graph 节点无对应 task 时
+`type="unknown"` 降级（存档与代码漂移时不阻断渲染）。注意 `build_run_graph` 的模块解析错误走
+`ValueError`（非查询容错通道——它是构建型操作，消费方映射 4xx）。
 
 ## module_harness.status —— 运行状态
 
