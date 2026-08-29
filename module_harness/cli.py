@@ -34,11 +34,10 @@ from llm.mock import MockLLMClient
 
 from tickflow.persistence import SqliteBackend
 
-from .checkpoint import ModuleInputStore, ResumeError
+from .checkpoint import ResumeError
 from .entry import discover_modules
 from .events import EventBus
 from .feed import RunFeedServer
-from .graph_builder import TasklistTranslator
 from .module import Module, _persist_dir
 from .query import (
     CheckpointList,
@@ -56,7 +55,7 @@ from .query import (
 from .registry import HarnessRegistry
 from .scaffold import scaffold, scaffold_dir
 from . import store
-from .spec import Spec, Tasklist
+from .spec import Tasklist
 from .status import query_run_status
 from .translator import TemplateLoader
 
@@ -708,80 +707,60 @@ def _cmd_checkpoint(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_visualize_hint(args: argparse.Namespace, src) -> None:
+    """visualize 构建失败时按需给出模板提示（旧实现的提示语义保留）。"""
+    resolved = src if src is not None else store.resolve_module(args.module)
+    if resolved is None or resolved.is_packed:
+        return
+    entry = discover_modules(resolved.path.parent).get(args.module)
+    if entry is None or not entry.templates:
+        return
+    template_hint = "、".join(entry.templates)
+    print(
+        "提示: registry 按模板 "
+        f"'{args.template or entry.default_template}' 构建，"
+        "tasklist 与之不匹配时会出现未注册元件——可用模板: "
+        f"{template_hint}；存档/文件的 tasklist 可能来自其他模板，"
+        "试试对应 --template（如仍失败可传 --tasklist 直接渲染文件）",
+        file=sys.stderr,
+    )
+
+
 def _cmd_visualize(args: argparse.Namespace) -> int:
     """渲染 tasklist 对应图（mermaid）——看"这次流水线长什么样"。
 
-    数据源：``--tasklist <file>``（未运行的 tasklist 直接渲染）优先；
-    否则读 run.sqlite 的 module_inputs 存档（最近一次 run/resume 的输入）。
-
-    纯静态：只重建 Graph 并 ``to_mermaid()``，零执行、不读快照。registry
-    由模块入口构建（graph 校验需要已注册的 guard/body），llm_client 用
-    Mock 占位（渲染不调用 LLM，免 key 可用）。
+    组合逻辑在共享层 ``query.build_run_graph``（Web 可视化共用，统一 API 原则）；
+    CLI 只留参数接线 + mermaid 出口。数据源与错误提示语义与旧实现逐字一致。
     """
-    modules = discover_modules(Path(args.modules_dir))
-    res = _resolve_module_cmd(args)
-    if res is None:
-        return 1
-    # 数据源：--tasklist 文件优先；否则 module_inputs 存档。
-    # run_id 缺省 = 模块同名运行目录（run 的 run_id 默认即模块名）——不
-    # 用全局最新（_latest_run_id），避免其他模块/测试残留目录干扰。
-    if args.tasklist:
-        tasklist = _load_tasklist(args.tasklist)
-        spec = None
-        run_id = args.module
-    else:
-        run_id = args.run_id or args.module
-        store = ModuleInputStore(run_id)
-        try:
-            inputs = store.load_module_inputs()
-        finally:
-            store.close()
-        if inputs is None:
-            print(
-                f"无运行记录: {run_id}（先执行 specmodule run，或传 --tasklist 直接渲染）",
-                file=sys.stderr,
+    # 显式 --modules-dir：该目录 entry 优先（旧语义，仅此目录；未命中回落统一搜索）
+    src = None
+    if args.modules_dir != "modules" or (args.modules_dir == "modules"
+                                         and not (Path.cwd() / "modules").is_dir()):
+        entries = discover_modules(Path(args.modules_dir))
+        if args.module in entries:
+            src = store.ModuleSource(
+                name=args.module, kind="entry",
+                path=Path(args.modules_dir) / f"{args.module}.py",
             )
-            return 1
-        tasklist = Tasklist.from_json(inputs["tasklist"])
-        spec = Spec(inputs["spec"])
-    # registry 构建（与 run 同款模组接线；渲染零 LLM，Mock 占位）
-    event_bus = EventBus()
-    template_hint: str | None = None  # entry 形态可用模板（校验失败时提示）
-    if res.submodule is not None:
-        # packed 形态：SubModule 的固定 tasklist + 注册表
-        tasklist = tasklist or res.submodule.tasklist
-        registry = res.submodule._build_registry(
-            False, llm_client=MockLLMClient(), event_bus=event_bus
-        )
-        modules = res.submodule.modules
-    else:
-        entry = res.entry
-        template_hint = "、".join(entry.templates)
-        if entry.build_registry is not None:
-            registry = entry.build_registry(
-                MockLLMClient(), args.template or entry.default_template, event_bus
-            )
-        else:
-            registry = HarnessRegistry(llm_client=MockLLMClient(), event_bus=event_bus)
-        modules = entry.submodules
+    tasklist = _load_tasklist(args.tasklist) if args.tasklist else None
+    run_id = args.run_id or args.module
     try:
-        builder = TasklistTranslator(
-            registry, module_id=run_id,
-            modules=modules, llm_client=MockLLMClient(),
+        from .query import build_run_graph
+
+        res = build_run_graph(
+            args.module, run_id, tasklist=tasklist, src=src,
         )
-        graph, _ = builder.build(tasklist, spec)
     except ValueError as e:
         print(f"错误: {e}", file=sys.stderr)
-        if template_hint:
-            print(
-                "提示: registry 按模板 "
-                f"'{args.template or entry.default_template}' 构建，"
-                "tasklist 与之不匹配时会出现未注册元件——可用模板: "
-                f"{template_hint}；存档/文件的 tasklist 可能来自其他模板，"
-                "试试对应 --template（如仍失败可传 --tasklist 直接渲染文件）",
-                file=sys.stderr,
-            )
+        _print_visualize_hint(args, src)
         return 1
+    if res is None:
+        print(
+            f"无运行记录: {run_id}（先执行 specmodule run，或传 --tasklist 直接渲染）",
+            file=sys.stderr,
+        )
+        return 1
+    graph, _ = res
     text = graph.to_mermaid()
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")

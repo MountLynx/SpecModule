@@ -379,3 +379,128 @@ def query_value(
         tick=st.tick, found=False,
         available=["outputs", "state", *_ROOT_FIELDS],
     )
+
+
+def graph_to_dict(graph: Any, tasklist: Any) -> dict[str, Any]:
+    """tickflow Graph + Tasklist → 前端可视化结构（唯一新数据形状）。
+
+    nodes 的 ``type``/``inputs`` 取 tasklist 原始声明（Graph 节点 inputs 有
+    field/producer 双键污染，不直接透出）；``inputs`` 即 ``{field: producer}``。
+    Graph 中存在而 tasklist 无对应 task 的节点按 ``type="unknown"`` 降级
+    （存档与代码漂移时不阻断渲染）。CLI/MCP/Web 共用。
+    """
+    tasks = tasklist.tasks
+    nodes = []
+    for name, n in graph.nodes.items():
+        t = tasks.get(name)
+        nodes.append({
+            "id": name,
+            "label": name,
+            "type": t.type if t is not None else "unknown",
+            "is_start": bool(n.is_start),
+            "join": n.join,
+            "inputs": dict(t.inputs) if (t is not None and t.inputs) else {},
+        })
+    return {
+        "nodes": nodes,
+        "edges": [
+            {"from": e.src, "to": e.dst, "guard": e.guard} for e in graph.edges
+        ],
+        "starts": list(graph.starts),
+    }
+
+
+def build_run_graph(
+    module_name: str,
+    run_id: str | None = None,
+    *,
+    base_dir: Path | None = None,
+    template: str | None = None,
+    tasklist: Any = None,
+    src: Any = None,
+) -> tuple[Any, Any] | None:
+    """从运行存档（或直接给定 tasklist）重建 tickflow Graph——可视化共用。
+
+    原 CLI ``visualize`` 组合的共享层收编（CLI/Web 共用，零 LLM——registry 用
+    MockLLMClient 占位）：模块解析 → Mock registry → module_inputs 存档 →
+    TasklistTranslator.build。
+
+    - ``tasklist``：dict（{Tasks, Flow}）或 Tasklist 对象；给出时跳过存档
+      （直渲染通道）。
+    - ``src``：预解析 ModuleSource（CLI 显式 --modules-dir 分支直通）；缺省
+      ``store.resolve_module`` 统一搜索路径解析。
+    - 返回 ``(Graph, Tasklist)``；无存档且未传 tasklist → None；模块未找到/
+      加载失败/tasklist 构建失败 → ValueError（消息可直接面向用户）。
+    """
+    from llm.mock import MockLLMClient
+
+    from . import store
+    from .checkpoint import ModuleInputStore
+    from .events import EventBus
+    from .graph_builder import TasklistTranslator
+    from .registry import HarnessRegistry
+    from .spec import Spec, Tasklist
+
+    if src is None:
+        src = store.resolve_module(module_name)
+        if src is None:
+            raise ValueError(f"模块 '{module_name}' 未找到（specmodule list 查看全部）")
+    run_id = run_id or module_name
+    event_bus = EventBus()
+
+    tl: Tasklist | None = None
+    spec_data: dict | None = None
+    if isinstance(tasklist, Tasklist):
+        tl = tasklist
+    elif isinstance(tasklist, dict):
+        tl = Tasklist.from_json(tasklist)
+    elif tasklist is None:
+        istore = ModuleInputStore(run_id, base_dir)
+        try:
+            inputs = istore.load_module_inputs()
+        finally:
+            istore.close()
+        if inputs is not None:
+            tl = Tasklist.from_json(inputs["tasklist"])
+            spec_data = inputs["spec"]
+    else:
+        raise TypeError(f"tasklist 类型不支持: {type(tasklist)!r}")
+
+    if src.is_packed:
+        from .loader import ModuleLoader
+
+        try:
+            sub = ModuleLoader().load(src.path, lazy_client=True)
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"模块 '{module_name}' 加载失败: {e}") from e
+        registry = sub._build_registry(
+            False, llm_client=MockLLMClient(), event_bus=event_bus
+        )
+        modules = sub.modules
+        if tl is None:
+            tl = sub.tasklist
+    else:
+        from .entry import discover_modules
+
+        entry = discover_modules(src.path.parent).get(module_name)
+        if entry is None:
+            raise ValueError(f"模块 '{module_name}' 入口解析失败")
+        template_name = template or entry.default_template
+        if entry.build_registry is not None:
+            registry = entry.build_registry(
+                MockLLMClient(), template_name, event_bus
+            )
+        else:
+            registry = HarnessRegistry(
+                llm_client=MockLLMClient(), event_bus=event_bus
+            )
+        modules = entry.submodules
+    if tl is None:
+        return None
+    builder = TasklistTranslator(
+        registry, module_id=run_id, modules=modules, llm_client=MockLLMClient()
+    )
+    graph, _ = builder.build(tl, Spec(spec_data) if spec_data is not None else None)
+    return graph, tl
