@@ -28,6 +28,7 @@ from .checkpoint import (
     tasklist_from_dict,
     tasklist_to_dict,
 )
+from .query import _executed_nodes
 from .control import clear_control, control_tick_end, control_tick_start
 
 log = logging.getLogger(__name__)
@@ -434,15 +435,7 @@ class Module:
                     f"回退目标 {rollback_to!r} 不存在"
                     f"（可用 tick: {ticks or '无'}；manual: {manual or '无'}）"
                 )
-            # 已执行节点：firings 表中 tick < 快照 tick 的去重节点（S3 后
-            # 快照不再含 edges 窗口）。快照 tick N 在 tick N-1 结束后落盘，
-            # tick == N 的 firing 属于 restore 后会被重跑的部分，不算已执行。
-            # 注：firings 表按 module_id 累积（跨多次 run），前一轮 run 的
-            # 记录也会计入——仅影响提示性警告 1/3 的准确性，不影响硬错误。
-            executed_nodes = {
-                d["node"] for d in backend.list_firings(self.module_id)
-                if d.get("node") and int(d.get("tick", 0)) < int(snap.get("tick", 0))
-            }
+            executed_nodes = _executed_nodes(backend, self.module_id, int(snap.get("tick", 0)))
         except KeyError as e:
             self._write_phase("aborted", error=str(e))
             raise

@@ -46,6 +46,20 @@ def run_db_path(module_id: str, base_dir: Path | None = None) -> Path:
     return base / ".specmodule" / "runs" / module_id / "run.sqlite"
 
 
+def _executed_nodes(backend: Any, module_id: str, tick: int) -> set[str]:
+    """firings 表中 tick < 快照 tick 的去重节点（resume 已执行判定，单一事实源）。
+
+    快照 tick N 在 tick N-1 结束后落盘，tick == N 的 firing 属 restore 后
+    会被重跑的部分，不算已执行。firings 按 module_id 累积（跨多次 run），
+    前一轮 run 的记录也会计入——仅影响提示性警告 1/3 的准确性，不影响硬错误。
+    """
+    return {
+        d["node"]
+        for d in backend.list_firings(module_id)
+        if d.get("node") and int(d.get("tick", 0)) < tick
+    }
+
+
 def build_timeline(module_id: str, base_dir: Path | None = None) -> ReviewTimeline | None:
     """从 run.sqlite 构建审阅时间线。无 DB / 读失败 → None。"""
     db_path = run_db_path(module_id, base_dir=base_dir)
