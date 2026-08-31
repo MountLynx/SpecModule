@@ -20,7 +20,14 @@ from .consistency import ConsistencyError, ConsistencyReport, ConsistencyReviewe
 from .translator import Translator, TemplateLoader, TasklistValidator
 from .graph_builder import TasklistTranslator
 from .registry import HarnessRegistry
-from .events import EventBus, ConsistencyReviewed
+from .events import (
+    EventBus,
+    ConsistencyReviewed,
+    HarnessFailed,
+    LlmCallCompleted,
+    LlmCallStarted,
+    LlmToken,
+)
 from .checkpoint import (
     ModuleInputStore,
     ResumeError,
@@ -30,6 +37,7 @@ from .checkpoint import (
 )
 from .query import _executed_nodes
 from .control import clear_control, control_tick_end, control_tick_start
+from .stream import StreamLogWriter, stream_log_path
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +83,10 @@ class Module:
         persist: bool = True,
         status_file: bool = True,
         control: bool = True,
+        # True（默认）：LLM 流式输出落盘 stream.log（跨进程流式观测，见
+        # stream.py）。EventBus.null() 场景只有 run_start 记录（事件被
+        # null bus 吞掉，属预期）。
+        stream_log: bool = True,
         modules: dict[str, Any] | None = None,
         hooks: dict | None = None,
     ) -> None:
@@ -94,6 +106,11 @@ class Module:
         # True（默认）：注册控制文件 hook（control.json → cancel/pause，
         # 见 control.py）。跨进程取消/暂停的协作式通道；False 关闭。
         self.control = control
+        self.stream_log = stream_log
+        # stream.log 接线状态：订阅只挂一次（防多次执行重复订阅记录翻倍）；
+        # writer 每次执行重建（_run_with_phases 生命周期），事件回调读当前属性
+        self._stream_subscribed = False
+        self._stream_writer: StreamLogWriter | None = None
         self.review_result: ConsistencyReport | None = None
         self.module_id = module_id or f"mod_{uuid.uuid4().hex[:8]}"
         self._base_dir = base_dir or Path.cwd()
@@ -359,19 +376,66 @@ class Module:
             # 位于写 running phase 之前——监控方看到 running 才放开控制按钮，
             # 此时清场已完成，清场与首请求的竞态窗口关闭。
             clear_control(self.module_id, base_dir=self._base_dir)
-        self._archive_module_inputs()
-        self._write_phase("running")
+        writer = self._open_stream_log(max_ticks)
         try:
-            firings = await runner.run_until_idle(max_ticks=max_ticks)
-        except asyncio.CancelledError:
-            self._write_phase("cancelled", error="cancelled")
-            raise
-        except Exception as e:
-            self._write_phase("aborted", error=str(e))
-            raise
-        else:
-            self._finalize_phase(runner, max_ticks)
-        return firings
+            self._archive_module_inputs()
+            self._write_phase("running")
+            try:
+                firings = await runner.run_until_idle(max_ticks=max_ticks)
+            except asyncio.CancelledError:
+                self._write_phase("cancelled", error="cancelled")
+                raise
+            except Exception as e:
+                self._write_phase("aborted", error=str(e))
+                raise
+            else:
+                self._finalize_phase(runner, max_ticks)
+            return firings
+        finally:
+            self._close_stream_log(writer)
+
+    def _open_stream_log(self, max_ticks: int) -> StreamLogWriter | None:
+        """stream_log=True 时开本次执行的 writer 并写 run_start 边界。
+
+        run_start 先于 running phase 写入——监控方见到 running 时锚点记录
+        必已存在（status.json 原子写在同一执行线程、顺序在后）。事件订阅
+        只挂一次（守卫 flag），回调经 Module 当前 writer 属性落盘。
+        """
+        if not self.stream_log:
+            return None
+        if not self._stream_subscribed:
+            bus = self._reg._event_bus
+            for evt in (LlmCallStarted, LlmToken, LlmCallCompleted, HarnessFailed):
+                bus.subscribe(evt, self._on_stream_event)
+            self._stream_subscribed = True
+        writer = StreamLogWriter(stream_log_path(self.module_id, self._base_dir))
+        self._stream_writer = writer
+        writer.write({"type": "run_start", "pid": os.getpid(), "max_ticks": max_ticks})
+        return writer
+
+    def _close_stream_log(self, writer: StreamLogWriter | None) -> None:
+        """执行结束（含异常路径）摘除当前 writer 并关闭。"""
+        self._stream_writer = None
+        if writer is not None:
+            writer.close()
+
+    def _on_stream_event(self, event: Any) -> None:
+        """EventBus → stream.log 记录（四类事件 → 四种记录，见 stream.py）。"""
+        w = self._stream_writer
+        if w is None:
+            return
+        if isinstance(event, LlmCallStarted):
+            w.write({"type": "call_start", "node": event.node,
+                     "model": event.model, "prompt_chars": event.prompt_chars})
+        elif isinstance(event, LlmToken):
+            w.write({"type": "token", "node": event.node, "chunk": event.chunk})
+        elif isinstance(event, LlmCallCompleted):
+            w.write({"type": "call_end", "node": event.node,
+                     "content_chars": event.content_chars,
+                     "finish_reason": event.finish_reason})
+        elif isinstance(event, HarnessFailed):
+            w.write({"type": "call_error", "node": event.node,
+                     "reason": event.reason, "failure_type": event.failure_type})
 
     def _archive_module_inputs(self) -> None:
         """归档本次运行的 spec/tasklist 到 module_inputs 表（警告 1 对比源）。

@@ -175,8 +175,9 @@ class SubModule:
         - 事件投递与 records/persist 解耦：构造传入 event_bus 时事件始终投递
           （与 audit 取值无关）；未传则静默 EventBus.null()（嵌入零开销）。宿主
           需失败原因等现场反馈时，传 event_bus 选择性订阅即可，无需开启审计
-        - persist：False = 快速模式（NullBackend 全内存 + 无 status.json，
-          零落盘零 I/O）；None = 按 mode 决定（"fast" → False，否则 True）
+        - persist：False = 快速模式（NullBackend 全内存 + 无 status.json +
+          无 stream.log，零落盘零 I/O）；None = 按 mode 决定（"fast" → False，
+          否则 True）
         - llm_client/event_bus：覆盖实例级注入（宿主进程传入）；None 用实例值
         - hooks：runner hooks 透传（观察通道，与 Module hooks 同语义）
         """
@@ -204,6 +205,12 @@ class SubModule:
             keep_records=audit,
             persist=use_persist,
             status_file=use_persist,
+            # fast 模式 = 零残留模式：三个落盘通道（run.sqlite /
+            # status.json / stream.log）由 mode 一并关闭。stream_log 的
+            # 默认 True 是刻意的（CLI 拉起的子进程零接线即可流式观测），
+            # 故只在具名模式侧统一关——直接构造 Module 无"模式"概念，
+            # 每个通道由调用方逐个点名。
+            stream_log=use_persist,
             modules=self.modules,
             hooks=hooks,
         )
