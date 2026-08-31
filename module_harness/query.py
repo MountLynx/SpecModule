@@ -333,6 +333,126 @@ def read_module_inputs(
         store.close()
 
 
+def check_resume_compat_from_run(
+    module_name: str,
+    run_id: str,
+    *,
+    new_tasklist: Any = None,
+    target: int | str | None = None,
+    base_dir: Path | None = None,
+) -> dict[str, Any] | None:
+    """恢复预检：从运行产物组合材料跑兼容性校验——不 spawn、不写状态。
+
+    resume（module.py）内联组合的第二消费端收编：目标快照解析 →
+    executed_nodes（_executed_nodes）→ 旧输入存档（read_module_inputs）→
+    建图（build_run_graph 同款 Mock registry 通道，零 LLM；new_tasklist
+    给出时走直渲染通道）→ check_resume_compat（marking.slots / armed_starts
+    取自目标快照）。
+
+    - ``new_tasklist``：dict 或 Tasklist；None = 用归档 tasklist（纯续跑预检）。
+    - ``target``：tick 号 / ``"manual:<label>"`` / None（最新快照）。
+
+    错误契约：run.sqlite 缺失/读失败 → None（查询容错，调用方映射 404）；
+    tasklist 非法 / 建图失败 → ValueError（消息可直接面向用户，调用方映射
+    400）；目标解析失败**不 raise**——作为 ``hard_errors[0]`` 返回（消息与
+    module.py 的 KeyError 文案一致并附可用清单），``target``/``target_tick``
+    为 None。
+
+    返回 ``{"target": str | None, "target_tick": int | None,
+    "executed_nodes": [str], "hard_errors": [str], "warnings": [str]}``。
+    """
+    from .checkpoint import check_resume_compat, tasklist_from_dict
+
+    db_path = run_db_path(run_id, base_dir)
+    if not db_path.exists():
+        return None
+    from tickflow.persistence import SqliteBackend
+
+    backend = SqliteBackend(db_path)
+    try:
+        hard_errors: list[str] = []
+        warnings: list[str] = []
+        snap: dict[str, Any] | None = None
+        target_tick: int | None = None
+        ticks = backend.list_snapshots(run_id)
+        manual = [lbl for lbl, _ in backend.list_checkpoints(run_id)]
+        if not ticks and not manual:
+            hard_errors.append(f"无可恢复快照: {run_id}（运行未产生任何 tick 快照）")
+        elif isinstance(target, (int, str)) and (
+            isinstance(target, int)
+            or (isinstance(target, str) and target.isdigit())
+        ):
+            t = int(target)
+            if t in ticks:
+                snap = backend.load_snapshot(run_id, t)
+                target_tick = t
+            else:
+                hard_errors.append(
+                    f"回退目标 {target!r} 不存在"
+                    f"（可用 tick: {ticks or '无'}；manual: {manual or '无'}）"
+                )
+        elif isinstance(target, str) and target.startswith("manual:"):
+            snap = backend.load_checkpoint(run_id, target)
+            if snap is None:
+                hard_errors.append(
+                    f"回退目标 {target!r} 不存在"
+                    f"（可用 tick: {ticks or '无'}；manual: {manual or '无'}）"
+                )
+            else:
+                target_tick = int(snap.get("tick", 0))
+        elif target is not None:
+            hard_errors.append(
+                f"回退目标 {target!r} 不存在"
+                f"（可用 tick: {ticks or '无'}；manual: {manual or '无'}）"
+            )
+        else:
+            target_tick = max(ticks)
+            snap = backend.load_snapshot(run_id, target_tick)
+
+        executed: set[str] = set()
+        if snap is not None:
+            executed = _executed_nodes(backend, run_id, int(snap.get("tick", 0)))
+    finally:
+        backend.close()
+
+    if hard_errors:
+        return {"target": None, "target_tick": None, "executed_nodes": [],
+                "hard_errors": hard_errors, "warnings": []}
+
+    old_tl = None
+    old_inputs = read_module_inputs(run_id, base_dir=base_dir)
+    if old_inputs is not None:
+        old_tl = tasklist_from_dict(old_inputs["tasklist"])
+
+    try:
+        built = build_run_graph(module_name, run_id, base_dir=base_dir,
+                                tasklist=new_tasklist)
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"预检建图失败: {e}") from e
+    if built is None:
+        raise ValueError("无 tasklist 可预检（无归档且未传 new_tasklist）")
+    graph, new_tl = built
+
+    marking = (snap or {}).get("marking") or {}
+    check = check_resume_compat(
+        new_tl, graph, executed,
+        old_tasklist=old_tl,
+        marking_slots=marking.get("slots"),
+        armed_starts=marking.get("armed_starts"),
+    )
+    target_str = target if isinstance(target, str) else (
+        str(target) if target is not None else str(target_tick))
+    return {
+        "target": target_str,
+        "target_tick": target_tick,
+        "executed_nodes": sorted(executed),
+        "hard_errors": list(check.hard_errors),
+        "warnings": list(check.warnings),
+    }
+
+
 def timeline_to_dict(timeline: ReviewTimeline) -> dict[str, Any]:
     """JSON 出口（MCP/Web 直接消费同一函数）。"""
     return {

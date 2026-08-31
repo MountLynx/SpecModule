@@ -57,6 +57,7 @@ from .query import (
     ReviewTimeline,
     build_checkpoints,
     build_timeline,
+    check_resume_compat_from_run,
     checkpoints_to_dict,
     create_checkpoint,
     filter_failed,
@@ -168,6 +169,7 @@ __all__ = [
     "ResumeCheck",
     "ResumeError",
     "check_resume_compat",
+    "check_resume_compat_from_run",
     # 模块入口（roadmap Phase 0：CLI 使用）
     "ModuleEntry",
     "discover_modules",
