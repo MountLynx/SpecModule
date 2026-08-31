@@ -25,7 +25,7 @@ class ModuleStatus:
     """Module 运行状态静态快照。"""
 
     module_id: str
-    phase: str                 # idle/translating/reviewing/building/ready/running/done/aborted/cancelled
+    phase: str                 # idle/translating/reviewing/building/ready/running/done/aborted/cancelled/truncated
     status: str | None = None  # tickflow RunStatus（"running"/"idle"/...；无 DB 时为 None）
     tick: int | None = None    # 最新快照 tick（无 DB 时为 None）
     fireable: list[str] = field(default_factory=list)

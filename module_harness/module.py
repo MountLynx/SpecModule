@@ -129,7 +129,7 @@ class Module:
         """原子写 status.json（tmp + os.replace）。失败仅 log，不阻断运行。
 
         phase 取值：idle/translating/reviewing/building/ready/running/
-        done/aborted/cancelled。status_file=False 时不写盘（零残留）。
+        done/aborted/cancelled/truncated。status_file=False 时不写盘（零残留）。
         """
         if not self.status_file:
             return
@@ -370,7 +370,7 @@ class Module:
             self._write_phase("aborted", error=str(e))
             raise
         else:
-            self._finalize_phase(runner)
+            self._finalize_phase(runner, max_ticks)
         return firings
 
     def _archive_module_inputs(self) -> None:
@@ -388,7 +388,7 @@ class Module:
             self.spec.to_dict(), self._last_tasklist.to_dict()
         )
 
-    def _finalize_phase(self, runner: AsyncRunner) -> None:
+    def _finalize_phase(self, runner: AsyncRunner, max_ticks: int) -> None:
         """按 runner.status 映射终态 phase（run/resume 共用）。"""
         from tickflow.runner import RunStatus
         if runner.status == RunStatus.ABORTED:
@@ -398,7 +398,11 @@ class Module:
         elif runner.status == RunStatus.FAILED:
             self._write_phase("aborted", error="all nodes failed")
         elif runner.status == RunStatus.RUNNING:
-            self._write_phase("running")   # max_ticks 截断：仍在运行
+            # max_ticks 耗尽（pause 挂起发生在 run_until_idle 内部不返回，
+            # RUNNING 是唯一来源）→ 真终态：监控方拿到可 resume 的确定性信号
+            self._write_phase(
+                "truncated", error=f"max_ticks={max_ticks} 截断（可 resume 续跑）"
+            )
         else:
             self._write_phase("done")
 

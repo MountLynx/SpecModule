@@ -46,7 +46,7 @@
 | `query_run_status` | `(module_id: str, base_dir: Path \| None = None) -> ModuleStatus \| None` | 读 `status.json`（+ DB 若有）合成静态快照；目录不存在 → `None`；失败 run 只有 status.json 也返回 |
 
 `ModuleStatus` 字段：`module_id`、`phase`（`idle → translating → reviewing → building → ready →
-running → done | aborted | cancelled`）、`status`（tickflow RunStatus，无 DB 时 None）、`tick`、
+running → done | aborted | cancelled | truncated`）、`status`（tickflow RunStatus，无 DB 时 None）、`tick`、
 `fireable`、`fired`、`outputs`（node → 最新输出）、`node_states`（node → 可变状态）、`error`、`updated_at`。
 
 `base_dir` 默认 cwd——跨进程消费（服务器形态）必须显式传。
@@ -132,7 +132,8 @@ Module(
 firings 列表。协程跑完整 run；**进程内取消 = 取消该 asyncio task**（phase 落
 `cancelled`）；**跨进程取消/暂停走 control 文件通道**（见 module_harness.control——
 默认启用，运行进程在 tick 边界协作消费）；`max_ticks` 是唯一运行上限（每次 LLM 调用
-超时 60s）。落盘产物 `<base_dir>/.specmodule/runs/<run_id>/{run.sqlite, status.json}`，
+超时 60s）。`max_ticks` 耗尽 → phase 落 **`truncated`**（终态，`error` 记 `max_ticks=N 截断（可 resume 续跑）`）——
+监控方拿到可续跑的确定性信号，无需静默启发式。落盘产物 `<base_dir>/.specmodule/runs/<run_id>/{run.sqlite, status.json}`，
 跨进程可查。单写者约束：同一 `run_id` 并发写需调用方串行化。
 
 续跑：`await module.resume(rollback_to=None, max_ticks=100)` —— `rollback_to` 为 tick 号 /

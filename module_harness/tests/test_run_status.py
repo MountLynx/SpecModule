@@ -323,8 +323,8 @@ class TestModulePhase:
         assert "nope" in st["error"]
 
     @pytest.mark.asyncio
-    async def test_max_ticks_cutoff_not_done(self, tmp_path, monkeypatch, mock_llm):
-        """max_ticks 截断（status 仍 RUNNING）→ phase 保持 running，不写 done。"""
+    async def test_max_ticks_cutoff_truncated(self, tmp_path, monkeypatch, mock_llm):
+        """max_ticks 截断（status 仍 RUNNING）→ 终态 phase=truncated，error 带上限。"""
 
         def echo(view):
             return {"ok": True}
@@ -338,6 +338,35 @@ class TestModulePhase:
             ),
         )
         # 单节点 + max_ticks=1：tick 0 跑 A 后 tick_count=1 >= max_ticks，
-        # run_until_idle 退出但 status 仍 RUNNING → 截断不算 done
+        # run_until_idle 退出但 status 仍 RUNNING → 截断终态（可 resume 续跑）
         await mod.run(max_ticks=1)
-        assert self._read_status(tmp_path)["phase"] == "running"
+        st = self._read_status(tmp_path)
+        assert st["phase"] == "truncated"
+        assert "max_ticks=1" in st["error"]
+
+    @pytest.mark.asyncio
+    async def test_truncated_then_resume_done(self, tmp_path, monkeypatch, mock_llm):
+        """truncated 是可恢复终态：截断 → 新 Module resume 续跑 → done。"""
+
+        def echo(view):
+            return {"ok": True}
+
+        tasklist = Tasklist(
+            tasks={"A": TaskDefinition(type="script", script="echo")},
+            flow="[A]",
+        )
+        mod = self._make_module(
+            mock_llm, tmp_path, monkeypatch,
+            registry=self._script_reg(mock_llm, echo=echo),
+            tasklist=tasklist,
+        )
+        await mod.run(max_ticks=1)
+        assert self._read_status(tmp_path)["phase"] == "truncated"
+
+        mod2 = self._make_module(
+            mock_llm, tmp_path, monkeypatch,
+            registry=self._script_reg(mock_llm, echo=echo),
+            tasklist=tasklist,
+        )
+        await mod2.resume()
+        assert self._read_status(tmp_path)["phase"] == "done"
