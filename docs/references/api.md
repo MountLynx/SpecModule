@@ -69,11 +69,12 @@ status.json 的反向通道：status.json 把运行状态带出运行进程，co
 | `read_control` | `(module_id: str, base_dir: Path \| None = None) -> dict \| None` | 容错读当前请求；无请求/损坏/action 非法 → `None`；监控方据此显示"暂停中" |
 | `request_control` | `(module_id: str, action: str, *, reason: str \| None = None, base_dir: Path \| None = None) -> dict` | 原子写请求（tmp + os.replace）；返回写入的请求；action 非法 → `ValueError` |
 | `clear_control` | `(module_id: str, *, base_dir: Path \| None = None) -> None` | 删除控制文件（消费/清场）；幂等 |
-| `control_tick_start` | `(runner, module_id, *, base_dir: Path \| None = None, poll: float = 0.5)` | 工厂：返回注册到 `runner.on_tick_start` 的 async 回调（Module 自动接线，宿主自接线时用）；cancel → `runner.cancel(reason)`，pause → tick 边界挂起至 unpause/cancel |
+| `control_tick_start` | `(runner, module_id, *, base_dir: Path \| None = None, poll: float = 0.5)` | 工厂：注册到 `runner.on_tick_start` 的 async 回调，处理 pause 挂起（至 unpause/cancel；挂起中见到 cancel 不消费——留给 tick_end） |
+| `control_tick_end` | `(runner, module_id, *, base_dir: Path \| None = None)` | 工厂：注册到 `runner.on_tick_end` 的 async 回调，cancel 的唯一消费点——引擎每 tick 末尾无条件重写 `runner.status`，tick_start 期设的 CANCELLED 会被冲掉（E2E 实测缺陷），tick_end 在赋值之后运行故终态能活到下轮 terminal 检查 |
 
-生效语义：cancel/pause 在**下一 tick 边界**生效——引擎无 tick 中途终止，cancel 时当前
-tick 内已开始的 firing 会跑完（一 tick 延迟）；pause 挂起中即将 fire 的 tick 不启动、
-tick 计数不前进（max_ticks 不消耗）。
+生效语义：cancel 有一 tick 延迟——请求写在 tick N 内，N（或 N+1）结束时消费，
+当前 tick 内已开始的 firing 跑完、下一 tick 前停；pause 挂起中即将 fire 的 tick
+不启动、tick 计数不前进（max_ticks 不消耗）。
 
 ## module_harness.store —— 模块发现与解析
 

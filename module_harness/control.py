@@ -12,14 +12,19 @@ status.json 的反向通道：status.json 把运行状态带出运行进程，co
      "requested_at": float}
 
 - 写方：``request_control`` 原子写（tmp + os.replace，与 status.json 同款）。
-- 读方：``control_tick_start`` 工厂返回 async on_tick_start 回调，注册到
-  runner 后在每个 tick 边界检查：
-  - cancel → ``runner.cancel(reason)``（引擎无 tick 中途终止——当前 tick
-    内已开始的 firing 会跑完，下一 tick 前停，即取消有一 tick 延迟）；
-  - pause → 在 tick 边界挂起（即将 fire 的 tick 不启动、tick 计数不前进），
-    轮询等待 unpause 或 cancel；挂起期间保留文件——文件本身就是"暂停中"
-    状态，监控方 ``read_control`` 可读；
-  - unpause → 释放挂起；无挂起时出现（一次性写不会在非暂停期发生）→ 忽略。
+- 读方：``control_tick_start`` / ``control_tick_end`` 工厂返回 hook 回调，
+  由 Module 注册到 runner（``control=False`` 关闭）：
+  - **cancel 在 ``on_tick_end`` 消费**——引擎每个 tick 结束都会无条件重写
+    ``runner.status``（RUNNING/IDLE），tick_start 期设置的 CANCELLED 终态
+    会被同 tick 末尾的赋值冲掉；tick_end hook 在赋值之后运行，此刻
+    ``runner.cancel()`` 设置的终态能活到 ``run_until_idle`` 的下轮
+    terminal 检查，循环即停。请求写在 tick N 内 → N（或 N+1）末尾生效，
+    即取消有一 tick 延迟（当前 tick 内已开始的 firing 会跑完）。
+  - **pause 在 ``on_tick_start`` 挂起**——即将 fire 的 tick 不启动，tick
+    计数不前进（max_ticks 不消耗），轮询等待 unpause 或 cancel；挂起期间
+    保留文件（文件本身就是"暂停中"状态，监控方 ``read_control`` 可读）。
+    挂起中见到 cancel：不清除文件、直接放行——留给 tick_end 消费（同上
+    冲掉问题），当前 tick 跑完后停。
 - 消费即删（delete-on-consume）：动作执行后删除文件，防重放。
 - 新执行清场：``Module.run()/resume()`` 开始时 ``clear_control``——启动新
   执行即作废陈旧请求（进程崩溃残留的 pause 不会拖住下一次运行）。
@@ -41,6 +46,7 @@ __all__ = [
     "ACTIONS",
     "clear_control",
     "control_path",
+    "control_tick_end",
     "control_tick_start",
     "read_control",
     "request_control",
@@ -118,21 +124,18 @@ def control_tick_start(
     base_dir: Path | None = None,
     poll: float = POLL_SECONDS,
 ):
-    """工厂：返回注册到 ``runner.on_tick_start`` 的 async 控制回调。
+    """工厂：注册到 ``runner.on_tick_start`` 的 async pause/unpause hook。
 
-    ``runner`` 需提供 ``cancel(reason)``（tickflow Runner/AsyncRunner 均有）；
-    由 Module 在构建 runner 后注册（闭包捕获），CLI run/resume 默认接线。
+    只处理 pause 挂起（cancel 统一由 ``control_tick_end`` 消费——见模块
+    docstring 的终态冲掉说明）。``runner`` 仅用于签名一致性（本 hook 不调
+    runner 方法）；由 Module 在构建 runner 后注册。
     """
     async def _on_tick_start(tick: int, fireable: list[str]) -> None:
         req = read_control(module_id, base_dir=base_dir)
-        if req is None:
+        if req is None or req["action"] == "cancel":
+            # cancel 留给 tick_end（不清文件）；无请求直接放行
             return
-        action = req["action"]
-        if action == "cancel":
-            runner.cancel(req.get("reason") or "cancelled")
-            clear_control(module_id, base_dir=base_dir)
-            return
-        if action != "pause":
+        if req["action"] != "pause":
             return
         # pause：tick 边界挂起；文件保留 = "暂停中"状态（监控方 read_control 可读）
         while True:
@@ -142,11 +145,31 @@ def control_tick_start(
                 # 挂起期间文件被外部删除（人工清理）→ 视为释放
                 return
             if nxt["action"] == "cancel":
-                runner.cancel(nxt.get("reason") or "cancelled")
-                clear_control(module_id, base_dir=base_dir)
+                # 不清除、直接放行——tick_end 消费（终态不被本 tick 冲掉）
                 return
             if nxt["action"] == "unpause":
                 clear_control(module_id, base_dir=base_dir)
                 return
 
     return _on_tick_start
+
+
+def control_tick_end(
+    runner: Any,
+    module_id: str,
+    *,
+    base_dir: Path | None = None,
+):
+    """工厂：注册到 ``runner.on_tick_end`` 的 cancel 消费 hook。
+
+    在引擎每 tick 末尾的状态赋值**之后**运行——此刻 ``runner.cancel()``
+    设置的 CANCELLED 能活到 ``run_until_idle`` 下轮 terminal 检查。
+    """
+    async def _on_tick_end(tick: int, firings: list) -> None:
+        req = read_control(module_id, base_dir=base_dir)
+        if req is None or req["action"] != "cancel":
+            return
+        runner.cancel(req.get("reason") or "cancelled")
+        clear_control(module_id, base_dir=base_dir)
+
+    return _on_tick_end

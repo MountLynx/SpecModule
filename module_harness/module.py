@@ -28,7 +28,7 @@ from .checkpoint import (
     tasklist_from_dict,
     tasklist_to_dict,
 )
-from .control import clear_control, control_tick_start
+from .control import clear_control, control_tick_end, control_tick_start
 
 log = logging.getLogger(__name__)
 
@@ -222,9 +222,14 @@ class Module:
                 log.warning("Module hooks: 未知 runner hook '%s'（忽略）", _hook_name)
         if self.control:
             # 跨进程控制通道（control.json → cancel/pause）：与用户 hooks
-            # 并存——runner 的 on_tick_start 是 list，追加不覆盖。
+            # 并存——runner 的 hook 注册表是 list，追加不覆盖。cancel 在
+            # tick_end 消费（tick_start 期设终态会被引擎同 tick 赋值冲掉）、
+            # pause 在 tick_start 挂起，见 control.py 模块 docstring。
             runner.on_tick_start(
                 control_tick_start(runner, self.module_id, base_dir=self._base_dir)
+            )
+            runner.on_tick_end(
+                control_tick_end(runner, self.module_id, base_dir=self._base_dir)
             )
         return runner
 
