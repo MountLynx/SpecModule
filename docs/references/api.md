@@ -22,6 +22,7 @@
 | `build_checkpoints` | `(module_id: str, base_dir: Path \| None = None) -> CheckpointList \| None` | 列出全部回退点（tick 快照 + manual 检查点）；`checkpoints_to_dict` 出 `{module_id, checkpoints: [{target, tick, kind, fired, label}]}`，`target` 即 resume 目标 |
 | `create_checkpoint` | `(module_id: str, label: str, *, tick: int \| None = None, base_dir: Path \| None = None) -> dict` | 给 tick 快照（缺省最新）命名——复制进 checkpoints 表，覆盖同名；返回 `{label, tick, overwritten}`；无运行/无快照/tick 不存在 → `KeyError` 带可用清单 |
 | `load_snapshot_summary` | `(module_id: str, *, tick: int \| None = None, base_dir: Path \| None = None) -> dict \| None` | tick 快照摘要 `{tick, status, fireable, fired, outputs}`（outputs=各节点最新值，时点输出用 review(tick=N)）；db 缺失/读失败 → `None`（查询容错）；无快照/tick 不存在 → `KeyError` |
+| `read_module_inputs` | `(module_id: str, base_dir: Path \| None = None) -> dict \| None` | 读运行输入存档 `{spec, tasklist}`（module_inputs 表，本次 run 使用的输入）；消费场景：resume/rollback 前预填上次输入（换 spec/tasklist 重传的编辑起点）；db 缺失/无存档/读失败 → `None` |
 | `run_db_path` | `(module_id: str, base_dir: Path \| None = None) -> Path` | run.sqlite 路径规则单一来源（`<base>/.specmodule/runs/<id>/run.sqlite`）；`base_dir` 缺省 = cwd（服务器进程 cwd ≠ agent cwd，消费方宜显式传） |
 | `build_run_graph` | `(module_name: str, run_id: str \| None = None, *, base_dir: Path \| None = None, template: str \| None = None, tasklist: dict \| Tasklist \| None = None, src: ModuleSource \| None = None) -> tuple[Graph, Tasklist] \| None` | 从运行存档（module_inputs 表）或直接给定的 tasklist 重建 tickflow Graph——可视化共用（CLI visualize / Web 图渲染）；零 LLM（registry 以 MockLLMClient 占位构建）；`tasklist` 给出时跳过存档（直渲染通道）；`src` 为预解析 ModuleSource（缺省 `store.resolve_module` 统一搜索路径解析）；返回 `(Graph, Tasklist)`，无存档且未传 tasklist → `None`；模块未找到/加载/构建失败 → `ValueError`（消息可直接面向用户）；packed/pip 模块无存档时回落模块自带 tasklist |
 | `graph_to_dict` | `(graph: Graph, tasklist: Tasklist) -> dict` | tickflow Graph + Tasklist → 前端可视化结构（唯一新数据形状，Web/TUI 共用），见下 |
@@ -48,6 +49,31 @@ running → done | aborted | cancelled`）、`status`（tickflow RunStatus，无
 `fireable`、`fired`、`outputs`（node → 最新输出）、`node_states`（node → 可变状态）、`error`、`updated_at`。
 
 `base_dir` 默认 cwd——跨进程消费（服务器形态）必须显式传。
+
+## module_harness.control —— 跨进程运行控制（控制文件协议）
+
+status.json 的反向通道：status.json 把运行状态带出运行进程，control.json 把控制请求
+（cancel/pause/unpause）带进运行进程。文件即协议——任何消费端（CLI/Web/TUI）可写，
+运行进程在 **tick 边界协作式消费**（Module 默认注册 hook，`control=False` 关闭）。
+不触碰 status.json 单写者规则。
+
+协议：`<base_dir>/.specmodule/runs/<run_id>/control.json`，单发一次性请求
+`{"action": "cancel" | "pause" | "unpause", "reason": str|null, "requested_at": float}`；
+**消费即删**（delete-on-consume，防重放）；pause 挂起期间保留文件（文件本身就是
+"暂停中"状态，监控方 `read_control` 可读）；**新执行清场**——`Module.run()/resume()`
+开始时删除残留请求（崩溃残留的 pause 不拖住下一次运行）。
+
+| 函数 | 签名 | 行为 |
+|------|------|------|
+| `control_path` | `(module_id: str, base_dir: Path \| None = None) -> Path` | 控制文件路径规则单一来源 |
+| `read_control` | `(module_id: str, base_dir: Path \| None = None) -> dict \| None` | 容错读当前请求；无请求/损坏/action 非法 → `None`；监控方据此显示"暂停中" |
+| `request_control` | `(module_id: str, action: str, *, reason: str \| None = None, base_dir: Path \| None = None) -> dict` | 原子写请求（tmp + os.replace）；返回写入的请求；action 非法 → `ValueError` |
+| `clear_control` | `(module_id: str, *, base_dir: Path \| None = None) -> None` | 删除控制文件（消费/清场）；幂等 |
+| `control_tick_start` | `(runner, module_id, *, base_dir: Path \| None = None, poll: float = 0.5)` | 工厂：返回注册到 `runner.on_tick_start` 的 async 回调（Module 自动接线，宿主自接线时用）；cancel → `runner.cancel(reason)`，pause → tick 边界挂起至 unpause/cancel |
+
+生效语义：cancel/pause 在**下一 tick 边界**生效——引擎无 tick 中途终止，cancel 时当前
+tick 内已开始的 firing 会跑完（一 tick 延迟）；pause 挂起中即将 fire 的 tick 不启动、
+tick 计数不前进（max_ticks 不消耗）。
 
 ## module_harness.store —— 模块发现与解析
 
@@ -94,15 +120,18 @@ Module(
     registry: HarnessRegistry | None,
     persist: bool = True,           # False = NullBackend 全内存零落盘
     status_file: bool = True,       # False = 不写 status.json
+    control: bool = True,           # False = 不注册控制文件 hook（禁用跨进程 cancel/pause）
     keep_records: bool = True,
     ...
 )
 ```
 
 执行：`await module.run(max_ticks=100)` —— 翻译 → 构建 → 运行一步跑完，返回 tickflow
-firings 列表。**协程跑完整 run，无超时/取消 API**；`max_ticks` 是唯一运行上限（每次 LLM 调用
-超时 60s）。落盘产物 `<base_dir>/.specmodule/runs/<run_id>/{run.sqlite, status.json}`，跨进程可查。
-单写者约束：同一 `run_id` 并发写需调用方串行化。
+firings 列表。协程跑完整 run；**进程内取消 = 取消该 asyncio task**（phase 落
+`cancelled`）；**跨进程取消/暂停走 control 文件通道**（见 module_harness.control——
+默认启用，运行进程在 tick 边界协作消费）；`max_ticks` 是唯一运行上限（每次 LLM 调用
+超时 60s）。落盘产物 `<base_dir>/.specmodule/runs/<run_id>/{run.sqlite, status.json}`，
+跨进程可查。单写者约束：同一 `run_id` 并发写需调用方串行化。
 
 续跑：`await module.resume(rollback_to=None, max_ticks=100)` —— `rollback_to` 为 tick 号 /
 `"manual:<label>"` / `None`（缺省 = 最新 tick 快照）；目标不存在 → `KeyError` 带可用清单，

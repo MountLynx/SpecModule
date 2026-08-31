@@ -33,6 +33,7 @@ usage: specmodule [-h] {init,run,status,review,resume,checkpoint,checkpoints,sna
 | `snapshot` | 检视/导出指定 tick 的运行时快照 | 文本 / JSON / 文件 |
 | `rollback` | 回退到指定 tick/manual 检查点并重跑（目标必填） | 三级 verbose |
 | `checkpoint` | 给指定 tick 快照起命名检查点（`manual:` 永久保留） | 非交互参数 |
+| `cancel` / `pause` / `unpause` | 跨进程运行控制（控制文件通道，运行进程 tick 边界协作生效） | 非交互参数 |
 | `visualize` | 渲染 tasklist 对应图（mermaid 导出） | 文本 / 文件 |
 | `feed` | 零依赖运行 feed（http.server，浏览器轮询查看） | 服务 |
 | `list` | 列出全部可用模块（同名多来源全量展示） | 文本 / JSON |
@@ -58,6 +59,8 @@ checkpoints: CLI → build_checkpoints()（共享层，MCP/Web 复用）→ 文�
 snapshot: CLI → SqliteBackend.list_snapshots/load_snapshot（指定 tick）→ 摘要/JSON/导出文件
 rollback: CLI → 同 resume 接线，仅目标必填（防误续最新）
 checkpoint: CLI → load_snapshot(tick) → save_checkpoint(label)（纯数据操作，跨进程）
+cancel/pause/unpause: CLI → control.request_control()（control.json 原子写，跨进程；
+        运行进程由 Module 注册的 hook 在 tick 边界消费）
 visualize: CLI → 统一解析 → tasklist（--tasklist 或 module_inputs 存档）→
         TasklistTranslator 重建 Graph → to_mermaid()（纯静态，零执行）
 feed: CLI → RunFeedServer（ThreadingHTTPServer）→ 查询层组合 JSON（status/timeline/
@@ -574,7 +577,32 @@ python -m module_harness.cli rollback manual:test --module academic_writer --moc
 
 ---
 
-## 14. `visualize` — 渲染 tasklist 对应图（mermaid）
+## 14. `cancel` / `pause` / `unpause` — 跨进程运行控制
+
+```
+python -m module_harness.cli cancel [--run-id <id>] [--reason <原因>]
+python -m module_harness.cli pause [--run-id <id>]
+python -m module_harness.cli unpause [--run-id <id>]
+```
+
+向**正在别的进程里跑**的运行发控制请求（CLI / Web / TUI 同一通道）。实现为
+纯数据操作：`control.request_control()` 原子写
+`.specmodule/runs/<run_id>/control.json`，运行进程（`Module` 默认注册的
+tick 边界 hook）轮询消费——**不接触运行进程，立即返回**。
+
+- `cancel`：协作式取消——下一 tick 边界生效（当前 tick 内已开始的 firing
+  跑完），phase 落 `cancelled`；`--reason` 透传 runner（进 status.json error）
+- `pause`：tick 边界挂起——即将 fire 的 tick 不启动，tick 计数不前进；
+  挂起期间 control.json 保留（`status` 查询 + `read_control` 可见"暂停中"）
+- `unpause`：释放挂起，运行继续
+
+`--run-id` 缺省 = 最近运行。目标 run 不存在（无 status.json）→ 报错退出码 1。
+新 `run`/`resume` 启动时会清场（删除残留请求），崩溃残留的 pause 不会拖住
+下一次运行。协议与库函数详见 api.md 的 `module_harness.control` 一节。
+
+---
+
+## 15. `visualize` — 渲染 tasklist 对应图（mermaid）
 
 ```
 python -m module_harness.cli visualize --module <名> [--tasklist <file> | --run-id <id>] [--out FILE] [--template <名>]
@@ -612,7 +640,7 @@ graph TD
 
 ---
 
-## 15. `init` — 生成模块开发脚手架
+## 16. `init` — 生成模块开发脚手架
 
 ```
 python -m module_harness.cli init <name> [--dir PATH] [--as-dir] [--force] [--description "..."]
@@ -691,7 +719,7 @@ python -m module_harness.cli run --module <name> --mock
 
 ---
 
-## 16. Store：家目录、配置链与模块管理
+## 17. Store：家目录、配置链与模块管理
 
 ### 家目录（`~/.specmodule`，`SPECMODULE_HOME` 可覆盖）
 
@@ -747,7 +775,7 @@ specmodule uninstall <名>
 
 ---
 
-## 17. `feed` — 零依赖运行 feed
+## 18. `feed` — 零依赖运行 feed
 
 ```
 python -m module_harness.cli feed [--host 127.0.0.1] [--port 8000] [--run-id <id>]
@@ -760,7 +788,7 @@ stdlib `http.server` 起的只读服务：浏览器打开 `http://127.0.0.1:8000
 
 ---
 
-## 18. 范围 / 后续迭代
+## 19. 范围 / 后续迭代
 
 本子集**不含**（已记 roadmap，后续迭代）：
 
