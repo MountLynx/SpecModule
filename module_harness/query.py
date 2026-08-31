@@ -366,54 +366,64 @@ def check_resume_compat_from_run(
     db_path = run_db_path(run_id, base_dir)
     if not db_path.exists():
         return None
-    from tickflow.persistence import SqliteBackend
-
-    backend = SqliteBackend(db_path)
     try:
-        hard_errors: list[str] = []
-        warnings: list[str] = []
-        snap: dict[str, Any] | None = None
-        target_tick: int | None = None
-        ticks = backend.list_snapshots(run_id)
-        manual = [lbl for lbl, _ in backend.list_checkpoints(run_id)]
-        if not ticks and not manual:
-            hard_errors.append(f"无可恢复快照: {run_id}（运行未产生任何 tick 快照）")
-        elif isinstance(target, (int, str)) and (
-            isinstance(target, int)
-            or (isinstance(target, str) and target.isdigit())
-        ):
-            t = int(target)
-            if t in ticks:
-                snap = backend.load_snapshot(run_id, t)
-                target_tick = t
-            else:
-                hard_errors.append(
-                    f"回退目标 {target!r} 不存在"
-                    f"（可用 tick: {ticks or '无'}；manual: {manual or '无'}）"
-                )
-        elif isinstance(target, str) and target.startswith("manual:"):
-            snap = backend.load_checkpoint(run_id, target)
-            if snap is None:
-                hard_errors.append(
-                    f"回退目标 {target!r} 不存在"
-                    f"（可用 tick: {ticks or '无'}；manual: {manual or '无'}）"
-                )
-            else:
-                target_tick = int(snap.get("tick", 0))
-        elif target is not None:
-            hard_errors.append(
-                f"回退目标 {target!r} 不存在"
-                f"（可用 tick: {ticks or '无'}；manual: {manual or '无'}）"
-            )
-        else:
-            target_tick = max(ticks)
-            snap = backend.load_snapshot(run_id, target_tick)
+        from tickflow.persistence import SqliteBackend
 
-        executed: set[str] = set()
-        if snap is not None:
-            executed = _executed_nodes(backend, run_id, int(snap.get("tick", 0)))
-    finally:
-        backend.close()
+        backend = SqliteBackend(db_path)
+        try:
+            hard_errors: list[str] = []
+            snap: dict[str, Any] | None = None
+            target_tick: int | None = None
+            ticks = backend.list_snapshots(run_id)
+            manual = [lbl for lbl, _ in backend.list_checkpoints(run_id)]
+            if not ticks and not manual:
+                hard_errors.append(f"无可恢复快照: {run_id}（运行未产生任何 tick 快照）")
+            elif isinstance(target, int) or (
+                isinstance(target, str) and target.isdigit()
+            ):
+                t = int(target)
+                if t in ticks:
+                    snap = backend.load_snapshot(run_id, t)
+                    if snap is None:
+                        hard_errors.append(f"快照 tick {t} 读取失败（数据损坏？）")
+                    else:
+                        target_tick = t
+                else:
+                    hard_errors.append(
+                        f"回退目标 {target!r} 不存在"
+                        f"（可用 tick: {ticks or '无'}；manual: {manual or '无'}）"
+                    )
+            elif isinstance(target, str) and target.startswith("manual:"):
+                snap = backend.load_checkpoint(run_id, target)
+                if snap is None:
+                    hard_errors.append(
+                        f"回退目标 {target!r} 不存在"
+                        f"（可用 tick: {ticks or '无'}；manual: {manual or '无'}）"
+                    )
+                else:
+                    target_tick = int(snap.get("tick", 0))
+            elif target is not None:
+                hard_errors.append(
+                    f"回退目标 {target!r} 不存在"
+                    f"（可用 tick: {ticks or '无'}；manual: {manual or '无'}）"
+                )
+            else:
+                if not ticks:
+                    hard_errors.append(
+                        f"无可恢复快照: {run_id}（运行未产生任何 tick 快照）"
+                    )
+                else:
+                    target_tick = max(ticks)
+                    snap = backend.load_snapshot(run_id, target_tick)
+
+            executed: set[str] = set()
+            if snap is not None:
+                executed = _executed_nodes(backend, run_id, int(snap.get("tick", 0)))
+        finally:
+            backend.close()
+    except Exception:
+        log.exception("读取 run.sqlite 失败（返回 None）: %s", db_path)
+        return None
 
     if hard_errors:
         return {"target": None, "target_tick": None, "executed_nodes": [],

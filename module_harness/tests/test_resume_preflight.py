@@ -176,6 +176,35 @@ class TestCheckResumeCompatFromRun:
             check_resume_compat_from_run("ghost", "preflight_mini",
                                          base_dir=mini_env)
 
+    def test_zero_ticks_with_manual_no_default(self, mini_env):
+        """零 tick 快照但有 manual 检查点时，缺省目标 → hard_error 不 raise。"""
+        _seed_run(mini_env, inputs=False, snapshots={})  # 仅 firings，无快照
+        from tickflow.persistence import SqliteBackend
+
+        backend = SqliteBackend(mini_env / ".specmodule" / "runs" / "preflight_mini" / "run.sqlite")
+        backend.save_checkpoint("preflight_mini", "manual:cp",
+                                {"tick": 3, "status": "running", "marking": {}})
+        backend.close()
+        d = check_resume_compat_from_run("preflight_mini", "preflight_mini",
+                                         base_dir=mini_env)
+        assert d is not None
+        assert d["target"] is None and d["target_tick"] is None
+        assert any("无可恢复快照" in e for e in d["hard_errors"])
+
+    def test_corrupt_db_returns_none(self, mini_env):
+        db = mini_env / ".specmodule" / "runs" / "preflight_mini" / "run.sqlite"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        db.write_bytes(b"not a sqlite file")
+        assert check_resume_compat_from_run(
+            "preflight_mini", "preflight_mini", base_dir=mini_env) is None
+
+    def test_missing_digit_target_hard_error(self, mini_env):
+        _seed_run(mini_env)
+        d = check_resume_compat_from_run("preflight_mini", "preflight_mini",
+                                         target=99, base_dir=mini_env)
+        assert d is not None
+        assert any("不存在" in e and "99" in e for e in d["hard_errors"])
+
 
 def backend_store(base, run_id, label):
     """给最新快照打手动检查点（测试助手）。"""
