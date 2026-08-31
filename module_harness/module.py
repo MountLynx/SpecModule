@@ -28,6 +28,7 @@ from .checkpoint import (
     tasklist_from_dict,
     tasklist_to_dict,
 )
+from .control import clear_control, control_tick_start
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ class Module:
         keep_records: bool = True,
         persist: bool = True,
         status_file: bool = True,
+        control: bool = True,
         modules: dict[str, Any] | None = None,
         hooks: dict | None = None,
     ) -> None:
@@ -88,6 +90,9 @@ class Module:
         # True（默认）：写 .specmodule/runs/<module_id>/status.json
         # （阶段级，跨进程查询通道）；False：零残留（快速模式可用）
         self.status_file = status_file
+        # True（默认）：注册控制文件 hook（control.json → cancel/pause，
+        # 见 control.py）。跨进程取消/暂停的协作式通道；False 关闭。
+        self.control = control
         self.review_result: ConsistencyReport | None = None
         self.module_id = module_id or f"mod_{uuid.uuid4().hex[:8]}"
         self._base_dir = base_dir or Path.cwd()
@@ -215,6 +220,12 @@ class Module:
                 _register(_cb)
             else:
                 log.warning("Module hooks: 未知 runner hook '%s'（忽略）", _hook_name)
+        if self.control:
+            # 跨进程控制通道（control.json → cancel/pause）：与用户 hooks
+            # 并存——runner 的 on_tick_start 是 list，追加不覆盖。
+            runner.on_tick_start(
+                control_tick_start(runner, self.module_id, base_dir=self._base_dir)
+            )
         return runner
 
     # ------------------------------------------------------------------
@@ -337,6 +348,11 @@ class Module:
 
     async def _run_with_phases(self, runner: AsyncRunner, max_ticks: int) -> list:
         """归档本次输入 → 运行 → 按结果映射终态 phase（run/resume 共用）。"""
+        if self.control:
+            # 新执行清场：作废陈旧控制请求（崩溃残留的 pause 不拖住新执行）。
+            # 位于写 running phase 之前——监控方看到 running 才放开控制按钮，
+            # 此时清场已完成，清场与首请求的竞态窗口关闭。
+            clear_control(self.module_id, base_dir=self._base_dir)
         self._archive_module_inputs()
         self._write_phase("running")
         try:

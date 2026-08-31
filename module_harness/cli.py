@@ -12,6 +12,7 @@
     python -m module_harness.cli snapshot [<tick>] [--run-id xxx] [--json] [--out FILE]
     python -m module_harness.cli rollback <目标> --module <名> [--spec ...]
     python -m module_harness.cli checkpoint <label> [<tick>] [--run-id xxx]
+    python -m module_harness.cli cancel | pause | unpause [--run-id xxx]
     python -m module_harness.cli visualize --module <名> [--tasklist x.json | --run-id xxx] [--out FILE]
 
 场景归属：使用者层面（usage scenario）——第二级用户只写 spec/tasklist，
@@ -522,6 +523,29 @@ def _latest_run_id() -> str | None:
     if not dirs:
         return None
     return max(dirs, key=lambda d: d.stat().st_mtime).name
+
+
+def _cmd_control(args: argparse.Namespace) -> int:
+    """cancel/pause/unpause 共享实现：写控制文件（运行进程 tick 边界消费）。
+
+    纯数据操作（file 即通道），不接触运行进程；前置只校验目标 run 存在
+    （status.json 落盘）。生效时机取决于运行进程的下一 tick 边界。
+    """
+    from .control import request_control
+
+    module_id = args.run_id or _latest_run_id()
+    if module_id is None or not (
+        _persist_dir(module_id).parent / "status.json"
+    ).exists():
+        print(f"无运行记录: {module_id or '(无任何运行)'}", file=sys.stderr)
+        return 1
+    try:
+        request_control(module_id, args.command, reason=getattr(args, "reason", None))
+    except ValueError as e:
+        print(f"错误: {e}", file=sys.stderr)
+        return 1
+    print(f"已请求 {args.command}: {module_id}（运行进程将在下一 tick 边界生效）")
+    return 0
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
@@ -1302,6 +1326,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_checkpoint.add_argument("--run-id", help="运行 id（默认最近运行）")
     p_checkpoint.set_defaults(func=_cmd_checkpoint)
+
+    for _name, _help in (
+        ("cancel", "请求取消运行（协作式：下一 tick 边界生效，phase→cancelled）"),
+        ("pause", "请求暂停运行（tick 边界挂起，tick 计数不前进）"),
+        ("unpause", "释放暂停，运行继续"),
+    ):
+        _p = sub.add_parser(_name, help=_help)
+        _p.add_argument("--run-id", help="运行 id（默认最近运行）")
+        if _name == "cancel":
+            _p.add_argument("--reason", help="取消原因（透传 runner.cancel）")
+        _p.set_defaults(func=_cmd_control)
 
     p_visualize = sub.add_parser(
         "visualize", help="渲染 tasklist 对应图（mermaid 导出）"

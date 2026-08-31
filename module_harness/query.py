@@ -296,6 +296,29 @@ def load_snapshot_summary(
     return out
 
 
+def read_module_inputs(
+    module_id: str, base_dir: Path | None = None
+) -> dict[str, Any] | None:
+    """读运行输入存档（module_inputs 表：本次 run 使用的 spec/tasklist）。
+
+    消费场景：resume/rollback 前端预填上次输入（换 spec/tasklist 重传的
+    编辑起点）。db 缺失 / 无存档 / 读失败 → None（查询容错，同上）。
+    """
+    db_path = run_db_path(module_id, base_dir)
+    if not db_path.exists():
+        return None
+    from .checkpoint import ModuleInputStore
+
+    store = ModuleInputStore(module_id, base_dir)
+    try:
+        return store.load_module_inputs()
+    except Exception:
+        log.exception("读取 module_inputs 失败（返回 None）: %s", db_path)
+        return None
+    finally:
+        store.close()
+
+
 def timeline_to_dict(timeline: ReviewTimeline) -> dict[str, Any]:
     """JSON 出口（MCP/Web 直接消费同一函数）。"""
     return {
