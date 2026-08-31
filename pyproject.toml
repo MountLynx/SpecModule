@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "specmodule"
-version = "0.1.2"
+version = "0.1.3"
 description = "可审计、可调试、可完全掌控的 LLM 使用框架（tickflow + llm + module_harness）"
 readme = "README.md"
 requires-python = ">=3.10"
