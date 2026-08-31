@@ -431,10 +431,21 @@ def _run_resume_cmd(args: argparse.Namespace, *, require_target: bool) -> int:
         _check_spec_schema(res, spec)
         llm_client = _build_llm_client(args.mock)
         template_name = args.template or res.default_template
+        tasklist = _load_tasklist(args.tasklist) if args.tasklist else None
         if args.tasklist:
             # tasklist 路径：跳过翻译，template_name 置 None（与 Module
             # "template/tasklist 二选一"不变量对齐）
             template_name = None
+        elif template_name is None and tasklist is None:
+            # 流程来源兜底：显式参数 > entry.default_template > module_inputs
+            # 归档 tasklist（续跑语义本该默认沿用原任务书——tasklist 通道
+            # 启动的 run 无模板可回落，此前只能靠显式 --tasklist 续跑）
+            from .query import read_module_inputs
+
+            archived = read_module_inputs(module_id)
+            if archived and archived.get("tasklist"):
+                tasklist = Tasklist.from_json(archived["tasklist"])
+                print("流程来源：沿用 module_inputs 归档 tasklist", file=sys.stderr)
         # 回退目标：显式直传；resume 缺省（None）由库解析为最新 tick 快照
         # （须在 Module 构造前检查——构造即写 status.json idle，会覆盖前次终态）
         rollback_to = args.rollback
@@ -470,7 +481,7 @@ def _run_resume_cmd(args: argparse.Namespace, *, require_target: bool) -> int:
             mod = res.entry.build_module(
                 spec,
                 template_name=template_name,
-                tasklist=_load_tasklist(args.tasklist) if args.tasklist else None,
+                tasklist=tasklist,
                 llm_client=llm_client,
                 module_id=module_id,
                 hooks=display.hooks(),

@@ -316,6 +316,34 @@ class TestResume:
         assert "续跑完成" in out
         assert "hello from A" in out  # B 消费 A 的输出
 
+    def test_resume_falls_back_to_archived_tasklist(self, cwd, modules_dir, capsys):
+        """tasklist 通道启动的 run（模块无 default_template）恢复时沿用归档
+        tasklist——此前此类 run 只能显式 --tasklist 续跑（Web 恢复通道实测缺陷）。"""
+        (modules_dir / "tasklist_only.py").write_text(
+            RESUME_HELLO_PY.replace(
+                '    default_template="resume_hello",\n', ""
+            ).replace('name="resume_hello"', 'name="tasklist_only"'),
+            encoding="utf-8",
+        )
+        tasklist_file = cwd / "tl.json"
+        tasklist_file.write_text(
+            '{"Tasks": {"A": {"type": "script", "script": "A"},'
+            ' "B": {"type": "script", "script": "B", "inputs": {"value": "A"}}},'
+            ' "Flow": "[A] --> B"}',
+            encoding="utf-8",
+        )
+        assert (
+            _run(cwd, "--module", "tasklist_only", "--tasklist", str(tasklist_file),
+                 "--mock", "--max-ticks", "1")
+            == 0
+        )
+        capsys.readouterr()
+        # 不带 --tasklist/--template：归档兜底
+        assert _resume(cwd, "--module", "tasklist_only", "--mock") == 0
+        captured = capsys.readouterr()
+        assert "沿用 module_inputs 归档 tasklist" in captured.err
+        assert "续跑完成" in captured.out
+
     def test_resume_explicit_tick(self, cwd, modules_dir, capsys):
         # 截断后可用快照 tick 1（快照编号 N 在 tick N-1 结束后落盘——A 完成态）
         assert _run(cwd, "--module", "resume_hello", "--mock", "--max-ticks", "1") == 0

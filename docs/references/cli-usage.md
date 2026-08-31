@@ -434,6 +434,11 @@ spec 解析优先级与 `run` 一致（`--spec` > `--spec-file` > `entry.default
   模板/tasklist 改动必须与已执行部分兼容——`check_resume_compat` 硬错误
   （如 inputs 引用图中不存在的节点）直接拒绝（退出码 1），**既有快照不被触碰**；
   非阻断的结构改动以警告提示（已执行节点修改不生效）。
+- **流程来源兜底**：未显式给 `--template`/`--tasklist` 且模块无
+  `default_template` 时，沿用 `module_inputs` 归档 tasklist 续跑（提示
+  "流程来源：沿用 module_inputs 归档 tasklist"）——tasklist 通道启动的 run
+  无需再显式传 `--tasklist`；三者皆缺仍报 `template_name 与 tasklist
+  必须且只能传一个`。
 - 续跑记录写入**同一** run.sqlite：`status` / `review` 可查询中断前后完整历史。
 
 ### 示例
