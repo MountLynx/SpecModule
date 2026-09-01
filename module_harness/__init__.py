@@ -24,6 +24,7 @@ from .events import (
 )
 from .command import Command, CommandConfig
 from .harness import Harness
+from .call import HarnessCallError, HarnessCallResult, call_harness
 from .registry import HarnessRegistry
 from .spec import (
     Spec,
@@ -96,6 +97,10 @@ from .store import (
     validate_pack_dir,
 )
 
+# 嵌入者最小面（用法见 docs/guides/embedding.md）：
+#   task 级 = call_harness / HarnessCallResult / HarnessCallError
+#   图级   = Module / HarnessRegistry + HarnessConfig / OutputFormat / EventBus
+#             + register_builtin_harnesses
 __all__ = [
     # 配置
     "HarnessConfig",
@@ -119,6 +124,10 @@ __all__ = [
     "ScriptFailed",
     # 核心
     "Harness",
+    # task 级 API 地板（嵌入者消费面，docs/dev/superpowers/specs/2026-09-01-embedder-face-design.md）
+    "HarnessCallResult",
+    "HarnessCallError",
+    "call_harness",
     "HarnessRegistry",
     "Command",
     "CommandConfig",

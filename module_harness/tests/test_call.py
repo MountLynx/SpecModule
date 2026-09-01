@@ -142,6 +142,7 @@ class TestCallHarnessPromptmode:
         )
         prompt = mock_llm.complete.call_args.kwargs["prompt"]
         assert "人工注入部分" in prompt
+        assert "P：1" in prompt  # core 层仍完整渲染（层 3 注入不排挤层 1）
 
 
 class TestCallHarnessEvents:
@@ -182,3 +183,17 @@ class TestRegistryLlmClient:
     def test_readonly_accessor(self, mock_llm):
         reg = HarnessRegistry(llm_client=mock_llm)
         assert reg.llm_client is mock_llm
+        with pytest.raises(AttributeError):
+            reg.llm_client = object()  # 只读：无 setter
+
+
+class TestPublicExports:
+    def test_call_face_exported(self):
+        import module_harness
+
+        assert module_harness.call_harness is not None
+        assert module_harness.HarnessCallResult is not None
+        assert module_harness.HarnessCallError is not None
+        assert "call_harness" in module_harness.__all__
+        assert "HarnessCallResult" in module_harness.__all__
+        assert "HarnessCallError" in module_harness.__all__
