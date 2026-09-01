@@ -42,3 +42,11 @@ exclude = ["module_harness.tests*", "llm.tests*"]
 
 [tool.setuptools.package-data]
 module_harness = ["templates/builtin/*.json"]
+
+[tool.pytest.ini_options]
+# smoke = 真实 LLM 冒烟（活 API 调用：慢、耗额度、非确定性 flake）。
+# 默认全量排除；要看时 pytest -m smoke 显式 opt-in（CLI 的 -m 覆盖 addopts）。
+markers = [
+    "smoke: 真实 LLM 冒烟测试（活 API 调用，非确定性；默认排除，pytest -m smoke 显式运行）",
+]
+addopts = "-m 'not smoke'"
