@@ -15,6 +15,7 @@ OutputFormat``），注册 harness + script，跑通一个真实 workflow，并�
     - import 只触达库面（无任何框架内部符号）
     - 全部异步，宿主自持 asyncio 事件循环
     - 事件订阅不依赖 audit/records（keep_records=False 时事件照常可达）
+    - task 级地板 call_harness：一次函数调用，不经图与 run
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from module_harness import (
     HarnessConfig,
     HarnessRegistry,
     HarnessFailed,
+    call_harness,
     Module,
     OutputFormat,
     OutputValidated,
@@ -126,6 +128,19 @@ async def main() -> int:
     print("=== 宿主收到的事件 (keep_records=False) ===")
     for line in validated:
         print(f"  [宿主] {line}")
+
+    # 6. task 级地板：一次函数调用，不经图与 run（spec 2026-09-01-embedder-face-design）
+    result = await call_harness(
+        HarnessConfig(
+            prompt_core="将以下文本翻译为中文：{text}",
+            output_format=OutputFormat(type="json_object"),
+        ),
+        {"text": "SpecModule embeds as a task call."},
+        llm_client=client,
+        event_bus=bus,
+    )
+    print("=== task 级调用 call_harness ===")
+    print(f"  value={result.value} raw={result.raw!r}")
     return 0
 
 
