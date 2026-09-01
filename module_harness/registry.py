@@ -155,6 +155,15 @@ class HarnessRegistry(Registry):
 
     # ── 查询 ──────────────────────────────────────────────────────
 
+    @property
+    def llm_client(self) -> Any:
+        """注册表持有的 LLM 客户端（只读）。
+
+        供不经图独立调用 harness 的场景使用（如 ConsistencyReviewer
+        走 call_harness）。
+        """
+        return self._llm_client
+
     def is_harness(self, name: str) -> bool:
         """name 是否通过 harness() 注册。"""
         return name in self._harness_cfgs

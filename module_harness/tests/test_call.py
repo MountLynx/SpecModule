@@ -98,6 +98,7 @@ class TestCallHarnessJson:
             )
         err = exc_info.value
         assert err.failure.type == "infrastructure"
+        assert err.prompt == "P"  # prompt 在 LLM 调用前已渲染——异常仍可审计
         assert err.raw is None
         assert "API 不可用" in str(err)
 
@@ -127,6 +128,20 @@ class TestCallHarnessPromptmode:
                 llm_client=mock_llm,
                 promptmode="casual",
             )
+
+    @pytest.mark.asyncio
+    async def test_prompt_extra_injected(self, mock_llm):
+        mock_llm.complete.return_value = LLMResponse(
+            content="x", usage={}, finish_reason="end_turn",
+        )
+        await call_harness(
+            HarnessConfig(prompt_core="P：{x}"),
+            {"x": "1"},
+            llm_client=mock_llm,
+            prompt_extra="人工注入部分",
+        )
+        prompt = mock_llm.complete.call_args.kwargs["prompt"]
+        assert "人工注入部分" in prompt
 
 
 class TestCallHarnessEvents:
@@ -161,3 +176,9 @@ class TestCallHarnessEvents:
             HarnessConfig(prompt_core="P"), {}, llm_client=mock_llm,
         )
         assert result.value == "hi"
+
+
+class TestRegistryLlmClient:
+    def test_readonly_accessor(self, mock_llm):
+        reg = HarnessRegistry(llm_client=mock_llm)
+        assert reg.llm_client is mock_llm

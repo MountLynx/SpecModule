@@ -25,7 +25,7 @@ class HarnessCallResult:
 
     value: Any  # 校验后的输出（json_object → 解析值；text → str）
     raw: str    # LLM 原始输出（审计链）
-    usage: dict  # token 用量
+    usage: dict[str, int]  # token 用量
 
 
 class HarnessCallError(RuntimeError):
@@ -37,7 +37,7 @@ class HarnessCallError(RuntimeError):
         *,
         prompt: str | None = None,
         raw: str | None = None,
-        usage: dict | None = None,
+        usage: dict[str, int] | None = None,
     ) -> None:
         self.failure = failure
         self.prompt = prompt
