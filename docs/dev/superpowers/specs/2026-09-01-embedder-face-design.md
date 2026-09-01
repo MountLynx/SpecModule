@@ -150,7 +150,7 @@ async def call_harness(
 - **`module_harness/__init__.py`**：新增 `HarnessCallResult / HarnessCallError /
   call_harness` 导出；`__all__` 加注释块标注**嵌入者最小面**（call_harness +
   HarnessConfig + OutputFormat + EventBus + Module/HarnessRegistry +
-  register_builtin_harnesses）。不引入 `EMBEDDER_FACE` 之类的机器——注释 + 指南
+  TemplateLoader + register_builtin_harnesses）。不引入 `EMBEDDER_FACE` 之类的机器——注释 + 指南
   就是契约，正式冻结归 API 稳定化收口。
 - **`docs/guides/embedding.md`** 补两节：「task 级调用」（call_harness 示例 +
   asyncio.run 配方）、「嵌入者分层纪律」（红线压缩版 + import 箭头口诀）。

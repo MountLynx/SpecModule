@@ -100,7 +100,7 @@ from .store import (
 # 嵌入者最小面（用法见 docs/guides/embedding.md）：
 #   task 级 = call_harness / HarnessCallResult / HarnessCallError
 #   图级   = Module / HarnessRegistry + HarnessConfig / OutputFormat / EventBus
-#             + register_builtin_harnesses
+#             + TemplateLoader + register_builtin_harnesses
 __all__ = [
     # 配置
     "HarnessConfig",
