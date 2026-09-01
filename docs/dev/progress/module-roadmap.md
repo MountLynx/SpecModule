@@ -1,6 +1,6 @@
 # SpecModule 开发进度与路线
 
-> 最后更新：2026-09-01（新增"三种消费形式"章节：补全嵌入者消费形式 + call_harness 待做）
+> 最后更新：2026-09-01（嵌入者消费面落地：call_harness task 级地板 + reviewer 瘦身 + 嵌入者契约/指南）
 
 ## 战略定位（当前仓库 = 库）
 
@@ -90,16 +90,16 @@ CLI 双身份：既是使用者最基础入口，也是开发者终端工作台�
 
 ### 嵌入者面：需要 🔜
 
-- [ ] **task 级 API 地板 `call_harness`**：`call_harness(config, values) -> HarnessCallResult`
+- [x] **task 级 API 地板 `call_harness`**：`call_harness(config, values) -> HarnessCallResult`（已实现，设计/论证见 docs/dev/superpowers/specs/2026-09-01-embedder-face-design.md）
   （value/raw/usage）。复用 `Harness.build_body`；values 转 Resolved view；Failure 转异常；
   event_bus 可选（收流式 token），缺省 null。~40 行。API 金字塔自此 **task → graph → run**，
   三种形式各取一层。提炼依据（规则 6，三消费者）：ConsistencyReviewer 瘦身（已存在）+
   学术写作实践线应用层（规划中）+ 嵌入式定位（战略）。先例：SubModule 双身份（可独立运行 /
   可作节点）→ Harness 同样双身份（可作节点 body / 可独立调用）
-- [ ] **API 稳定化冻结面纳入嵌入者契约**：`__all__` 明确嵌入者可 import 面（不只 store 枚举契约）
+- [x] **API 稳定化冻结面纳入嵌入者契约**：`__all__` 注释标注嵌入者最小面（正式冻结归收口）
 - [x] **宿主事件语义（已有一半，归位）**：`decouple-embed-events-from-records`——宿主传 bus
   选择性订阅、不传零开销；归属嵌入者名义
-- [ ] **嵌入指南**（并入 repo-docs-tidy）
+- [x] **嵌入指南**（embedding.md 补 task 级调用 + 嵌入者分层纪律；repo-docs-tidy 只需核对）
 
 ### 嵌入者面：不需要 ⏸️（防过度服务）
 
@@ -107,7 +107,7 @@ CLI 双身份：既是使用者最基础入口，也是开发者终端工作台�
 - **红线：task 级地板不许长成迷你引擎**——重试/落盘/条件分支属图；嵌入者要运行期保证时往上
   爬一层用图，不在函数里重建。`call_harness` 只改变调用方式，不改变"该不该进图"的判定
 - **分层方向别反**：函数住 module_harness，调用方是应用层/模块层；基础库若想 import 它即
-  分层警报——该 LLM 调用应上移（script 节点或应用层），而非底层反向依赖顶层
+  分层警报——该 LLM 调用应上移（script 节点或应用层），而非底层反向依赖顶层（完整论证见 docs/dev/superpowers/specs/2026-09-01-embedder-face-design.md §2）
 
 ### 特性判定问句（机制）
 
