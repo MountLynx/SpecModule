@@ -63,7 +63,8 @@ class ConsistencyReviewer:
     审核走 call_harness（task 级地板）：不传 bus，内部中间事件静默
     （ConsistencyReviewed 领域事件由 Module 直接发射，不经此处）。
     按 register_review_harness 契约，审核 harness 只带 config 注册
-    （注册期 promptmode/prompt_extra 对审核器无意义，call_harness 路径不传）。
+    （注册期 promptmode/prompt_extra/spec_inputs/input_aliases 对审核器无意义，
+    call_harness 路径不传）。
     """
 
     def __init__(
@@ -74,7 +75,8 @@ class ConsistencyReviewer:
 
     async def review(self, spec: Spec, tasklist: Tasklist) -> ConsistencyReport:
         """执行一致性审核。审核失败（LLM 错误/输出不合法）抛 ValueError。"""
-        if self.reg.harness_config(self.harness_name) is None:
+        config = self.reg.harness_config(self.harness_name)
+        if config is None:
             raise ValueError(
                 f"审核 harness '{self.harness_name}' 未注册。"
                 f"请先调用 register_review_harness(reg) 注册内置审核器，"
@@ -83,7 +85,7 @@ class ConsistencyReviewer:
 
         try:
             call = await call_harness(
-                self.reg.harness_config(self.harness_name),
+                config,
                 {
                     "spec": spec.to_dict(),
                     "tasklist": json.dumps(tasklist.to_dict(), ensure_ascii=False),
@@ -109,11 +111,6 @@ class ConsistencyReviewer:
         if not isinstance(suggestions, str):
             raise ValueError(f"审核输出 'suggestions' 必须是字符串: {data!r}")
 
-        raw = call.raw
-        if raw is None:
-            raw = (
-                call.value
-                if isinstance(call.value, str)
-                else json.dumps(data, ensure_ascii=False)
-            )
-        return ConsistencyReport(consistent=consistent, suggestions=suggestions, raw=raw)
+        return ConsistencyReport(
+            consistent=consistent, suggestions=suggestions, raw=call.raw
+        )
