@@ -1,6 +1,6 @@
 # SpecModule 开发进度与路线
 
-> 最后更新：2026-08-23（0.1.1 发布：init --as-dir 脚手架修复 + git 来源安装完善）
+> 最后更新：2026-09-01（新增"三种消费形式"章节：补全嵌入者消费形式 + call_harness 待做）
 
 ## 战略定位（当前仓库 = 库）
 
@@ -61,6 +61,58 @@ CLI 双身份：既是使用者最基础入口，也是开发者终端工作台�
 
 把 CLI **扩增成更便捷的富交互终端界面**（面板 / 实时流 / 键盘导航 / 交互式回滚）——这是独立产品，
 依赖 TUI 框架（如 Textual），故独立成仓库。消费库的 query 层 + CLI，只 import 不实现。
+
+## 三种消费形式（2026-09-01 补全，特性判定固定问句）
+
+> 缘起：早期推演只有两种消费身份（"写 module 的人 / 用 module 的人"）。该表述在仓库转向
+> 框架库后取消，但取消后没有接盘物——特性判定时"这个功能服务于哪种消费形式"的追问随之
+> 消失，第三种消费形式（嵌入者）长期缺位。CLI 与 MCP/Web 生态均为两形式推演时代的产物。
+> 本节补全，并机制化：新特性判定固定追问消费形式，与"内置工具提炼机制"的判定标准并列。
+
+三者消费的**价值单位**不同，这才是区分的本质：
+
+| 消费形式 | 消费的价值单位 | 现有承载 |
+|------|------|------|
+| **作者**（写 module） | 模块定义：spec / tasklist / 模板 / submodule / publish | 翻译通道、模板、init、store 发布 |
+| **运行者**（用 module） | 一次 run 及其结果与审计 | CLI、store、status/query/resume |
+| **嵌入者**（把 SpecModule 当 LLM 运行框架，其他项目 import） | 一次 LLM 任务调用；其次是嵌进宿主进程的图 | 几乎空白（缺口证据见下） |
+
+嵌入者形态：宿主拥有应用逻辑，SpecModule 是依赖，承担"结构化的 LLM 工作"；最小价值单位是
+**一次函数调用**，不是 run。现有 API 金字塔（tasklist → graph → run）底下缺一层 task 级地板。
+
+### 缺口证据（补全前已存在的症状）
+
+- `Harness` docstring"用户不直接使用"——"用户"默认指 tasklist 作者，嵌入者在 API 面无位置
+- `ConsistencyReviewer` 手工内联独立调用全套配方（DictView 构造 + Failure→异常 + state 取
+  `_llm_raw`）——框架内部要当一次嵌入者时无现成 API，只能现造仪式代码
+- `embed_minimal` 嵌入验证一跑即暴露 `register_builtin_harnesses` 未从包顶层导出——公共 API
+  未按嵌入者视角审过
+
+### 嵌入者面：需要 🔜
+
+- [ ] **task 级 API 地板 `call_harness`**：`call_harness(config, values) -> HarnessCallResult`
+  （value/raw/usage）。复用 `Harness.build_body`；values 转 Resolved view；Failure 转异常；
+  event_bus 可选（收流式 token），缺省 null。~40 行。API 金字塔自此 **task → graph → run**，
+  三种形式各取一层。提炼依据（规则 6，三消费者）：ConsistencyReviewer 瘦身（已存在）+
+  学术写作实践线应用层（规划中）+ 嵌入式定位（战略）。先例：SubModule 双身份（可独立运行 /
+  可作节点）→ Harness 同样双身份（可作节点 body / 可独立调用）
+- [ ] **API 稳定化冻结面纳入嵌入者契约**：`__all__` 明确嵌入者可 import 面（不只 store 枚举契约）
+- [x] **宿主事件语义（已有一半，归位）**：`decouple-embed-events-from-records`——宿主传 bus
+  选择性订阅、不传零开销；归属嵌入者名义
+- [ ] **嵌入指南**（并入 repo-docs-tidy）
+
+### 嵌入者面：不需要 ⏸️（防过度服务）
+
+- store / install / publish（运行者的）、模板翻译（作者的）、CLI 均不服务嵌入者
+- **红线：task 级地板不许长成迷你引擎**——重试/落盘/条件分支属图；嵌入者要运行期保证时往上
+  爬一层用图，不在函数里重建。`call_harness` 只改变调用方式，不改变"该不该进图"的判定
+- **分层方向别反**：函数住 module_harness，调用方是应用层/模块层；基础库若想 import 它即
+  分层警报——该 LLM 调用应上移（script 节点或应用层），而非底层反向依赖顶层
+
+### 特性判定问句（机制）
+
+新特性 / 提炼判定时固定追问：**这个功能服务于哪种消费形式（作者 / 运行者 / 嵌入者）？**
+三者为空大概率不做；服务嵌入者时按本节边界执行。
 
 ## 完成度速览
 
