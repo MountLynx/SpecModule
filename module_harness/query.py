@@ -463,6 +463,10 @@ def check_resume_compat_from_run(
                 else:
                     target_tick = max(ticks)
                     snap = backend.load_snapshot(run_id, target_tick)
+                    if snap is None:
+                        hard_errors.append(
+                            f"快照 tick {target_tick} 读取失败（数据损坏？）"
+                        )
 
             executed: set[str] = set()
             if snap is not None:

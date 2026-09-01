@@ -198,6 +198,18 @@ class TestCheckResumeCompatFromRun:
         assert check_resume_compat_from_run(
             "preflight_mini", "preflight_mini", base_dir=mini_env) is None
 
+    def test_corrupt_latest_snapshot_hard_error(self, mini_env, monkeypatch):
+        """缺省目标（最新快照）读取失败 → hard_error，不静默降级继续校验。"""
+        _seed_run(mini_env)
+        import tickflow.persistence as tfp
+        monkeypatch.setattr(tfp.SqliteBackend, "load_snapshot",
+                            lambda self, session_id, tick: None)
+        d = check_resume_compat_from_run("preflight_mini", "preflight_mini",
+                                         base_dir=mini_env)
+        assert d is not None
+        assert d["target"] is None and d["target_tick"] is None
+        assert any("读取失败" in e and "1" in e for e in d["hard_errors"])
+
     def test_missing_digit_target_hard_error(self, mini_env):
         _seed_run(mini_env)
         d = check_resume_compat_from_run("preflight_mini", "preflight_mini",
