@@ -8,10 +8,13 @@ CLI（host + 查询形态）、MCP、Web 三形态共同消费本模块——形
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from .stream import stream_log_path
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +47,51 @@ def run_db_path(module_id: str, base_dir: Path | None = None) -> Path:
     """
     base = base_dir if base_dir is not None else Path.cwd()
     return base / ".specmodule" / "runs" / module_id / "run.sqlite"
+
+
+def read_stream(
+    run_id: str, *, offset: int = 0, base_dir: Path | None = None
+) -> dict[str, Any] | None:
+    """增量读 stream.log（LLM 流式观测共享读端；Web WS 追尾/未来 TUI 共用）。
+
+    二进制 seek(offset) 读到 EOF，按完整行切分；每条记录附行首字节偏移
+    ``off``（锚定策略——只显示最近一次执行——由消费方据 off 自行定位，展示
+    策略不进库）。末尾不完整行不消费（next_offset 停在其行首，等补齐后
+    下次读出）；JSON 解析失败的行跳过（崩溃瞬间可能出半行）；
+    ``offset > file_size``（文件被替换/重建）钳回 0 自愈。文件缺失 → None。
+
+    返回 ``{"records": [...], "next_offset": int, "file_size": int}``。
+    """
+    path = stream_log_path(run_id, base_dir)
+    if not path.exists():
+        return None
+    try:
+        size = path.stat().st_size
+        start = offset if offset <= size else 0
+        with path.open("rb") as fh:
+            fh.seek(start)
+            data = fh.read()
+    except OSError:
+        log.exception("读 stream.log 失败（返回 None）: %s", path)
+        return None
+    nl = data.rfind(b"\n")
+    if nl < 0:
+        return {"records": [], "next_offset": start, "file_size": size}
+    pos = start
+    records: list[dict[str, Any]] = []
+    for line in data[:nl].split(b"\n"):
+        line_off = pos
+        pos += len(line) + 1
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            log.warning("跳过损坏的 stream.log 行（off=%d）", line_off)
+            continue
+        rec["off"] = line_off
+        records.append(rec)
+    return {"records": records, "next_offset": start + nl + 1, "file_size": size}
 
 
 def _executed_nodes(backend: Any, module_id: str, tick: int) -> set[str]:

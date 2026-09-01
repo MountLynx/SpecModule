@@ -14,6 +14,7 @@ from module_harness.events import EventBus
 from module_harness.module import Module
 from module_harness.registry import HarnessRegistry
 from module_harness.spec import TaskDefinition, Tasklist
+from module_harness.query import read_stream
 from module_harness.stream import StreamLogWriter, stream_log_path
 
 
@@ -155,3 +156,55 @@ class TestModuleWiring:
         assert mod._stream_writer is None
         recs = _read_records(stream_log_path("mod_stream", tmp_path))
         assert recs[0]["type"] == "run_start"
+
+class TestReadStream:
+    def _write_log(self, tmp_path, lines, run_id="r1"):
+        p = stream_log_path(run_id, tmp_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("".join(lines), encoding="utf-8")
+        return p
+
+    def test_missing_returns_none(self, tmp_path):
+        assert read_stream("ghost", base_dir=tmp_path) is None
+
+    def test_incremental_with_off(self, tmp_path):
+        self._write_log(tmp_path, [
+            json.dumps({"type": "run_start", "pid": 1}) + "\n",
+            json.dumps({"type": "token", "node": "A", "chunk": "hi"}) + "\n",
+        ])
+        r1 = read_stream("r1", base_dir=tmp_path)
+        assert [r["type"] for r in r1["records"]] == ["run_start", "token"]
+        assert r1["next_offset"] == r1["file_size"]
+        assert r1["records"][0]["off"] == 0
+        assert r1["records"][1]["off"] > r1["records"][0]["off"]
+        r2 = read_stream("r1", offset=r1["next_offset"], base_dir=tmp_path)
+        assert r2["records"] == []
+
+    def test_partial_line_not_consumed(self, tmp_path):
+        self._write_log(tmp_path, [
+            json.dumps({"type": "run_start"}) + "\n",
+            '{"type": "tok',
+        ])
+        r = read_stream("r1", base_dir=tmp_path)
+        assert [x["type"] for x in r["records"]] == ["run_start"]
+        # 半行 + 补齐串须拼成完整 json：{"type": "toke" 少一个 n，故补 'en"'
+        with stream_log_path("r1", tmp_path).open("a", encoding="utf-8") as fh:
+            fh.write('en", "node": "A"}\n')
+        r2 = read_stream("r1", offset=r["next_offset"], base_dir=tmp_path)
+        assert r2["records"][0]["type"] == "token"
+        assert r2["records"][0]["node"] == "A"
+
+    def test_corrupt_line_skipped(self, tmp_path):
+        self._write_log(tmp_path, [
+            json.dumps({"type": "run_start"}) + "\n",
+            "not json{{\n",
+            json.dumps({"type": "token", "node": "A", "chunk": "x"}) + "\n",
+        ])
+        r = read_stream("r1", base_dir=tmp_path)
+        assert [x["type"] for x in r["records"]] == ["run_start", "token"]
+
+    def test_offset_beyond_size_clamped(self, tmp_path):
+        """offset 超过文件大小（文件被替换/重建）→ 钳回 0 自愈。"""
+        self._write_log(tmp_path, [json.dumps({"type": "run_start"}) + "\n"])
+        r = read_stream("r1", offset=10_000, base_dir=tmp_path)
+        assert [x["type"] for x in r["records"]] == ["run_start"]

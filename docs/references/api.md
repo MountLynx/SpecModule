@@ -27,6 +27,7 @@
 | `run_db_path` | `(module_id: str, base_dir: Path \| None = None) -> Path` | run.sqlite 路径规则单一来源（`<base>/.specmodule/runs/<id>/run.sqlite`）；`base_dir` 缺省 = cwd（服务器进程 cwd ≠ agent cwd，消费方宜显式传） |
 | `build_run_graph` | `(module_name: str, run_id: str \| None = None, *, base_dir: Path \| None = None, template: str \| None = None, tasklist: dict \| Tasklist \| None = None, src: ModuleSource \| None = None) -> tuple[Graph, Tasklist] \| None` | 从运行存档（module_inputs 表）或直接给定的 tasklist 重建 tickflow Graph——可视化共用（CLI visualize / Web 图渲染）；零 LLM（registry 以 MockLLMClient 占位构建）；`tasklist` 给出时跳过存档（直渲染通道）；`src` 为预解析 ModuleSource（缺省 `store.resolve_module` 统一搜索路径解析）；返回 `(Graph, Tasklist)`，无存档且未传 tasklist → `None`；模块未找到/加载/构建失败 → `ValueError`（消息可直接面向用户）；packed/pip 模块无存档时回落模块自带 tasklist |
 | `graph_to_dict` | `(graph: Graph, tasklist: Tasklist) -> dict` | tickflow Graph + Tasklist → 前端可视化结构（唯一新数据形状，Web/TUI 共用），见下 |
+| `read_stream` | `(run_id: str, *, offset: int = 0, base_dir: Path \| None = None) -> dict \| None` | 增量读 `stream.log`（LLM 流式观测共享读端）：按完整行切分、每条记录附行首字节偏移 `off`；末尾不完整行不消费（`next_offset` 停在其行首）；坏行跳过；`offset > file_size` 钳回 0 自愈；缺失 → `None`。返回 `{"records", "next_offset", "file_size"}`；"只显示最近执行"的锚定策略由消费方据 `off` 定位最后一条 `run_start` |
 
 `query_value` 寻址语法：顶层标量 `phase` / `status` / `tick` / `fireable` / `fired` / `error` / `updated_at`；
 输出 `outputs.<node>.<key...>`（节点最新输出内部键）；可变状态 `state.<node>.<key...>`（含 `_llm_raw`
@@ -123,6 +124,7 @@ Module(
     persist: bool = True,           # False = NullBackend 全内存零落盘
     status_file: bool = True,       # False = 不写 status.json
     control: bool = True,           # False = 不注册控制文件 hook（禁用跨进程 cancel/pause）
+    stream_log: bool = True,        # False = 不写 stream.log（LLM 流式观测通道）
     keep_records: bool = True,
     ...
 )
@@ -135,6 +137,9 @@ firings 列表。协程跑完整 run；**进程内取消 = 取消该 asyncio tas
 超时 60s）。`max_ticks` 耗尽 → phase 落 **`truncated`**（终态，`error` 记 `max_ticks=N 截断（可 resume 续跑）`）——
 监控方拿到可续跑的确定性信号，无需静默启发式。落盘产物 `<base_dir>/.specmodule/runs/<run_id>/{run.sqlite, status.json}`，
 跨进程可查。单写者约束：同一 `run_id` 并发写需调用方串行化。
+LLM 流式输出经 EventBus 订阅落盘 `stream.log`（JSONL，append-only：`run_start` 为每次执行
+边界，后接 `call_start`/`token`/`call_end`/`call_error`；`ts` 为 wall-clock；
+`EventBus.null()` 场景仅 `run_start`）；增量读走 `query.read_stream`。
 
 续跑：`await module.resume(rollback_to=None, max_ticks=100)` —— `rollback_to` 为 tick 号 /
 `"manual:<label>"` / `None`（缺省 = 最新 tick 快照）；目标不存在 → `KeyError` 带可用清单，
