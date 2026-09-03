@@ -21,14 +21,17 @@ from tickflow.async_runner import AsyncRunner
 from tickflow.persistence import SqliteBackend
 
 
-def _write_status(tmp_path, module_id="mod_x", phase="running", error=None, updated_at=100.0):
+def _write_status(tmp_path, module_id="mod_x", phase="running", error=None, updated_at=100.0, module=None):
     run_dir = tmp_path / ".specmodule" / "runs" / module_id
     run_dir.mkdir(parents=True, exist_ok=True)
+    data = {
+        "module_id": module_id, "phase": phase, "error": error,
+        "updated_at": updated_at,
+    }
+    if module is not None:
+        data["module"] = module
     (run_dir / "status.json").write_text(
-        json.dumps({
-            "module_id": module_id, "phase": phase, "error": error,
-            "updated_at": updated_at,
-        }, ensure_ascii=False),
+        json.dumps(data, ensure_ascii=False),
         encoding="utf-8",
     )
     return run_dir
@@ -119,6 +122,18 @@ class TestQueryRunStatus:
         assert query_run_status("mod_x", base_dir=tmp_path) is None
         assert "status.json" in caplog.text
 
+    def test_module_field_read(self, tmp_path):
+        """新格式 status.json 带 module 键 → ModuleStatus.module 读出。"""
+        _write_status(tmp_path, module="hello")
+        st = query_run_status("mod_x", base_dir=tmp_path)
+        assert st.module == "hello"
+
+    def test_module_field_old_format_none(self, tmp_path):
+        """旧格式 status.json 无 module 键 → None（向后兼容）。"""
+        _write_status(tmp_path)
+        st = query_run_status("mod_x", base_dir=tmp_path)
+        assert st.module is None
+
     def test_db_failure_degrades_to_phase_only(self, tmp_path, monkeypatch):
         run_dir = _write_status(tmp_path, phase="done", updated_at=1.0)
         SqliteBackend(run_dir / "run.sqlite").close()
@@ -191,6 +206,16 @@ class TestModulePhase:
     def test_init_writes_idle(self, tmp_path, monkeypatch, mock_llm):
         self._make_module(mock_llm, tmp_path, monkeypatch)
         assert self._read_status(tmp_path)["phase"] == "idle"
+
+    def test_module_field_written(self, tmp_path, monkeypatch, mock_llm):
+        """module= 传入 → status.json "module" 键记录源模块名（溯源）。"""
+        self._make_module(mock_llm, tmp_path, monkeypatch, module="hello")
+        assert self._read_status(tmp_path)["module"] == "hello"
+
+    def test_module_field_none_when_not_passed(self, tmp_path, monkeypatch, mock_llm):
+        """直构 Module 未传 module → 键为 null（消费端回落启发式）。"""
+        self._make_module(mock_llm, tmp_path, monkeypatch)
+        assert self._read_status(tmp_path)["module"] is None
 
     def test_build_runner_writes_ready(self, tmp_path, monkeypatch, mock_llm):
         mod = self._make_module(mock_llm, tmp_path, monkeypatch)

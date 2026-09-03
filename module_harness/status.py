@@ -26,6 +26,7 @@ class ModuleStatus:
 
     module_id: str
     phase: str                 # idle/translating/reviewing/building/ready/running/done/aborted/cancelled/truncated
+    module: str | None = None  # 源模块名（status.json "module" 键；旧格式/直构未传 → None）
     status: str | None = None  # tickflow RunStatus（"running"/"idle"/...；无 DB 时为 None）
     tick: int | None = None    # 最新快照 tick（无 DB 时为 None）
     fireable: list[str] = field(default_factory=list)
@@ -58,6 +59,9 @@ def query_run_status(
         st = ModuleStatus(
             module_id=str(data.get("module_id", module_id)),
             phase=str(data.get("phase", "unknown")),
+            # 溯源字段：新格式才有；旧 status.json 无此键 → None（消费端
+            # 回落 run_id 启发式）
+            module=data.get("module") if isinstance(data.get("module"), str) else None,
             error=data.get("error"),
             updated_at=float(data.get("updated_at", 0.0)),
         )

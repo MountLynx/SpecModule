@@ -76,6 +76,7 @@ class Module:
         event_bus: EventBus | None = None,
         template_loader: TemplateLoader | None = None,
         module_id: str | None = None,
+        module: str | None = None,
         base_dir: Path | None = None,
         registry: HarnessRegistry | None = None,
         review_harness: str | None = "spec_tasklist_review",
@@ -113,6 +114,10 @@ class Module:
         self._stream_writer: StreamLogWriter | None = None
         self.review_result: ConsistencyReport | None = None
         self.module_id = module_id or f"mod_{uuid.uuid4().hex[:8]}"
+        # 源模块名（溯源）：写入 status.json 的 "module" 键——run 历史/监控
+        # 按模块展示与过滤用。None（直构 Module 未传）→ 键为 null，消费端
+        # 回落 run_id 启发式（向后兼容旧 status.json 无此键）。
+        self.module_name = module
         self._base_dir = base_dir or Path.cwd()
         self._llm_client = llm_client
         # submodule 引用解析表 {tasklist 名: SubModule 类}：TasklistValidator 校验
@@ -157,6 +162,7 @@ class Module:
             tmp.write_text(
                 json.dumps({
                     "module_id": self.module_id,
+                    "module": self.module_name,
                     "phase": phase,
                     "error": error,
                     "updated_at": time.time(),

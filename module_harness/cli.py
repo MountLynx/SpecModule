@@ -242,65 +242,15 @@ def _print_final_summary(
             print(f"  {node}: {_preview(out)}")
 
 
-class _ResolvedModule:
-    """统一模块解析结果：entry（单文件）或 packed（目录/ pip 分发）。
-
-    run/resume/rollback/visualize 共用；打包形态经 ``ModuleLoader`` 加载为
-    SubModule 实例（校验阶段不实例化 LLM client——llm_client 延后到运行）。
-    """
-
-    def __init__(self, name: str, source: Any):
-        self.name = name
-        self.source = source  # store.ModuleSource
-        self.entry = None           # kind="entry" 时：ModuleEntry
-        self.submodule = None       # kind="packed" 时：加载后的 SubModule 实例
-
-    @property
-    def kind(self) -> str:
-        return self.source.kind
-
-    @property
-    def description(self) -> str:
-        if self.entry is not None:
-            return self.entry.description
-        return self.source.description
-
-    @property
-    def default_template(self) -> str | None:
-        return None if self.submodule is not None else self.entry.default_template
-
-    @property
-    def default_spec(self) -> dict[str, Any] | None:
-        if self.submodule is not None:
-            return None
-        return self.entry.default_spec
-
-    @property
-    def spec_schema(self) -> dict[str, str] | None:
-        if self.submodule is not None:
-            schema = self.submodule.spec_schema
-            return schema.input if schema else None
-        return self.entry.spec_schema
-
-    @property
-    def submodules(self) -> dict[str, Any]:
-        if self.submodule is not None:
-            return self.submodule.modules
-        return self.entry.submodules
-
-    @property
-    def templates(self) -> dict[str, dict]:
-        return {} if self.submodule is not None else self.entry.templates
-
-
-def _resolve_module_cmd(args: argparse.Namespace) -> _ResolvedModule | None:
+def _resolve_module_cmd(args: argparse.Namespace) -> store.ResolvedModule | None:
     """按搜索路径统一解析模块（--modules-dir 兼容保留为最高优先）。
 
     解析顺序：显式 ``--modules-dir`` 的 entry（旧语义）→ 统一搜索路径
-    （cwd/modules + $SPECMODULE_PATH + store/modules + pip）。packed 形态
-    在此只做轻量加载（ModuleLoader.load 不创建 LLM client——client 由
-    ``_build_llm_client`` 延后，校验/渲染零 LLM）。
-    未找到 → 打印可用清单并返回 None。
+    （收编进 store.resolve_module_full：cwd/modules + $SPECMODULE_PATH +
+    store/modules + pip；packed 形态轻量加载——ModuleLoader.load 不创建
+    LLM client，client 由 ``_build_llm_client`` 延后，校验/渲染零 LLM）。
+    未找到 → 打印可用清单并返回 None；加载失败/入口解析失败 → ValueError
+    消息打印后返回 None。
     """
     # 1. 显式 --modules-dir：保持旧语义（只找 entry 单文件）
     if args.modules_dir != "modules" or (args.modules_dir == "modules"
@@ -309,37 +259,26 @@ def _resolve_module_cmd(args: argparse.Namespace) -> _ResolvedModule | None:
         entries = discover_modules(Path(args.modules_dir))
         entry = entries.get(args.module)
         if entry is not None:
-            res = _ResolvedModule(args.module, store.ModuleSource(
+            res = store.ResolvedModule(args.module, store.ModuleSource(
                 name=args.module, kind="entry",
                 path=Path(args.modules_dir) / f"{args.module}.py",
             ))
             res.entry = entry
             return res
 
-    # 2. 统一搜索路径
-    src = store.resolve_module(args.module)
-    if src is None:
+    # 2. 统一搜索路径（store.resolve_module_full 共享归一层）
+    try:
+        res = store.resolve_module_full(args.module)
+    except ValueError as e:
+        print(f"错误: {e}", file=sys.stderr)
+        return None
+    if res is None:
         print(
             f"模块 '{args.module}' 未找到——可用: specmodule list 查看全部",
             file=sys.stderr,
         )
         _print_available(discover_modules(Path(args.modules_dir)))
         return None
-    res = _ResolvedModule(args.module, src)
-    if src.is_packed:
-        try:
-            from .loader import ModuleLoader
-
-            res.submodule = ModuleLoader().load(src.path, lazy_client=True)
-        except Exception as e:
-            print(f"模块 '{args.module}' 加载失败: {e}", file=sys.stderr)
-            return None
-    else:
-        entries = discover_modules(src.path.parent)
-        res.entry = entries.get(args.module)
-        if res.entry is None:
-            print(f"模块 '{args.module}' 入口解析失败", file=sys.stderr)
-            return None
     return res
 
 
@@ -477,6 +416,7 @@ def _run_resume_cmd(args: argparse.Namespace, *, require_target: bool) -> int:
                 event_bus=event_bus,
                 template_loader=TemplateLoader(),
                 module_id=module_id,
+                module=res.name,
                 registry=registry,
                 review_harness=None,
                 modules=res.submodule.modules,

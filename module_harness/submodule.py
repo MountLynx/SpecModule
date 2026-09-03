@@ -200,6 +200,7 @@ class SubModule:
             llm_client=use_client,
             event_bus=use_bus,
             module_id=self._module_id(),
+            module=self.name,  # 溯源：status.json "module" 键（与 entry 路径一致）
             registry=reg,
             review_harness=review,
             keep_records=audit,

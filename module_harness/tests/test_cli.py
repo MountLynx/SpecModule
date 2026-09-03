@@ -783,6 +783,8 @@ class TestRunsCommand:
         assert main(["runs", "--json"]) == 0
         runs = json.loads(capsys.readouterr().out)
         assert runs[0]["run_id"] == "hello"
+        # status.json module 字段（build_module 自动带 entry 名）
+        assert runs[0]["module"] == "hello"
         assert runs[0]["phase"] == "done"
         assert runs[0]["has_sqlite"] is True
         assert runs[0]["error"] is None

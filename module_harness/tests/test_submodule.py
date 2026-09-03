@@ -316,6 +316,21 @@ class TestSubModule:
             {"source_text": "Hello", "style": "formal"}, persist=False, max_ticks=10)
         assert not (tmp_path / ".specmodule").exists()
 
+    @pytest.mark.asyncio
+    async def test_run_writes_module_field(self, tmp_path, monkeypatch, mock_llm):
+        """溯源：packed 路径 SubModule.run 透传 module=self.name →
+        status.json "module" 键 = submodule 名（与 entry 路径一致）。"""
+        monkeypatch.chdir(tmp_path)
+        mock_llm.complete.return_value = LLMResponse(
+            content='{"translation": "你好世界"}', usage={}, finish_reason="end_turn")
+        sm = Translator(llm_client=mock_llm)
+        await sm.run({"source_text": "Hello", "style": "formal"}, max_ticks=10)
+        run_dir = next((tmp_path / ".specmodule" / "runs").iterdir())
+        status = json.loads(
+            (run_dir / "status.json").read_text(encoding="utf-8")
+        )
+        assert status["module"] == "test_translator"
+
 
 class TestPack:
     def test_pack_structure(self, tmp_path):

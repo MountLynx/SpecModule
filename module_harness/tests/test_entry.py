@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
@@ -209,5 +210,22 @@ class TestBuildModule:
                                  llm_client=mock_llm, base_dir=tmp_path)
         try:
             assert mod.review_harness == "spec_tasklist_review"
+        finally:
+            mod.close()
+
+    def test_module_name_recorded_in_status(self, mock_llm, tmp_path, monkeypatch):
+        """溯源：build_module 自动传 module=self.name → status.json 带模块名
+        （entry 路径零调用方改动，CLI/MCP/Web 构造的 run 均可按模块归档）。"""
+        monkeypatch.chdir(tmp_path)
+        entry = _entry_with_registry()
+        mod = entry.build_module({"x": 1}, llm_client=mock_llm,
+                                 module_id="bm5", base_dir=tmp_path)
+        try:
+            assert mod.module_name == "bm"
+            status = json.loads(
+                (tmp_path / ".specmodule" / "runs" / "bm5" / "status.json")
+                .read_text(encoding="utf-8")
+            )
+            assert status["module"] == "bm"
         finally:
             mod.close()

@@ -177,3 +177,216 @@ entry = ModuleEntry(
             raise RuntimeError("broken ep")
         monkeypatch.setattr(store, "pip_entry_point_dirs", boom)
         assert store.list_modules() == {}
+
+
+def _detail_entry_py(d: Path, name: str = "hello") -> None:
+    """造全字段 entry 模块文件（详情归一测试用：模板/默认 spec/schema/子模块）。"""
+    (d / f"{name}.py").write_text(f"""\
+from __future__ import annotations
+from module_harness.entry import ModuleEntry
+from module_harness.events import EventBus
+from module_harness.registry import HarnessRegistry
+from module_harness.submodule import SubModule
+
+
+class Helper(SubModule):
+    name = "helper"
+
+
+def _registry_for(llm_client, template_name, event_bus):
+    return HarnessRegistry(llm_client=llm_client, event_bus=event_bus or EventBus.null())
+
+
+entry = ModuleEntry(
+    name={name!r},
+    description="hello entry",
+    templates={{
+        "t2": {{"name": "t2", "tasklist": {{"Tasks": {{}}, "Flow": "[]"}}}},
+        "t1": {{"name": "t1", "tasklist": {{"Tasks": {{}}, "Flow": "[]"}}}},
+    }},
+    build_registry=_registry_for,
+    default_template="t1",
+    default_spec={{"name": "world"}},
+    spec_schema={{"name": "str"}},
+    submodules={{"Helper": Helper}},
+    review_harness=None,
+)
+""", encoding="utf-8")
+
+
+class _PackedMod:
+    """pack 用固定 submodule（resolve_module_full packed 命中测试用）。"""
+
+    @staticmethod
+    def make():
+        from module_harness.spec import SpecSchema, TaskDefinition, Tasklist
+        from module_harness.submodule import SubModule, script
+
+        class PackedMod(SubModule):
+            name = "packed_mod"
+            version = "1.2.3"
+            description = "packed desc"
+            spec_schema = SpecSchema(input={"name": "str"}, output={})
+            tasklist = Tasklist(
+                tasks={"Greet": TaskDefinition(type="script", script="greet")},
+                flow="[Greet]",
+            )
+
+            @script("greet")
+            def greet(view):
+                return {"greeting": "hi"}
+
+        return PackedMod()
+
+
+class _BrokenPacked:
+    """requires 无法解析的 submodule（加载失败 → ValueError 测试用）。"""
+
+    @staticmethod
+    def make():
+        from module_harness.spec import TaskDefinition, Tasklist
+        from module_harness.submodule import SubModule
+
+        class Broken(SubModule):
+            name = "broken_mod"
+            version = "1.0.0"
+            description = "broken"
+            requires = ["ghost_component"]
+            tasklist = Tasklist(
+                tasks={"A": TaskDefinition(type="script", script="x")},
+                flow="[A]",
+            )
+
+        return Broken()
+
+
+class TestSearchPathsBaseDir:
+    """search_paths(base_dir) 发现锚定：server 模块视图 ≡ 子进程 CLI 视图。"""
+
+    def test_base_dir_anchors_cwd_slot(self, fake_home, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)          # cwd 下故意无 modules/
+        monkeypatch.delenv("SPECMODULE_PATH", raising=False)
+        root = tmp_path / "runroot"
+        (root / "modules").mkdir(parents=True)
+        assert store.search_paths(base_dir=root) == [root / "modules"]
+
+    def test_none_keeps_cwd_behavior(self, fake_home, tmp_path, monkeypatch):
+        """base_dir=None = 现行为（cwd/modules），完全向后兼容。"""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("SPECMODULE_PATH", raising=False)
+        (tmp_path / "modules").mkdir()
+        other = tmp_path / "elsewhere"
+        (other / "modules").mkdir(parents=True)
+        assert store.search_paths() == [tmp_path / "modules"]
+        assert store.search_paths(base_dir=other) == [other / "modules"]
+
+    def test_priority_order_unchanged(self, fake_home, tmp_path, monkeypatch):
+        """优先序不变：base_dir/modules → $SPECMODULE_PATH → store/modules。"""
+        monkeypatch.chdir(tmp_path)
+        extra = tmp_path / "extra"
+        extra.mkdir()
+        monkeypatch.setenv("SPECMODULE_PATH", str(extra))
+        root = tmp_path / "runroot"
+        (root / "modules").mkdir(parents=True)
+        store.store_home()
+        (fake_home / "modules").mkdir()
+        assert store.search_paths(base_dir=root) == [
+            root / "modules", extra, fake_home / "modules",
+        ]
+
+
+class TestResolveModuleFull:
+    def test_entry_hit(self, fake_home, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        mods = tmp_path / "modules"
+        mods.mkdir()
+        _detail_entry_py(mods)
+        res = store.resolve_module_full("hello")
+        assert res is not None
+        assert res.kind == "entry"
+        assert res.entry is not None
+        assert res.submodule is None
+        assert res.description == "hello entry"
+        assert res.default_template == "t1"
+        assert res.default_spec == {"name": "world"}
+        assert res.spec_schema == {"name": "str"}
+        assert res.templates.keys() == {"t1", "t2"}
+        assert res.submodules.keys() == {"Helper"}
+
+    def test_packed_hit(self, fake_home, tmp_path, monkeypatch):
+        packs = tmp_path / "packs"
+        _PackedMod.make().pack(packs / "packed_mod")
+        res = store.resolve_module_full("packed_mod", search=[packs])
+        assert res is not None
+        assert res.kind == "packed"
+        assert res.submodule is not None
+        assert res.entry is None
+        assert res.description == "packed desc"
+        assert res.default_template is None      # packed 无模板概念
+        assert res.default_spec is None
+        assert res.spec_schema == {"name": "str"}  # schema.input 归一
+        assert res.templates == {}
+        assert res.submodules == {}
+
+    def test_not_found_returns_none(self, fake_home, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("SPECMODULE_PATH", raising=False)
+        assert store.resolve_module_full("ghost") is None
+
+    def test_packed_load_failure_raises_valueerror(self, tmp_path):
+        packs = tmp_path / "packs"
+        _BrokenPacked.make().pack(packs / "broken_mod")
+        with pytest.raises(ValueError, match="加载失败") as ei:
+            store.resolve_module_full("broken_mod", search=[packs])
+        assert "ghost_component" in str(ei.value)   # 原因点名
+
+    def test_search_param_passthrough(self, fake_home, tmp_path, monkeypatch):
+        """search= 显式传入时用之，不回落统一搜索路径。"""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("SPECMODULE_PATH", raising=False)
+        packs = tmp_path / "packs"
+        _PackedMod.make().pack(packs / "packed_mod")
+        assert store.resolve_module_full("packed_mod") is None   # 默认搜索找不到
+        assert store.resolve_module_full(
+            "packed_mod", search=[packs]
+        ) is not None
+
+
+class TestDetailToDict:
+    def test_entry_fields_complete(self, fake_home, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        mods = tmp_path / "modules"
+        mods.mkdir()
+        _detail_entry_py(mods)
+        d = store.detail_to_dict(store.resolve_module_full("hello"))
+        assert d == {
+            "name": "hello",
+            "kind": "entry",
+            "path": str(mods / "hello.py"),
+            "version": "",
+            "description": "hello entry",
+            "default_template": "t1",
+            "templates": ["t1", "t2"],     # 出名列表，排序稳定
+            "default_spec": {"name": "world"},
+            "spec_schema": {"name": "str"},
+            "submodules": ["Helper"],
+        }
+
+    def test_packed_fields_complete(self, tmp_path):
+        packs = tmp_path / "packs"
+        _PackedMod.make().pack(packs / "packed_mod")
+        d = store.detail_to_dict(
+            store.resolve_module_full("packed_mod", search=[packs])
+        )
+        assert d == {
+            "name": "packed_mod",
+            "kind": "packed",
+            "path": str(packs / "packed_mod"),
+            "version": "1.2.3",
+            "description": "packed desc",
+            "default_template": None,
+            "templates": [],
+            "default_spec": None,
+            "spec_schema": {"name": "str"},
+            "submodules": [],
+        }

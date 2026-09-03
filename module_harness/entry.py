@@ -88,6 +88,8 @@ class ModuleEntry:
             event_bus=event_bus,
             template_loader=loader,
             module_id=module_id,
+            # 溯源：status.json "module" 键自动带上 entry 名（CLI/MCP/Web 零改动受益）
+            module=self.name,
             base_dir=base_dir,
             registry=registry,
             review_harness=self.review_harness if review else None,

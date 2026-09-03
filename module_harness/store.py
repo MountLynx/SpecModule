@@ -12,8 +12,9 @@ update）与 run 解析共用本层。零第三方依赖（stdlib 仅 ``importli
     ├─ .env / config.json / rules.txt   用户级配置（回退层）
     └─ cache/                     临时 clone/下载缓存，可清
 
-模块搜索路径 = [cwd/modules] + $SPECMODULE_PATH（os.pathsep 分隔）+ store/modules
-            + pip dist entry points（``specmodule.modules`` 组，附加来源）。
+模块搜索路径 = [(base_dir or cwd)/modules] + $SPECMODULE_PATH（os.pathsep 分隔）
+            + store/modules + pip dist entry points（``specmodule.modules`` 组，
+            附加来源）。base_dir = 发现锚定根（跨进程消费显式传，缺省 cwd）。
 """
 
 from __future__ import annotations
@@ -25,7 +26,11 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .entry import ModuleEntry
+    from .submodule import SubModule
 
 log = logging.getLogger(__name__)
 
@@ -71,15 +76,18 @@ def cache_dir() -> Path:
     return d
 
 
-def search_paths() -> list[Path]:
-    """模块搜索路径：[cwd/modules] + $SPECMODULE_PATH + store/modules。
+def search_paths(base_dir: Path | None = None) -> list[Path]:
+    """模块搜索路径：[(base_dir or cwd)/modules] + $SPECMODULE_PATH + store/modules。
 
-    ``$SPECMODULE_PATH`` 用 ``os.pathsep``（Windows ``;`` / POSIX ``:``）分隔，
-    与 PATH 语义一致；条目可以是任意目录（手动摆放入口）。
-    只返回存在的目录（不存在的路径不参与发现，避免误报）。
+    ``base_dir``：发现锚定根——服务器进程 cwd ≠ 运行根，跨进程消费显式传
+    （server 模块视图 ≡ spawn 子进程 CLI 视图）；None = ``Path.cwd()``
+    （向后兼容）。``$SPECMODULE_PATH`` 用 ``os.pathsep``（Windows ``;`` /
+    POSIX ``:``）分隔，与 PATH 语义一致；条目可以是任意目录（手动摆放入口）。
+    只返回存在的目录（不存在的路径不参与发现，避免误报）。优先序不变。
     """
     out: list[Path] = []
-    cwd_modules = Path.cwd() / "modules"
+    base = base_dir if base_dir is not None else Path.cwd()
+    cwd_modules = base / "modules"
     if cwd_modules.is_dir():
         out.append(cwd_modules)
     env = os.environ.get("SPECMODULE_PATH", "").strip()
@@ -232,6 +240,122 @@ def resolve_module(
     """按名解析：搜索路径序第一个命中（D3：PATH 惯例，不静默改名）。"""
     sources = list_modules(search=search).get(name, [])
     return sources[0] if sources else None
+
+
+# ── 模块详情归一（resolve_module_full / detail_to_dict）───────────────
+
+@dataclass
+class ResolvedModule:
+    """统一模块解析结果：entry（单文件）或 packed（目录 / pip 分发）。
+
+    :func:`resolve_module_full` 的产出；run/resume/rollback/visualize 与
+    模块详情面共用。``entry`` / ``submodule`` 按形态二选一（packed 经
+    ModuleLoader 加载为 SubModule 实例——不实例化 LLM client，client 由
+    运行期延后）；归一属性（description/default_template/…）屏蔽两形态
+    差异，消费端不感知来源。
+    """
+
+    name: str
+    source: ModuleSource
+    entry: ModuleEntry | None = None    # kind="entry" 时：ModuleEntry
+    submodule: SubModule | None = None  # kind="packed"/"pip" 时：SubModule 实例
+
+    @property
+    def kind(self) -> str:
+        """来源形态（透传 ModuleSource.kind：entry | packed | pip）。"""
+        return self.source.kind
+
+    @property
+    def description(self) -> str:
+        if self.entry is not None:
+            return self.entry.description
+        return self.source.description
+
+    @property
+    def default_template(self) -> str | None:
+        if self.submodule is not None:
+            return None
+        return self.entry.default_template if self.entry is not None else None
+
+    @property
+    def default_spec(self) -> dict[str, Any] | None:
+        if self.submodule is not None:
+            return None
+        return self.entry.default_spec if self.entry is not None else None
+
+    @property
+    def spec_schema(self) -> dict[str, str] | None:
+        if self.submodule is not None:
+            schema = self.submodule.spec_schema
+            return schema.input if schema else None
+        return self.entry.spec_schema if self.entry is not None else None
+
+    @property
+    def submodules(self) -> dict[str, Any]:
+        if self.submodule is not None:
+            return self.submodule.modules
+        return self.entry.submodules if self.entry is not None else {}
+
+    @property
+    def templates(self) -> dict[str, dict]:
+        return {} if self.submodule is not None else (
+            self.entry.templates if self.entry is not None else {}
+        )
+
+
+def resolve_module_full(
+    name: str,
+    search: list[Path] | None = None,
+) -> ResolvedModule | None:
+    """按名解析并加载模块详情（详情面/运行解析的共享归一层）。
+
+    解析同 :func:`resolve_module`（搜索路径序第一个命中）；命中后按形态
+    加载：entry → ``discover_modules`` 取 ModuleEntry；packed/pip →
+    ModuleLoader 轻量加载为 SubModule（不实例化 LLM client）。
+
+    返回 :class:`ResolvedModule`；未找到 → None（调用方映射 404）；
+    packed 加载失败 / entry 入口解析失败 → ValueError（消息可直接面向
+    用户，调用方映射 400）。
+    """
+    src = resolve_module(name, search)
+    if src is None:
+        return None
+    res = ResolvedModule(name, src)
+    if src.is_packed:
+        try:
+            from .loader import ModuleLoader
+
+            res.submodule = ModuleLoader().load(src.path, lazy_client=True)
+        except Exception as e:
+            raise ValueError(f"模块 '{name}' 加载失败: {e}") from e
+    else:
+        from .entry import discover_modules
+
+        res.entry = discover_modules(src.path.parent).get(name)
+        if res.entry is None:
+            raise ValueError(f"模块 '{name}' 入口解析失败")
+    return res
+
+
+def detail_to_dict(resolved: ResolvedModule) -> dict[str, Any]:
+    """ResolvedModule → JSON 出口（模块详情面：CLI/Web/TUI 共用）。
+
+    ``templates``/``submodules`` 只出名列表（排序保证输出稳定）；``path``
+    为字符串化来源路径；``default_spec``/``spec_schema`` 原样透传（前端
+    填表/校验用）。
+    """
+    return {
+        "name": resolved.name,
+        "kind": resolved.kind,
+        "path": str(resolved.source.path),
+        "version": resolved.source.version,
+        "description": resolved.description,
+        "default_template": resolved.default_template,
+        "templates": sorted(resolved.templates),
+        "default_spec": resolved.default_spec,
+        "spec_schema": resolved.spec_schema,
+        "submodules": sorted(resolved.submodules),
+    }
 
 
 # ── 安装管理（install/uninstall/update/publish 共用）──────────────────
