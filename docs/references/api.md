@@ -28,6 +28,10 @@
 | `build_run_graph` | `(module_name: str, run_id: str \| None = None, *, base_dir: Path \| None = None, template: str \| None = None, tasklist: dict \| Tasklist \| None = None, src: ModuleSource \| None = None) -> tuple[Graph, Tasklist] \| None` | 从运行存档（module_inputs 表）或直接给定的 tasklist 重建 tickflow Graph——可视化共用（CLI visualize / Web 图渲染）；零 LLM（registry 以 MockLLMClient 占位构建）；`tasklist` 给出时跳过存档（直渲染通道）；`src` 为预解析 ModuleSource（缺省 `store.resolve_module` 统一搜索路径解析）；返回 `(Graph, Tasklist)`，无存档且未传 tasklist → `None`；模块未找到/加载/构建失败 → `ValueError`（消息可直接面向用户）；packed/pip 模块无存档时回落模块自带 tasklist |
 | `graph_to_dict` | `(graph: Graph, tasklist: Tasklist) -> dict` | tickflow Graph + Tasklist → 前端可视化结构（唯一新数据形状，Web/TUI 共用），见下 |
 | `read_stream` | `(run_id: str, *, offset: int = 0, base_dir: Path \| None = None) -> dict \| None` | 增量读 `stream.log`（LLM 流式观测共享读端）：按完整行切分、每条记录附行首字节偏移 `off`；末尾不完整行不消费（`next_offset` 停在其行首）；坏行跳过；`offset > file_size` 钳回 0 自愈；缺失 → `None`。返回 `{"records", "next_offset", "file_size"}`；"只显示最近执行"的锚定策略由消费方据 `off` 定位最后一条 `run_start` |
+| `list_runs` | `(base_dir: Path \| None = None) -> list[dict]` | 枚举全部运行（run 历史列表共享层，CLI `runs` / Web 共用）：扫 `<base>/.specmodule/runs/*/`，每 run 轻量读 status.json + sqlite 存在性；返回按 `updated_at` 降序的 `[{run_id, module, phase, tick, error, updated_at, has_sqlite}]`；status.json 缺失/损坏的 run 以 `phase="unknown"` 收入**不跳过**（删除入口要对坏目录可用，updated_at 记 0.0 沉底）；`tick` 优先取 status.json `tick` 键（前瞻兼容），否则有 sqlite 时 `latest_tick` 单条查询近似（**不解析快照**），再读不到 → None；查询永不抛错，runs 根不存在 → `[]` |
+| `delete_run` | `(run_id: str, base_dir: Path \| None = None) -> bool` | 删除 run 目录整树（status.json + run.sqlite/WAL 侧车 + stream.log），run 历史单条删除共享层（CLI `delete-run` / Web 共用）；防路径穿越：`run_id` 为空/`.`/`..`/含路径分隔符（`/` `\`）/非 basename 形态（盘符、绝对路径——pathlib join 会被整路径替换）→ `False`；目录不存在 → `False`（调用方映射 404）；删除期 OSError 原样抛（本函数是操作不是查询）；运行中进程库侧不可知，活性防护（先 cancel/terminate）是消费端职责 |
+
+CLI 对应子命令：`specmodule runs [--json]`（`list_runs` 列表展示）、`specmodule delete-run <run_id>`（删除并打印移除的目录；不存在报错退出非零）——参数语义见 [cli-usage.md](cli-usage.md)。
 
 `query_value` 寻址语法：顶层标量 `phase` / `status` / `tick` / `fireable` / `fired` / `error` / `updated_at`；
 输出 `outputs.<node>.<key...>`（节点最新输出内部键）；可变状态 `state.<node>.<key...>`（含 `_llm_raw`
@@ -46,7 +50,7 @@
 |------|------|------|
 | `query_run_status` | `(module_id: str, base_dir: Path \| None = None) -> ModuleStatus \| None` | 读 `status.json`（+ DB 若有）合成静态快照；目录不存在 → `None`；失败 run 只有 status.json 也返回 |
 
-`ModuleStatus` 字段：`module_id`、`phase`（`idle → translating → reviewing → building → ready →
+`ModuleStatus` 字段：`module_id`、`module`（源模块名，status.json `"module"` 键；旧格式无此键/直构未传 → None，消费端回落 run_id 启发式）、`phase`（`idle → translating → reviewing → building → ready →
 running → done | aborted | cancelled | truncated`）、`status`（tickflow RunStatus，无 DB 时 None）、`tick`、
 `fireable`、`fired`、`outputs`（node → 最新输出）、`node_states`（node → 可变状态）、`error`、`updated_at`。
 
@@ -84,11 +88,18 @@ status.json 的反向通道：status.json 把运行状态带出运行进程，co
 |------|------|------|
 | `list_modules` | `(search: list[Path] \| None = None, include_pip: bool = True) -> dict[str, list[ModuleSource]]` | 枚举全部可用模块：entry 单文件 / packed 目录（`module.json`）/ pip entry points 三类来源合并；同名多来源**全量展示**（列表按 priority 升序，首项即解析命中项）；`search=None` 用 `search_paths()` |
 | `resolve_module` | `(name: str, search: list[Path] \| None = None) -> ModuleSource \| None` | 按名解析：搜索序第一个命中（PATH 惯例，不静默改名）；未命中 → `None` |
-| `search_paths` | `() -> list[Path]` | 搜索链 `cwd/modules + $SPECMODULE_PATH（os.pathsep 分隔）+ <store>/modules`，只含存在的目录 |
+| `resolve_module_full` | `(name: str, search: list[Path] \| None = None) -> ResolvedModule \| None` | 按名解析**并加载**模块详情（详情面/运行解析共享归一层）：解析同 `resolve_module`，命中后按形态加载——entry → `discover_modules` 取 ModuleEntry，packed/pip → ModuleLoader 轻量加载为 SubModule（不实例化 LLM client）；未找到 → `None`（调用方映射 404）；packed 加载失败/entry 入口解析失败 → `ValueError`（消息可直接面向用户，调用方映射 400） |
+| `detail_to_dict` | `(resolved: ResolvedModule) -> dict` | 模块详情 JSON 出口：`{name, kind, path, version, description, default_template, templates: [名...], default_spec, spec_schema, submodules: [名...]}`（templates/submodules 排序出名，输出稳定；path 字符串化；default_spec/spec_schema 原样透传供前端填表/校验） |
+| `search_paths` | `(base_dir: Path \| None = None) -> list[Path]` | 搜索链 `[base_dir or cwd]/modules + $SPECMODULE_PATH（os.pathsep 分隔）+ <store>/modules`，只含存在的目录；`base_dir` = 发现锚定根——服务器进程 cwd ≠ 运行根，跨进程消费显式传（效果：server 模块视图 ≡ spawn 子进程 CLI 视图），None = cwd 向后兼容；优先序不变 |
 | `store_home` | `() -> Path` | `SPECMODULE_HOME` 环境变量或 `~/.specmodule`（惰性创建，幂等） |
 
 `ModuleSource` 字段：`name`、`kind`（`entry | packed | pip`）、`path`（entry 文件 / pack 目录）、
 `description`、`version`、`priority`（搜索路径序，0 最高；pip 排最后）、`pip_dist`。
+
+`ResolvedModule` 字段：`name`、`source`（ModuleSource）；`entry`（entry 形态时的 ModuleEntry）与
+`submodule`（packed/pip 形态时加载后的 SubModule）按形态二选一；归一属性 `kind` / `description` /
+`default_template` / `default_spec` / `spec_schema`（packed 归一为 `spec_schema.input`）/ `templates` /
+`submodules` 屏蔽两形态差异，消费端不感知来源。
 
 entry 发现失败（缺 `entry` 变量 / 导入异常）逐文件跳过并 log，不阻断整体；pip 枚举失败整源跳过。
 
@@ -119,6 +130,7 @@ Module(
     event_bus: EventBus | None,     # 事件订阅（不传零开销）
     template_loader: TemplateLoader | None,
     module_id: str | None,          # 缺省 mod_<8hex>；SubModule 为 <name>_<6hex>
+    module: str | None,             # 源模块名（溯源）：写 status.json "module" 键；entry.build_module / SubModule.run 自动传
     base_dir: Path | None,          # 落盘根（默认 cwd）；跨进程消费显式传
     registry: HarnessRegistry | None,
     persist: bool = True,           # False = NullBackend 全内存零落盘
@@ -136,7 +148,8 @@ firings 列表。协程跑完整 run；**进程内取消 = 取消该 asyncio tas
 默认启用，运行进程在 tick 边界协作消费）；`max_ticks` 是唯一运行上限（每次 LLM 调用
 超时 60s）。`max_ticks` 耗尽 → phase 落 **`truncated`**（终态，`error` 记 `max_ticks=N 截断（可 resume 续跑）`）——
 监控方拿到可续跑的确定性信号，无需静默启发式。落盘产物 `<base_dir>/.specmodule/runs/<run_id>/{run.sqlite, status.json}`，
-跨进程可查。单写者约束：同一 `run_id` 并发写需调用方串行化。
+跨进程可查（status.json 含 `"module"` 键 = 源模块名，供 run 历史按模块归档；旧 run 无此键）。
+单写者约束：同一 `run_id` 并发写需调用方串行化。
 LLM 流式输出经 EventBus 订阅落盘 `stream.log`（JSONL，append-only：`run_start` 为每次执行
 边界，后接 `call_start`/`token`/`call_end`/`call_error`；`ts` 为 wall-clock；
 `EventBus.null()` 场景仅 `run_start`）；增量读走 `query.read_stream`。
