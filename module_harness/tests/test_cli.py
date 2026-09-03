@@ -178,6 +178,15 @@ def cwd(tmp_path, monkeypatch):
     return tmp_path
 
 
+def gc_collect():
+    """进程内 CLI run 后 runner 的 SqliteBackend 连接挂在引用环上（由调用方
+    管理是库的既定行为），Windows 下未释放前 delete-run 会被文件锁绊倒——
+    删除前显式跑一轮循环 GC 使时机确定化（真实消费端跨进程，无此问题）。"""
+    import gc
+
+    gc.collect()
+
+
 def _run(cwd, *argv):
     """run 子命令 + 指向测试模块目录。"""
     return main(["run", *argv, "--modules-dir", str(cwd / "modules")])
@@ -755,3 +764,59 @@ class TestFeedCommand:
         # 停止服务线程（serve_forever 需 shutdown——通过 server 实例不可达，
         # 改用直接 socket 连接触发 KeyboardInterrupt 不现实；daemon 线程随
         # 进程退出，测试结束时自动清理）
+
+
+class TestRunsCommand:
+    """runs 子命令：list_runs 共享层列表展示（人类可读 + --json）。"""
+
+    def test_lists_runs_after_run(self, cwd, modules_dir, capsys):
+        assert _run(cwd, "--module", "hello", "--mock") == 0
+        capsys.readouterr()   # 丢弃 run 输出，只断言 runs 命令自身输出
+        assert main(["runs"]) == 0
+        out = capsys.readouterr().out
+        assert "hello" in out       # run_id 列
+        assert "done" in out        # phase 列
+
+    def test_json_payload(self, cwd, modules_dir, capsys):
+        assert _run(cwd, "--module", "hello", "--mock") == 0
+        capsys.readouterr()   # 丢弃 run 输出
+        assert main(["runs", "--json"]) == 0
+        runs = json.loads(capsys.readouterr().out)
+        assert runs[0]["run_id"] == "hello"
+        assert runs[0]["phase"] == "done"
+        assert runs[0]["has_sqlite"] is True
+        assert runs[0]["error"] is None
+
+    def test_empty_history_ok(self, cwd, capsys):
+        assert main(["runs"]) == 0
+        assert "无运行记录" in capsys.readouterr().out
+
+
+class TestDeleteRunCommand:
+    """delete-run 子命令：delete_run 共享层（删除打印移除目录，不存在非零）。"""
+
+    def test_delete_after_run(self, cwd, modules_dir, capsys):
+        assert _run(cwd, "--module", "hello", "--mock") == 0
+        capsys.readouterr()   # 丢弃 run 输出
+        run_dir = cwd / ".specmodule" / "runs" / "hello"
+        assert run_dir.exists()
+        gc_collect()   # 释放进程内 CLI run 残留的 backend 引用环（Windows 文件锁）
+        assert main(["delete-run", "hello"]) == 0
+        out = capsys.readouterr().out
+        assert "已删除运行" in out and "hello" in out
+        assert not run_dir.exists()
+
+    def test_delete_twice_second_fails(self, cwd, modules_dir, capsys):
+        assert _run(cwd, "--module", "hello", "--mock") == 0
+        gc_collect()   # 同上：删除前释放进程内 backend 引用环
+        assert main(["delete-run", "hello"]) == 0
+        assert main(["delete-run", "hello"]) == 1
+        assert "无运行记录" in capsys.readouterr().err
+
+    def test_delete_ghost_fails(self, cwd, capsys):
+        assert main(["delete-run", "ghost"]) == 1
+        assert "无运行记录" in capsys.readouterr().err
+
+    def test_delete_traversal_rejected_nonzero(self, cwd, modules_dir, capsys):
+        # 路径穿越形态：delete_run 返回 False → 非零退出（不删 runs 根外内容）
+        assert main(["delete-run", "../evil"]) == 1

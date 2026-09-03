@@ -13,6 +13,8 @@
     python -m module_harness.cli rollback <目标> --module <名> [--spec ...]
     python -m module_harness.cli checkpoint <label> [<tick>] [--run-id xxx]
     python -m module_harness.cli cancel | pause | unpause [--run-id xxx]
+    python -m module_harness.cli runs [--json]
+    python -m module_harness.cli delete-run <run_id>
     python -m module_harness.cli visualize --module <名> [--tasklist x.json | --run-id xxx] [--out FILE]
 
 场景归属：使用者层面（usage scenario）——第二级用户只写 spec/tasklist，
@@ -26,6 +28,7 @@ import argparse
 import asyncio
 import json
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -47,10 +50,13 @@ from .query import (
     build_timeline,
     checkpoints_to_dict,
     create_checkpoint,
+    delete_run,
     filter_failed,
     filter_node,
     filter_tick,
+    list_runs,
     load_snapshot_summary,
+    run_db_path,
     timeline_to_dict,
 )
 from .registry import HarnessRegistry
@@ -556,6 +562,42 @@ def _cmd_control(args: argparse.Namespace) -> int:
         print(f"错误: {e}", file=sys.stderr)
         return 1
     print(f"已请求 {args.command}: {module_id}（运行进程将在下一 tick 边界生效）")
+    return 0
+
+
+def _cmd_runs(args: argparse.Namespace) -> int:
+    """列出全部运行历史（数据走共享层 list_runs，本命令只渲染）。"""
+    runs = list_runs()
+    if not runs:
+        print("无运行记录（先执行 specmodule run）")
+        return 0
+    if args.json:
+        print(json.dumps(runs, ensure_ascii=False, indent=2))
+        return 0
+    print(f"{'run_id':<24} {'模块':<18} {'phase':<12} {'tick':<6} 更新时间")
+    for r in runs:
+        updated = (
+            time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["updated_at"]))
+            if r["updated_at"] else "—"
+        )
+        tick = "—" if r["tick"] is None else str(r["tick"])
+        line = (
+            f"{r['run_id']:<24} {(r['module'] or '—'):<18} "
+            f"{r['phase']:<12} {tick:<6} {updated}"
+        )
+        if r["error"]:
+            line += f"  error={_preview(r['error'])}"
+        print(line)
+    return 0
+
+
+def _cmd_delete_run(args: argparse.Namespace) -> int:
+    """删除指定 run 的全部产物（数据走共享层 delete_run）。"""
+    target = run_db_path(args.run_id).parent
+    if not delete_run(args.run_id):
+        print(f"无运行记录: {args.run_id}", file=sys.stderr)
+        return 1
+    print(f"已删除运行: {args.run_id}（{target}）")
     return 0
 
 
@@ -1348,6 +1390,14 @@ def main(argv: list[str] | None = None) -> int:
         if _name == "cancel":
             _p.add_argument("--reason", help="取消原因（透传 runner.cancel）")
         _p.set_defaults(func=_cmd_control)
+
+    p_runs = sub.add_parser("runs", help="列出全部运行历史（run 枚举）")
+    p_runs.add_argument("--json", action="store_true", help="JSON 输出")
+    p_runs.set_defaults(func=_cmd_runs)
+
+    p_delete_run = sub.add_parser("delete-run", help="删除指定运行的全部产物")
+    p_delete_run.add_argument("run_id", help="运行 id（.specmodule/runs/ 下的目录名）")
+    p_delete_run.set_defaults(func=_cmd_delete_run)
 
     p_visualize = sub.add_parser(
         "visualize", help="渲染 tasklist 对应图（mermaid 导出）"

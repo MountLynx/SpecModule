@@ -381,6 +381,136 @@ def read_module_inputs(
         store.close()
 
 
+# ── run 枚举与删除（run 历史管理共享层：CLI/Web 共用）──────────────────
+
+
+def _runs_root(base_dir: Path | None) -> Path:
+    """``<base>/.specmodule/runs``（list_runs/delete_run 共用路径规则）。"""
+    base = base_dir if base_dir is not None else Path.cwd()
+    return base / ".specmodule" / "runs"
+
+
+def _latest_tick_light(db_path: Path, module_id: str) -> int | None:
+    """轻量读最新 tick（仅 latest_tick 单条查询，不解析快照）；失败 → None。
+
+    list 场景的权衡：不对每个 run 全量解析 run.sqlite 快照，tick 用一条
+    max 查询近似（监控列表足够；详情走 query_run_status）。
+    """
+    try:
+        from tickflow.persistence import SqliteBackend
+
+        backend = SqliteBackend(db_path)
+        try:
+            return backend.latest_tick(module_id)
+        finally:
+            backend.close()
+    except Exception:
+        log.exception("读取最新 tick 失败（记 None）: %s", db_path)
+        return None
+
+
+def list_runs(base_dir: Path | None = None) -> list[dict[str, Any]]:
+    """枚举全部运行（run 历史列表共享层：CLI ``runs`` / Web 共用）。
+
+    扫描 ``<base_dir>/.specmodule/runs/*/``，每 run 轻量读取 status.json
+    （phase/module/error/updated_at）+ run.sqlite 存在性。``tick`` 语义：
+    优先取 status.json 的 ``tick`` 键（前瞻兼容），读不到且有 sqlite 时用
+    ``latest_tick`` 单条查询近似（不解析快照），再读不到 → None。
+
+    返回按 ``updated_at`` 降序的::
+
+        [{"run_id", "module", "phase", "tick", "error", "updated_at",
+          "has_sqlite"}]
+
+    容错（查询永不抛错）：status.json 缺失/损坏的 run 以 ``phase="unknown"``
+    收入不跳过（删除入口要对坏目录可用），updated_at 记 0.0（排序沉底）、
+    module 记 None；runs 根目录不存在 → 空列表。
+    """
+    root = _runs_root(base_dir)
+    if not root.is_dir():
+        return []
+    try:
+        run_dirs = sorted(d for d in root.iterdir() if d.is_dir())
+    except OSError:
+        log.exception("扫描 runs 目录失败（返回空列表）: %s", root)
+        return []
+    out: list[dict[str, Any]] = []
+    for run_dir in run_dirs:
+        run_id = run_dir.name
+        has_sqlite = (run_dir / "run.sqlite").exists()
+        data: dict[str, Any] | None = None
+        try:
+            loaded = json.loads(
+                (run_dir / "status.json").read_text(encoding="utf-8")
+            )
+            if isinstance(loaded, dict):
+                data = loaded
+        except (OSError, ValueError):
+            data = None          # 缺失/损坏 → unknown（不跳过，删除入口可用）
+        module: str | None = None
+        error: str | None = None
+        phase = "unknown"
+        updated_at = 0.0
+        if data is not None:
+            if isinstance(data.get("module"), str):
+                module = data["module"]
+            raw_err = data.get("error")
+            if raw_err is not None:
+                error = str(raw_err)
+            if data.get("phase"):
+                phase = str(data["phase"])
+            try:
+                updated_at = float(data.get("updated_at", 0.0))
+            except (TypeError, ValueError):
+                updated_at = 0.0
+        tick: int | None = None
+        if data is not None and isinstance(data.get("tick"), int) \
+                and not isinstance(data.get("tick"), bool):
+            tick = data["tick"]
+        elif has_sqlite:
+            tick = _latest_tick_light(run_dir / "run.sqlite", run_id)
+        out.append({
+            "run_id": run_id,
+            "module": module,
+            "phase": phase,
+            "tick": tick,
+            "error": error,
+            "updated_at": updated_at,
+            "has_sqlite": has_sqlite,
+        })
+    out.sort(key=lambda r: (r["updated_at"], r["run_id"]), reverse=True)
+    return out
+
+
+def delete_run(run_id: str, base_dir: Path | None = None) -> bool:
+    """删除 run 目录整树（status.json + run.sqlite/WAL 侧车 + stream.log）。
+
+    run 历史单条删除共享层（CLI ``delete-run`` / Web 共用）。防路径穿越：
+    run_id 为空 / ``.`` / ``..`` / 含路径分隔符（``/``/``\\``）/ 含 ``..``
+    / 非basename 形态（盘符、绝对路径——pathlib join 会被整路径替换）→
+    False；目录不存在 → False（调用方映射 404）。
+
+    删除失败（文件被占用等 OSError）原样抛出——本函数是操作不是查询；
+    运行中进程库侧不可知，活性防护（先 cancel/terminate）是消费端职责。
+    """
+    if (
+        not run_id
+        or run_id in (".", "..")
+        or "/" in run_id
+        or "\\" in run_id
+        or ".." in run_id
+        or Path(run_id).name != run_id
+    ):
+        return False
+    target = _runs_root(base_dir) / run_id
+    if not target.is_dir():
+        return False
+    import shutil
+
+    shutil.rmtree(target)
+    return True
+
+
 def check_resume_compat_from_run(
     module_name: str,
     run_id: str,
