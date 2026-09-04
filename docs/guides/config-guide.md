@@ -94,5 +94,6 @@ ANTHROPIC_API_KEY=sk-ant-...
 | `config.json 中 providers 为空或缺失` | 无 config.json 且 setup 未跑 | `specmodule setup`，或按 config.example.json 建项目级 config.json |
 | key 未生效 | `.env` 位置不对 / 环境变量已占用 | 检查回退链：项目根 `.env` 优先；shell 已 export 的键不被 `.env` 覆盖 |
 | 模型能力不对（think/multimodal） | models 注册表缺失该模型 | 在 config.json `models` 补 `{name, provider, think, multimodal}` |
+| 推理模型返回 content 为空 | 思考 token 耗尽默认 `max_tokens`（4096），正文无预算 | 在 config.json `models[0]` 抬高 `max_tokens`；单节点再经 `api_params` 覆盖 |
 
 运行时故障（退出码/错误速查）见 [`references/cli-usage.md`](../references/cli-usage.md) 第 6 节。

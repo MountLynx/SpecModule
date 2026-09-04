@@ -97,7 +97,7 @@ class LLMConfig:
     timeout: float = 60.0
     max_retries: int = 3
 
-    # ── 默认模型参数（harness 未指定时兜底）──
+    # ── 默认模型参数（harness 未指定时兜底；model/max_tokens/temperature 来自 config.json models[0]）──
     model: str = ""
     max_tokens: int = 4096
     temperature: float = 0.7
@@ -168,6 +168,7 @@ class LLMConfig:
         models_map: dict[str, dict[str, Any]] = {}
         default_model = ""
         default_temperature = 0.7
+        default_max_tokens = 4096
 
         for m in models:
             name = m.get("name", "")
@@ -176,6 +177,7 @@ class LLMConfig:
             if not default_model:
                 default_model = name
                 default_temperature = float(m.get("temperature", 0.7))
+                default_max_tokens = int(m.get("max_tokens", 4096))
 
         config = cls(
             provider=p.get("sdktype", "openai"),
@@ -184,7 +186,7 @@ class LLMConfig:
             timeout=float(p.get("timeout", 60.0)),
             max_retries=int(p.get("max_retries", 3)),
             model=overrides.pop("model", None) or default_model,
-            max_tokens=int(overrides.pop("max_tokens", None) or 4096),
+            max_tokens=int(overrides.pop("max_tokens", None) or default_max_tokens),
             temperature=float(overrides.pop("temperature", None) or default_temperature),
             models=models_map,
             system_rules=system_rules,

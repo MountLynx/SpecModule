@@ -91,3 +91,73 @@ class TestConfigFallbackChain:
         _write_config(store, [{"sdktype": "openai", "api_key_env": ""}])
         c = cfg.LLMConfig.from_env(project_root=project, store_root=store)
         assert c.provider == "openai"
+
+
+class TestDefaultGenerationParams:
+    """默认生成参数（max_tokens / temperature）来自 models[0]，config.json 可达。"""
+
+    def test_max_tokens_from_first_model(self, roots):
+        # 推理模型思考耗尽 4096 上限的解法：models[0] 抬高默认 max_tokens
+        project, store = roots
+        _write_config(
+            project,
+            [{"sdktype": "openai", "api_key_env": "K1"}],
+            models=[{"name": "reasoner", "max_tokens": 32768}],
+        )
+        c = cfg.LLMConfig.from_env(project_root=project, store_root=store)
+        assert c.max_tokens == 32768
+
+    def test_max_tokens_default_without_model_entry(self, roots):
+        project, store = roots
+        _write_config(project, [{"sdktype": "openai", "api_key_env": "K1"}])
+        c = cfg.LLMConfig.from_env(project_root=project, store_root=store)
+        assert c.max_tokens == 4096
+
+    def test_max_tokens_default_without_key_in_entry(self, roots):
+        project, store = roots
+        _write_config(
+            project,
+            [{"sdktype": "openai", "api_key_env": "K1"}],
+            models=[{"name": "plain", "multimodal": False}],
+        )
+        c = cfg.LLMConfig.from_env(project_root=project, store_root=store)
+        assert c.max_tokens == 4096
+
+    def test_explicit_override_beats_models0(self, roots):
+        project, store = roots
+        _write_config(
+            project,
+            [{"sdktype": "openai", "api_key_env": "K1"}],
+            models=[{"name": "reasoner", "max_tokens": 32768}],
+        )
+        c = cfg.LLMConfig.from_env(
+            project_root=project, store_root=store, max_tokens=8192
+        )
+        assert c.max_tokens == 8192
+
+    def test_only_first_model_counts(self, roots):
+        # 默认参数只取 models[0]（与 temperature 同规则）；后续条目是能力注册表
+        project, store = roots
+        _write_config(
+            project,
+            [{"sdktype": "openai", "api_key_env": "K1"}],
+            models=[
+                {"name": "a", "max_tokens": 4096},
+                {"name": "b", "max_tokens": 65536},
+            ],
+        )
+        c = cfg.LLMConfig.from_env(project_root=project, store_root=store)
+        assert c.max_tokens == 4096
+        assert c.model == "a"
+
+    def test_temperature_still_from_first_model(self, roots):
+        # 既有 temperature 规则回归锚点：与 max_tokens 同源同构
+        project, store = roots
+        _write_config(
+            project,
+            [{"sdktype": "openai", "api_key_env": "K1"}],
+            models=[{"name": "a", "temperature": 0.2, "max_tokens": 32768}],
+        )
+        c = cfg.LLMConfig.from_env(project_root=project, store_root=store)
+        assert c.temperature == 0.2
+        assert c.max_tokens == 32768
