@@ -106,8 +106,10 @@ from .cli.command import Command, CommandConfig
 from .cli.entry import ModuleEntry, discover_modules
 from .cli.loader import ModuleLoader, ModuleManifestError, ModuleRequirementError
 
-# 模块对象绑定（`from module_harness import store` / `import submodule` 可用）
+# 模块对象绑定（`from module_harness import store / submodule / query` 可用；
+# query 共享层是 embedding.md 明示的顶层导出面）
 from .infra import store
+from .infra import query
 from .model import submodule
 
 # 嵌入者最小面（用法见 docs/guides/embedding.md）：
