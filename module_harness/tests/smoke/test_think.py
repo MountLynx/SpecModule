@@ -3,8 +3,8 @@
 import pytest
 from tickflow import parse
 from tickflow.async_runner import AsyncRunner
-from module_harness.config import HarnessConfig, OutputFormat
-from module_harness.registry import HarnessRegistry
+from module_harness.core.config import HarnessConfig, OutputFormat
+from module_harness.core.registry import HarnessRegistry
 
 pytestmark = pytest.mark.smoke
 
@@ -33,7 +33,7 @@ async def _run_analyze(llm_client, event_bus, think):
     firings = await runner.run_until_idle(max_ticks=10)
 
     # usage 数据在 LlmCallCompleted 事件中（NodeState 不含 usage）
-    from module_harness.events import LlmCallCompleted
+    from module_harness.infra.events import LlmCallCompleted
     usage = {}
     for e in event_bus.recorded:
         if isinstance(e, LlmCallCompleted):

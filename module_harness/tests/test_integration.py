@@ -8,15 +8,15 @@ from tickflow import parse
 from tickflow.async_runner import AsyncRunner
 from llm.client import LLMResponse
 
-from module_harness.config import HarnessConfig
-from module_harness.outputfmt import OutputFormat
-from module_harness.events import (
+from module_harness.core.config import HarnessConfig
+from module_harness.core.outputfmt import OutputFormat
+from module_harness.infra.events import (
     EventBus,
     LlmToken,
     OutputValidated,
     ScriptCompleted,
 )
-from module_harness.registry import HarnessRegistry
+from module_harness.core.registry import HarnessRegistry
 
 
 @pytest.fixture
@@ -175,7 +175,7 @@ class TestHarnessScriptIntegration:
 
         rendered = []
         bus = EventBus()
-        from module_harness.events import PromptRendered
+        from module_harness.infra.events import PromptRendered
         bus.subscribe(PromptRendered, lambda e: rendered.append(e.node))
 
         reg = HarnessRegistry(llm_client=mock_llm, event_bus=bus)

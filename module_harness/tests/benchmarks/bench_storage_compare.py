@@ -103,10 +103,10 @@ def bench_engine_memory(mode: str) -> tuple[float, int]:
 async def bench_module_llm() -> tuple[float, float]:
     """Module 级真实 LLM 端到端：persist vs fast 各 1 次 LLM 调用。"""
     from llm import LLMConfig, create_llm_client
-    from module_harness.config import HarnessConfig, OutputFormat
-    from module_harness.module import Module
-    from module_harness.registry import HarnessRegistry
-    from module_harness.spec import TaskDefinition, Tasklist
+    from module_harness.core.config import HarnessConfig, OutputFormat
+    from module_harness.model.module import Module
+    from module_harness.core.registry import HarnessRegistry
+    from module_harness.model.spec import TaskDefinition, Tasklist
 
     client = create_llm_client(LLMConfig.from_env())
     tasklist = Tasklist(tasks={

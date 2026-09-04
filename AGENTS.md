@@ -10,6 +10,11 @@ SpecModule is an auditable, debuggable, fully controllable LLM usage framework. 
 tickflow           Petri-net workflow engine — external pip dependency (tickflow-py, import name tickflow); owns IR/parser/engine/runner/state
 llm/               LLM clients (Anthropic + OpenAI-compatible) — self-contained, env-driven config
 module_harness/    Upper layer — harness/script/command nodes, spec/tasklist models, translation, Module orchestrator
+  core/            Harness node, config, prompt, output validation, registry, builtins, task-level call floor
+  model/           Spec/tasklist models, translator, Module orchestrator, SubModule
+  orchestrate/     Tasklist→Petri-net graph builder, consistency review, align check, run feed
+  infra/           Events, cross-process stream/control channels, checkpoint, shared query layer, module store
+  cli/             CLI entry (module_harness.cli:main), module discovery/loader, scaffold, command node
   templates/       Built-in tasklist templates (JSON)
   tests/           Pytest test suite
 docs/
@@ -77,7 +82,7 @@ build/test tooling. Tests use `pytest` + `unittest.mock` (`MagicMock`,
    passthrough wrappers are never extracted. Example: query composition
    (audit timeline / output history) is consumed by the in-repo CLI and by
    ecosystem forms (MCP, Web) and embedders → it lives once in
-   `module_harness/query.py`; every consumer imports it, never reimplements.
+   `module_harness/infra/query.py`; every consumer imports it, never reimplements.
 
 ## Coding Conventions
 

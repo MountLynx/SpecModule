@@ -1,9 +1,9 @@
 import pytest
 from unittest.mock import MagicMock
-from module_harness.events import EventBus
-from module_harness.registry import HarnessRegistry
-from module_harness.spec import Tasklist, TaskDefinition
-from module_harness.translator import TasklistValidator
+from module_harness.infra.events import EventBus
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.spec import Tasklist, TaskDefinition
+from module_harness.model.translator import TasklistValidator
 
 
 def _make_registry(harnesses=None, scripts=None):

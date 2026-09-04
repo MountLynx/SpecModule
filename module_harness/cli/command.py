@@ -12,7 +12,7 @@ from typing import Any
 from tickflow import Failure
 from tickflow.views import DictView
 
-from .events import (
+from ..infra.events import (
     EventBus,
     CommandStarted,
     CommandCompleted,

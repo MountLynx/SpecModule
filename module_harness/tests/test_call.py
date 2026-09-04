@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 from llm.client import LLMError, LLMResponse
 
-from module_harness.call import HarnessCallError, HarnessCallResult, call_harness
-from module_harness.config import HarnessConfig, OutputFormat
-from module_harness.events import EventBus, OutputValidated, PromptRendered
-from module_harness.registry import HarnessRegistry
+from module_harness.core.call import HarnessCallError, HarnessCallResult, call_harness
+from module_harness.core.config import HarnessConfig, OutputFormat
+from module_harness.infra.events import EventBus, OutputValidated, PromptRendered
+from module_harness.core.registry import HarnessRegistry
 
 
 @pytest.fixture

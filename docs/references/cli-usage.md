@@ -72,7 +72,7 @@ update: CLI → 按 manifest 来源重取 → check_updates 哈希比对 → 无
 setup: CLI → input() 向导 → 写 store 级 .env + config.json（复用 scaffold 结构）
 ```
 
-查询组合逻辑沉淀在 `module_harness/query.py` 与 `module_harness/store.py`
+查询组合逻辑沉淀在 `module_harness/infra/query.py` 与 `module_harness/infra/store.py`
 （CLI/MCP/Web 三形态共用），CLI 只 import 不重实现。
 
 ---
@@ -307,7 +307,7 @@ tick 3: Finalize ✗
 
 ```python
 # modules/<name>.py
-from module_harness.entry import ModuleEntry
+from module_harness.cli.entry import ModuleEntry
 
 entry = ModuleEntry(
     name="my_module",                  # CLI --module 用
@@ -603,7 +603,7 @@ tick 边界 hook）轮询消费——**不接触运行进程，立即返回**。
 
 `--run-id` 缺省 = 最近运行。目标 run 不存在（无 status.json）→ 报错退出码 1。
 新 `run`/`resume` 启动时会清场（删除残留请求），崩溃残留的 pause 不会拖住
-下一次运行。协议与库函数详见 api.md 的 `module_harness.control` 一节。
+下一次运行。协议与库函数详见 api.md 的 `module_harness.infra.control` 一节。
 
 ---
 

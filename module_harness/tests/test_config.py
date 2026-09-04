@@ -1,6 +1,6 @@
-from module_harness.command import CommandConfig
-from module_harness.config import HarnessConfig
-from module_harness.outputfmt import OutputFormat
+from module_harness.cli.command import CommandConfig
+from module_harness.core.config import HarnessConfig
+from module_harness.core.outputfmt import OutputFormat
 
 
 class TestHarnessConfig:

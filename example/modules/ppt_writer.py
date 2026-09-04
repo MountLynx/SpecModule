@@ -15,8 +15,8 @@ from example.ppt_writer.module import (
     TEMPLATE_REVIEW_TEMPLATE,
     _build_registry,
 )
-from module_harness.entry import ModuleEntry
-from module_harness.events import EventBus
+from module_harness.cli.entry import ModuleEntry
+from module_harness.infra.events import EventBus
 
 
 def _registry_for(

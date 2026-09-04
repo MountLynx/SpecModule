@@ -1,6 +1,6 @@
 # module_harness/tests/test_spec.py
 import pytest
-from module_harness.spec import (
+from module_harness.model.spec import (
     Spec, SpecSchema, TaskDefinition, Tasklist, TranslationSpec,
     TasklistTemplate,
 )
@@ -173,7 +173,7 @@ class TestSpecSchema:
 
 class TestTasklistToDict:
     def test_matches_tasklist_to_dict(self):
-        from module_harness.checkpoint import tasklist_to_dict
+        from module_harness.infra.checkpoint import tasklist_to_dict
         tl = Tasklist(
             tasks={"A": TaskDefinition(type="script", script="echo",
                                        inputs={"x": "B"})},

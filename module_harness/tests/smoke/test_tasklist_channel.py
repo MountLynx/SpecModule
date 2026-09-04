@@ -10,15 +10,15 @@
 
 import pytest
 
-from module_harness.config import HarnessConfig, OutputFormat
-from module_harness.consistency import (
+from module_harness.core.config import HarnessConfig, OutputFormat
+from module_harness.orchestrate.consistency import (
     ConsistencyError,
     register_review_harness,
 )
-from module_harness.events import ConsistencyReviewed
-from module_harness.registry import HarnessRegistry
-from module_harness.spec import TaskDefinition, Tasklist
-from module_harness.module import Module
+from module_harness.infra.events import ConsistencyReviewed
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.spec import TaskDefinition, Tasklist
+from module_harness.model.module import Module
 from module_harness.tests.smoke.test_full_modules import _setup_base_registry
 
 pytestmark = pytest.mark.smoke

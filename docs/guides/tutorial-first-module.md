@@ -34,7 +34,7 @@ spec 是模块的输入。案例模块"summarizer"的 spec：
 一个模块一个 py 文件，声明模块级 `entry`（`ModuleEntry`）。CLI 经 `discover_modules()` 扫描 `modules/` 目录发现它。完整代码见 [`examples/tutorial/modules/summarizer.py`](../../examples/tutorial/modules/summarizer.py)，骨架：
 
 ```python
-from module_harness.entry import ModuleEntry
+from module_harness.cli.entry import ModuleEntry
 
 def build_registry(llm_client, template_name, event_bus):
     """构建执行元件注册表。CLI 传入外部 event_bus（否则收不到 harness 事件）。"""

@@ -7,7 +7,7 @@
 >
 > 首批内容 = MCP 消费通道（SpecModule_mcp）当前消费面。
 
-## module_harness.query —— 运行产物查询与跨进程控制
+## module_harness.infra.query —— 运行产物查询与跨进程控制
 
 查询函数（timeline/checkpoints/snapshot 摘要）**永不抛错**：run 目录不存在 / 无 DB / 读失败 → 返回 `None`，由调用方决定错误呈现。控制操作（`create_checkpoint`）按约定抛 `KeyError` 携带可用清单；目标类无效参数同样以 `KeyError` 呈现（见各行）。
 
@@ -44,7 +44,7 @@ CLI 对应子命令：`specmodule runs [--json]`（`list_runs` 列表展示）�
 `type="unknown"` 降级（存档与代码漂移时不阻断渲染）。注意 `build_run_graph` 的模块解析错误走
 `ValueError`（非查询容错通道——它是构建型操作，消费方映射 4xx）。
 
-## module_harness.status —— 运行状态
+## module_harness.infra.status —— 运行状态
 
 | 函数 | 签名 | 行为 |
 |------|------|------|
@@ -56,7 +56,7 @@ running → done | aborted | cancelled | truncated`）、`status`（tickflow Run
 
 `base_dir` 默认 cwd——跨进程消费（服务器形态）必须显式传。
 
-## module_harness.control —— 跨进程运行控制（控制文件协议）
+## module_harness.infra.control —— 跨进程运行控制（控制文件协议）
 
 status.json 的反向通道：status.json 把运行状态带出运行进程，control.json 把控制请求
 （cancel/pause/unpause）带进运行进程。文件即协议——任何消费端（CLI/Web/TUI）可写，
@@ -82,7 +82,7 @@ status.json 的反向通道：status.json 把运行状态带出运行进程，co
 当前 tick 内已开始的 firing 跑完、下一 tick 前停；pause 挂起中即将 fire 的 tick
 不启动、tick 计数不前进（max_ticks 不消耗）。
 
-## module_harness.store —— 模块发现与解析
+## module_harness.infra.store —— 模块发现与解析
 
 | 函数 | 签名 | 行为 |
 |------|------|------|
@@ -103,7 +103,7 @@ status.json 的反向通道：status.json 把运行状态带出运行进程，co
 
 entry 发现失败（缺 `entry` 变量 / 导入异常）逐文件跳过并 log，不阻断整体；pip 枚举失败整源跳过。
 
-## module_harness.entry —— 入口声明
+## module_harness.cli.entry —— 入口声明
 
 | 符号 | 形态 | 说明 |
 |------|------|------|
@@ -144,7 +144,7 @@ Module(
 
 执行：`await module.run(max_ticks=100)` —— 翻译 → 构建 → 运行一步跑完，返回 tickflow
 firings 列表。协程跑完整 run；**进程内取消 = 取消该 asyncio task**（phase 落
-`cancelled`）；**跨进程取消/暂停走 control 文件通道**（见 module_harness.control——
+`cancelled`）；**跨进程取消/暂停走 control 文件通道**（见 module_harness.infra.control——
 默认启用，运行进程在 tick 边界协作消费）；`max_ticks` 是唯一运行上限（每次 LLM 调用
 超时 60s）。`max_ticks` 耗尽 → phase 落 **`truncated`**（终态，`error` 记 `max_ticks=N 截断（可 resume 续跑）`）——
 监控方拿到可续跑的确定性信号，无需静默启发式。落盘产物 `<base_dir>/.specmodule/runs/<run_id>/{run.sqlite, status.json}`，

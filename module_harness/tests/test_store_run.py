@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 
 from module_harness.cli import main
-from module_harness.submodule import SubModule, script
-from module_harness.spec import SpecSchema, TaskDefinition, Tasklist
+from module_harness.model.submodule import SubModule, script
+from module_harness.model.spec import SpecSchema, TaskDefinition, Tasklist
 
 
 class PackedHello(SubModule):
@@ -136,9 +136,9 @@ class TestSameNamePriority:
         entry_py = cwd / "modules" / "packed_hello.py"
         entry_py.write_text("""\
 from __future__ import annotations
-from module_harness.entry import ModuleEntry
-from module_harness.events import EventBus
-from module_harness.registry import HarnessRegistry
+from module_harness.cli.entry import ModuleEntry
+from module_harness.infra.events import EventBus
+from module_harness.core.registry import HarnessRegistry
 
 
 def _registry_for(llm_client, template_name, event_bus):

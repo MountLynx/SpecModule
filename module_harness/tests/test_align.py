@@ -5,12 +5,12 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from llm.client import LLMResponse
-from module_harness.align import ALIGN_CHECK_CONFIG, register_align_check_harness
-from module_harness.builtins import BUILTIN_HARNESS_NAMES, register_builtin_harnesses
-from module_harness.config import HarnessConfig
-from module_harness.graph_builder import TasklistTranslator
-from module_harness.registry import HarnessRegistry
-from module_harness.spec import Spec, TaskDefinition, Tasklist
+from module_harness.orchestrate.align import ALIGN_CHECK_CONFIG, register_align_check_harness
+from module_harness.core.builtins import BUILTIN_HARNESS_NAMES, register_builtin_harnesses
+from module_harness.core.config import HarnessConfig
+from module_harness.orchestrate.graph_builder import TasklistTranslator
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.spec import Spec, TaskDefinition, Tasklist
 from tickflow.async_runner import AsyncRunner
 from tickflow.persistence import NullBackend
 

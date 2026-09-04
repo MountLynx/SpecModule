@@ -12,9 +12,9 @@ from tickflow import Registry
 from tickflow.views import DictView
 
 from .config import HarnessConfig
-from .command import Command, CommandConfig
+from ..cli.command import Command, CommandConfig
 from .harness import Harness
-from .events import (
+from ..infra.events import (
     EventBus,
     ScriptStarted,
     ScriptCompleted,

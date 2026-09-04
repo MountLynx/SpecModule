@@ -12,7 +12,7 @@ import json
 import pytest
 
 from module_harness.cli import main
-from module_harness.scaffold import scaffold_dir
+from module_harness.cli.scaffold import scaffold_dir
 
 
 @pytest.fixture
@@ -112,12 +112,12 @@ class TestPublish:
         (cwd / "modules").mkdir()
         (cwd / "modules" / "notpl.py").write_text("""\
 from __future__ import annotations
-from module_harness.entry import ModuleEntry
-from module_harness.registry import HarnessRegistry
+from module_harness.cli.entry import ModuleEntry
+from module_harness.core.registry import HarnessRegistry
 
 
 def _registry_for(llm_client, template_name, event_bus):
-    return HarnessRegistry(llm_client=llm_client, event_bus=event_bus or __import__('module_harness.events', fromlist=['EventBus']).EventBus.null())
+    return HarnessRegistry(llm_client=llm_client, event_bus=event_bus or __import__('module_harness.infra.events', fromlist=['EventBus']).EventBus.null())
 
 
 entry = ModuleEntry(

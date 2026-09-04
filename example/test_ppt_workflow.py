@@ -14,7 +14,7 @@ from pathlib import Path
 
 from example.ppt_writer import normalize
 from example.ppt_writer.module import run_template_review
-from module_harness.cli import MockLLMClient
+from llm.mock import MockLLMClient
 
 
 def _sha256(path: Path) -> str:

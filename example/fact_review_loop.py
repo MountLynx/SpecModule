@@ -24,10 +24,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from module_harness.config import HarnessConfig
-from module_harness.outputfmt import OutputFormat
-from module_harness.spec import SpecSchema, TaskDefinition, Tasklist
-from module_harness.submodule import SubModule, script
+from module_harness.core.config import HarnessConfig
+from module_harness.core.outputfmt import OutputFormat
+from module_harness.model.spec import SpecSchema, TaskDefinition, Tasklist
+from module_harness.model.submodule import SubModule, script
 
 
 def has_issues(view: Any) -> bool:

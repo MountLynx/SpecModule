@@ -9,13 +9,13 @@ import os
 import pytest
 
 from llm.client import LLMError, LLMResponse
-from module_harness.config import HarnessConfig
-from module_harness.events import EventBus
-from module_harness.module import Module
-from module_harness.registry import HarnessRegistry
-from module_harness.spec import TaskDefinition, Tasklist
-from module_harness.query import read_stream
-from module_harness.stream import StreamLogWriter, stream_log_path
+from module_harness.core.config import HarnessConfig
+from module_harness.infra.events import EventBus
+from module_harness.model.module import Module
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.spec import TaskDefinition, Tasklist
+from module_harness.infra.query import read_stream
+from module_harness.infra.stream import StreamLogWriter, stream_log_path
 
 
 def _read_records(path):

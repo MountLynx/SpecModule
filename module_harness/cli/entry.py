@@ -14,11 +14,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from .events import EventBus
-from .module import Module
-from .registry import HarnessRegistry
-from .spec import Tasklist
-from .translator import TemplateLoader
+from ..infra.events import EventBus
+from ..model.module import Module
+from ..core.registry import HarnessRegistry
+from ..model.spec import Tasklist
+from ..model.translator import TemplateLoader
 
 log = logging.getLogger(__name__)
 

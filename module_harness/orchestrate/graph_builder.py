@@ -14,11 +14,11 @@ from typing import Any
 from tickflow import Failure, Graph, parse as parse_graph
 from tickflow.ir import InputPolicy
 
-from .config import HarnessConfig
-from .outputfmt import OutputFormat
-from .registry import HarnessRegistry
-from .spec import SpecValidationError, TaskDefinition, Tasklist
-from .translator import prepare_flow, _suppress_parse_noise
+from ..core.config import HarnessConfig
+from ..core.outputfmt import OutputFormat
+from ..core.registry import HarnessRegistry
+from ..model.spec import SpecValidationError, TaskDefinition, Tasklist
+from ..model.translator import prepare_flow, _suppress_parse_noise
 
 
 _CONSTANT_TOKENS = frozenset({"{spec}", "{tasklist}", "{node}"})

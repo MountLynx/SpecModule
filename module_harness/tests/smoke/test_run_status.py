@@ -10,11 +10,11 @@ import asyncio
 
 import pytest
 
-from module_harness.config import HarnessConfig, OutputFormat
-from module_harness.module import Module
-from module_harness.registry import HarnessRegistry
-from module_harness.spec import TaskDefinition, Tasklist
-from module_harness.status import query_run_status
+from module_harness.core.config import HarnessConfig, OutputFormat
+from module_harness.model.module import Module
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.spec import TaskDefinition, Tasklist
+from module_harness.infra.status import query_run_status
 
 pytestmark = pytest.mark.smoke
 

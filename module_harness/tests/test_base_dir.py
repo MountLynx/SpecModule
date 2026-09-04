@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from llm.client import LLMResponse
-from module_harness.config import HarnessConfig
-from module_harness.graph_builder import TasklistTranslator
-from module_harness.module import Module
-from module_harness.registry import HarnessRegistry
-from module_harness.spec import Spec, TaskDefinition, Tasklist
+from module_harness.core.config import HarnessConfig
+from module_harness.orchestrate.graph_builder import TasklistTranslator
+from module_harness.model.module import Module
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.spec import Spec, TaskDefinition, Tasklist
 
 
 def _make_module(monkeypatch, work_dir, **kw):

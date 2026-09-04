@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
-from .align import register_align_check_harness
+from ..orchestrate.align import register_align_check_harness
 from .config import HarnessConfig, OutputFormat
-from .consistency import register_review_harness
+from ..orchestrate.consistency import register_review_harness
 from .registry import HarnessRegistry
 
 BUILTIN_HARNESS_NAMES: frozenset[str] = frozenset({

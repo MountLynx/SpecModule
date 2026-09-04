@@ -10,7 +10,7 @@ import pytest
 from tickflow.persistence import SqliteBackend
 from tickflow.state import NodeState
 
-from module_harness.query import (
+from module_harness.infra.query import (
     build_timeline,
     create_checkpoint,
     filter_failed,

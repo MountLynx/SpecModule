@@ -5,9 +5,9 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from llm.client import LLMResponse
-from module_harness.config import HarnessConfig, OutputFormat
-from module_harness.spec import SpecSchema, TaskDefinition, Tasklist
-from module_harness.submodule import SubModule, script
+from module_harness.core.config import HarnessConfig, OutputFormat
+from module_harness.model.spec import SpecSchema, TaskDefinition, Tasklist
+from module_harness.model.submodule import SubModule, script
 
 
 @pytest.fixture
@@ -351,8 +351,8 @@ class TestSubmoduleNode:
     @pytest.mark.asyncio
     async def test_procedural_module_api_equivalent(self, mock_llm):
         """过程式 Module(spec, tasklist, modules=...) 与类式同效。"""
-        from module_harness.module import Module
-        from module_harness.registry import HarnessRegistry
+        from module_harness.model.module import Module
+        from module_harness.core.registry import HarnessRegistry
 
         # tasklist 引用的脚本需预注册进 registry（过程式 Module 不收集类内
         # @script——类式路径由 SubModule._build_registry 收集，此处手动注册）
@@ -441,7 +441,7 @@ class TestPackLoadSubmodules:
 
     @pytest.mark.asyncio
     async def test_load_roundtrip_with_submodules(self, tmp_path, mock_llm):
-        from module_harness.loader import ModuleLoader
+        from module_harness.cli.loader import ModuleLoader
 
         out = Parent().pack(tmp_path / "dist")
         module = ModuleLoader(llm_client=mock_llm).load(out)
@@ -452,7 +452,7 @@ class TestPackLoadSubmodules:
 
     def test_manifest_modules_missing_dir_rejected(self, tmp_path, mock_llm):
         import json as _json
-        from module_harness.loader import ModuleLoader, ModuleManifestError
+        from module_harness.cli.loader import ModuleLoader, ModuleManifestError
 
         out = Parent().pack(tmp_path / "dist")
         manifest_path = out / "module.json"
@@ -465,7 +465,7 @@ class TestPackLoadSubmodules:
     def test_manifest_modules_extra_dir_rejected(self, tmp_path, mock_llm):
         """submodules/ 目录存在但 manifest 未声明 → 反向不一致报错（无隐式行为）。"""
         import json as _json
-        from module_harness.loader import ModuleLoader, ModuleManifestError
+        from module_harness.cli.loader import ModuleLoader, ModuleManifestError
 
         out = Parent().pack(tmp_path / "dist")
         manifest_path = out / "module.json"
@@ -477,7 +477,7 @@ class TestPackLoadSubmodules:
 
     @pytest.mark.asyncio
     async def test_load_roundtrip_guards_loop(self, tmp_path, mock_llm):
-        from module_harness.loader import ModuleLoader
+        from module_harness.cli.loader import ModuleLoader
 
         out = GuardLoopMod().pack(tmp_path / "dist")
         module = ModuleLoader(llm_client=mock_llm).load(out)
@@ -487,7 +487,7 @@ class TestPackLoadSubmodules:
 
     @pytest.mark.asyncio
     async def test_load_roundtrip_nested_submodules(self, tmp_path, mock_llm):
-        from module_harness.loader import ModuleLoader
+        from module_harness.cli.loader import ModuleLoader
 
         out = MidChild().pack(tmp_path / "dist")
         assert (out / "submodules" / "grand_child" / "module.json").is_file()

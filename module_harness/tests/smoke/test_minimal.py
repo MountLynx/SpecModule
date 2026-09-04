@@ -3,9 +3,9 @@
 import pytest
 from tickflow import parse
 from tickflow.async_runner import AsyncRunner
-from module_harness.config import HarnessConfig, OutputFormat
-from module_harness.registry import HarnessRegistry
-from module_harness.events import (
+from module_harness.core.config import HarnessConfig, OutputFormat
+from module_harness.core.registry import HarnessRegistry
+from module_harness.infra.events import (
     PromptRendered,
     LlmCallStarted,
     LlmToken,

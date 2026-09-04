@@ -9,12 +9,12 @@ from typing import Any
 
 from llm import LLMConfig, create_llm_client
 
-from .builtins import BUILTIN_HARNESS_NAMES
+from ..core.builtins import BUILTIN_HARNESS_NAMES
 from .command import CommandConfig
-from .config import HarnessConfig
-from .events import EventBus
-from .spec import SpecSchema, Tasklist
-from .submodule import SubModule
+from ..core.config import HarnessConfig
+from ..infra.events import EventBus
+from ..model.spec import SpecSchema, Tasklist
+from ..model.submodule import SubModule
 
 
 class ModuleRequirementError(Exception):

@@ -84,7 +84,7 @@ Layer 2 键不匹配抛 `KeyError`——**无隐式行为，框架不兜底**。
 
 ## 事件系统
 
-EventBus 提供两层事件——流程级（tickflow hooks：`on_fire` / `on_tick_start` / `on_tick_end`，`node_status_changed` / `tick_started` / `tick_completed`）和节点内部事件（EventBus：prompt 渲染、token 流、命令执行、校验结果）。完整事件类型清单与订阅模式见 `module_harness/events.py`（类型化 dataclass：harness 6 + script 3 + command 3 + 一致性审核 1）。事件与审计解耦：`keep_records=False` 时事件照常可达。
+EventBus 提供两层事件——流程级（tickflow hooks：`on_fire` / `on_tick_start` / `on_tick_end`，`node_status_changed` / `tick_started` / `tick_completed`）和节点内部事件（EventBus：prompt 渲染、token 流、命令执行、校验结果）。完整事件类型清单与订阅模式见 `module_harness/infra/events.py`（类型化 dataclass：harness 6 + script 3 + command 3 + 一致性审核 1）。事件与审计解耦：`keep_records=False` 时事件照常可达。
 
 ## 设计原则
 

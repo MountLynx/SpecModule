@@ -12,7 +12,7 @@ from tickflow.views import DictView, Missing
 from .config import HarnessConfig
 from .prompt import PromptRenderer
 from .outputfmt import OutputValidator
-from .events import (
+from ..infra.events import (
     EventBus,
     PromptRendered,
     LlmCallStarted,

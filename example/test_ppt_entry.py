@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from module_harness.entry import discover_modules
-from module_harness.events import EventBus
+from module_harness.cli.entry import discover_modules
+from module_harness.infra.events import EventBus
 
 MODULES_DIR = Path(__file__).parent / "modules"
 FAKE_LLM = object()   # 注册不触发 LLM 调用，仅作占位

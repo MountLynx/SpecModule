@@ -1,5 +1,5 @@
-from module_harness.translator import TemplateLoader
-from module_harness.spec import TasklistTemplate
+from module_harness.model.translator import TemplateLoader
+from module_harness.model.spec import TasklistTemplate
 
 
 class TestTemplateLoader:
@@ -71,9 +71,9 @@ class TestTemplateLoader:
 import pytest
 from unittest.mock import AsyncMock
 from tickflow.views import DictView, Resolved
-from module_harness.spec import Spec
-from module_harness.translator import Translator
-from module_harness.registry import HarnessRegistry
+from module_harness.model.spec import Spec
+from module_harness.model.translator import Translator
+from module_harness.core.registry import HarnessRegistry
 
 
 class TestTranslator:
@@ -92,7 +92,7 @@ class TestTranslator:
             }
 
         # 注册引用到的 harness
-        from module_harness.config import HarnessConfig
+        from module_harness.core.config import HarnessConfig
         reg.harness("translate", HarnessConfig(prompt_core="翻译：{text}"))
 
         loader.register("test_module", {
@@ -120,8 +120,8 @@ class TestTranslator:
         loader = TemplateLoader()
 
         # 注册翻译 harness
-        from module_harness.config import HarnessConfig
-        from module_harness.outputfmt import OutputFormat
+        from module_harness.core.config import HarnessConfig
+        from module_harness.core.outputfmt import OutputFormat
         reg.harness("spec_to_tasklist", HarnessConfig(
             prompt_core="生成 tasklist JSON",
             output_format=OutputFormat(type="json_object"),
@@ -166,8 +166,8 @@ class TestTranslator:
             finish_reason="end_turn",
         ))
 
-        from module_harness.config import HarnessConfig
-        from module_harness.outputfmt import OutputFormat
+        from module_harness.core.config import HarnessConfig
+        from module_harness.core.outputfmt import OutputFormat
         reg.harness("spec_to_tasklist", HarnessConfig(
             prompt_core="...",
             output_format=OutputFormat(type="json_object"),

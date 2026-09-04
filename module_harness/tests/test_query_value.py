@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from module_harness.query import QueryValueResult, query_value
+from module_harness.infra.query import QueryValueResult, query_value
 from tickflow.persistence import SqliteBackend
 from tickflow.state import NodeState
 

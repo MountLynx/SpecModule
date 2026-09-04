@@ -22,7 +22,7 @@ from module_harness import (
     Tasklist,
     script,
 )
-from module_harness.submodule import SpecValidationError
+from module_harness.model.submodule import SpecValidationError
 
 pytestmark = pytest.mark.smoke
 

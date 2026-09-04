@@ -13,10 +13,10 @@ from typing import Any
 from tickflow import Failure, parse as parse_graph
 from tickflow.views import DictView, Resolved
 
-from .config import HarnessConfig
-from .harness import Harness
+from ..core.config import HarnessConfig
+from ..core.harness import Harness
 from .spec import Spec, Tasklist, TasklistTemplate, TaskDefinition
-from .registry import HarnessRegistry
+from ..core.registry import HarnessRegistry
 
 # Regex to find the first node name in a flow line.
 _FIRST_NODE = re.compile(r"^[ \t]*\[?(?P<name>[A-Za-z_][A-Za-z0-9_]*)")
@@ -192,7 +192,7 @@ class TemplateLoader:
 
     def load_builtins(self) -> int:
         """加载内置模板（module_harness/templates/builtin/）。"""
-        builtin_dir = Path(__file__).parent / "templates" / "builtin"
+        builtin_dir = Path(__file__).parent.parent / "templates" / "builtin"
         return self.load_directory(builtin_dir)
 
 

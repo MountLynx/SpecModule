@@ -7,8 +7,8 @@ import json
 
 from tickflow import parse as parse_graph
 
-from module_harness.query import build_run_graph, graph_to_dict
-from module_harness.spec import Tasklist
+from module_harness.infra.query import build_run_graph, graph_to_dict
+from module_harness.model.spec import Tasklist
 
 
 def _mini_tasklist() -> Tasklist:
@@ -49,9 +49,9 @@ MINI_MODULE_PY = '''\
 """graph_query 测试模块：script 流水线 + guard 分支。"""
 from __future__ import annotations
 
-from module_harness.entry import ModuleEntry
-from module_harness.events import EventBus
-from module_harness.registry import HarnessRegistry
+from module_harness.cli.entry import ModuleEntry
+from module_harness.infra.events import EventBus
+from module_harness.core.registry import HarnessRegistry
 
 
 def _registry_for(llm_client, template_name, event_bus):
@@ -111,7 +111,7 @@ def mini_env(tmp_path, monkeypatch):
 
 
 def _seed_archive(base, run_id, spec=None, tasklist=None):
-    from module_harness.checkpoint import ModuleInputStore
+    from module_harness.infra.checkpoint import ModuleInputStore
 
     st = ModuleInputStore(run_id, base)
     st.save_module_inputs(spec or {}, tasklist or MINI_TASKLIST_JSON)
@@ -144,7 +144,7 @@ class TestBuildRunGraph:
             build_run_graph("ghost", "ghost", base_dir=mini_env)
 
     def test_graph_to_dict_via_build(self, mini_env):
-        from module_harness.query import graph_to_dict as g2d
+        from module_harness.infra.query import graph_to_dict as g2d
 
         _seed_archive(mini_env, "graph_mini")
         graph, tl = build_run_graph("graph_mini", "graph_mini", base_dir=mini_env)

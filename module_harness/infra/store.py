@@ -29,8 +29,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .entry import ModuleEntry
-    from .submodule import SubModule
+    from ..cli.entry import ModuleEntry
+    from ..model.submodule import SubModule
 
 log = logging.getLogger(__name__)
 
@@ -189,7 +189,7 @@ def list_modules(
     for priority, d in enumerate(search):
         # entry 单文件
         if d.is_dir():
-            from .entry import discover_modules
+            from ..cli.entry import discover_modules
 
             entries = discover_modules(d)
             for name, entry in entries.items():
@@ -323,13 +323,13 @@ def resolve_module_full(
     res = ResolvedModule(name, src)
     if src.is_packed:
         try:
-            from .loader import ModuleLoader
+            from ..cli.loader import ModuleLoader
 
             res.submodule = ModuleLoader().load(src.path, lazy_client=True)
         except Exception as e:
             raise ValueError(f"模块 '{name}' 加载失败: {e}") from e
     else:
-        from .entry import discover_modules
+        from ..cli.entry import discover_modules
 
         res.entry = discover_modules(src.path.parent).get(name)
         if res.entry is None:
@@ -411,7 +411,7 @@ def validate_pack_dir(path: Path) -> dict[str, Any]:
         raise ValueError("module.json 缺少 'tasklist'")
     # 引用完整性经 ModuleLoader 校验（requires/provides/子模块目录）
     try:
-        from .loader import ModuleLoader
+        from ..cli.loader import ModuleLoader
 
         ModuleLoader().load(path, lazy_client=True)
     except Exception as e:

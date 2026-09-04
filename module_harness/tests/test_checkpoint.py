@@ -5,19 +5,19 @@ import json
 
 import pytest
 
-from module_harness.checkpoint import (
+from module_harness.infra.checkpoint import (
     ModuleInputStore,
     ResumeCheck,
     ResumeError,
     _run_db_path,
     check_resume_compat,
 )
-from module_harness.config import HarnessConfig, OutputFormat
-from module_harness.spec import TaskDefinition, Tasklist
-from module_harness.graph_builder import TasklistTranslator
-from module_harness.registry import HarnessRegistry
-from module_harness.events import EventBus
-from module_harness.module import Module
+from module_harness.core.config import HarnessConfig, OutputFormat
+from module_harness.model.spec import TaskDefinition, Tasklist
+from module_harness.orchestrate.graph_builder import TasklistTranslator
+from module_harness.core.registry import HarnessRegistry
+from module_harness.infra.events import EventBus
+from module_harness.model.module import Module
 
 
 @pytest.fixture
@@ -453,8 +453,8 @@ class TestCheckResumeCompat:
 
 
 def _script_reg(mock_llm, **scripts):
-    from module_harness.registry import HarnessRegistry
-    from module_harness.events import EventBus
+    from module_harness.core.registry import HarnessRegistry
+    from module_harness.infra.events import EventBus
     reg = HarnessRegistry(llm_client=mock_llm, event_bus=EventBus())
 
     def echo(view):
@@ -768,7 +768,7 @@ class TestResume:
 
         mod2 = self._make_module(mock_llm, tmp_path, monkeypatch)
         import logging
-        with caplog.at_level(logging.WARNING, logger="module_harness.module"):
+        with caplog.at_level(logging.WARNING, logger="module_harness.model.module"):
             firings = await mod2.resume(rollback_to=1)
         assert [f.node for f in firings] == ["B", "C"]
         assert not any("不会自动执行" in r.message for r in caplog.records)
@@ -822,7 +822,7 @@ class TestResume:
         )
         mod2 = self._make_module(mock_llm, tmp_path, monkeypatch, tasklist=new_tl)
         import logging
-        with caplog.at_level(logging.WARNING, logger="module_harness.module"):
+        with caplog.at_level(logging.WARNING, logger="module_harness.model.module"):
             firings = await mod2.resume(rollback_to=3)
         assert "D" not in [f.node for f in firings]
         assert any("D" in r.message for r in caplog.records)
@@ -893,7 +893,7 @@ class TestResume:
 
         mod2 = self._make_module(mock_llm, tmp_path, monkeypatch)
         import logging
-        with caplog.at_level(logging.WARNING, logger="module_harness.module"):
+        with caplog.at_level(logging.WARNING, logger="module_harness.model.module"):
             firings = await mod2.resume(rollback_to="manual:before")
         assert [f.node for f in firings] == ["A", "B", "C"]
         assert not any("不会自动执行" in r.message for r in caplog.records)

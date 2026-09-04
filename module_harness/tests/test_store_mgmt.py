@@ -12,8 +12,8 @@ import json
 import pytest
 
 from module_harness.cli import main
-from module_harness.submodule import SubModule, script
-from module_harness.spec import SpecSchema, TaskDefinition, Tasklist
+from module_harness.model.submodule import SubModule, script
+from module_harness.model.spec import SpecSchema, TaskDefinition, Tasklist
 
 
 class MgmtMod(SubModule):

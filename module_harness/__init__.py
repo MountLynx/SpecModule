@@ -1,10 +1,38 @@
 # module_harness/__init__.py
 """ModuleHarness — tickflow 上层抽象：harness 与 script 执行元件。"""
 
-from .config import HarnessConfig
-from .outputfmt import OutputFormat, OutputValidator
-from .prompt import PromptRenderer
-from .events import (
+# core：核心执行元件
+from .core.config import HarnessConfig
+from .core.outputfmt import OutputFormat, OutputValidator
+from .core.prompt import PromptRenderer
+from .core.harness import Harness
+from .core.call import HarnessCallError, HarnessCallResult, call_harness
+from .core.registry import HarnessRegistry
+from .core.builtins import BUILTIN_HARNESS_NAMES, register_builtin_harnesses
+# model：数据模型与模块形态
+from .model.spec import (
+    Spec,
+    TaskDefinition,
+    Tasklist,
+    TranslationSpec,
+    TasklistTemplate,
+)
+from .model.spec import SpecSchema
+from .model.translator import TasklistValidator, TemplateLoader, Translator
+from .model.module import Module
+from .model.submodule import SubModule, SpecValidationError, script
+# orchestrate：图编排
+from .orchestrate.consistency import (
+    ConsistencyError,
+    ConsistencyReport,
+    ConsistencyReviewer,
+    REVIEW_HARNESS_CONFIG,
+    register_review_harness,
+)
+from .orchestrate.align import ALIGN_CHECK_CONFIG, register_align_check_harness
+from .orchestrate.graph_builder import TasklistTranslator
+# infra：运行基础设施
+from .infra.events import (
     EventBus,
     HarnessEvent,
     PromptRendered,
@@ -22,35 +50,8 @@ from .events import (
     CommandCompleted,
     CommandFailed,
 )
-from .command import Command, CommandConfig
-from .harness import Harness
-from .call import HarnessCallError, HarnessCallResult, call_harness
-from .registry import HarnessRegistry
-from .spec import (
-    Spec,
-    TaskDefinition,
-    Tasklist,
-    TranslationSpec,
-    TasklistTemplate,
-)
-from .consistency import (
-    ConsistencyError,
-    ConsistencyReport,
-    ConsistencyReviewer,
-    REVIEW_HARNESS_CONFIG,
-    register_review_harness,
-)
-from .align import ALIGN_CHECK_CONFIG, register_align_check_harness
-from .builtins import BUILTIN_HARNESS_NAMES, register_builtin_harnesses
-from .translator import TasklistValidator, TemplateLoader, Translator
-from .graph_builder import TasklistTranslator
-from .module import Module
-from .submodule import SubModule, SpecValidationError, script
-from .loader import ModuleLoader, ModuleManifestError, ModuleRequirementError
-from .spec import SpecSchema
-from .status import ModuleStatus, query_run_status
-from .entry import ModuleEntry, discover_modules
-from .query import (
+from .infra.status import ModuleStatus, query_run_status
+from .infra.query import (
     CheckpointEntry,
     CheckpointList,
     QueryValueResult,
@@ -71,14 +72,13 @@ from .query import (
     run_db_path,
     timeline_to_dict,
 )
-from .checkpoint import (
+from .infra.checkpoint import (
     ModuleInputStore,
     ResumeCheck,
     ResumeError,
     check_resume_compat,
 )
-from . import store as store_module
-from .store import (
+from .infra.store import (
     ENTRY_POINT_GROUP,
     ModuleSource,
     ResolvedModule,
@@ -101,6 +101,14 @@ from .store import (
     uninstall_pack,
     validate_pack_dir,
 )
+# cli 层（CLI 实现，非库面）
+from .cli.command import Command, CommandConfig
+from .cli.entry import ModuleEntry, discover_modules
+from .cli.loader import ModuleLoader, ModuleManifestError, ModuleRequirementError
+
+# 模块对象绑定（`from module_harness import store` / `import submodule` 可用）
+from .infra import store
+from .model import submodule
 
 # 嵌入者最小面（用法见 docs/guides/embedding.md）：
 #   task 级 = call_harness / HarnessCallResult / HarnessCallError

@@ -5,15 +5,15 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from llm.client import LLMResponse
-from module_harness.builtins import BUILTIN_HARNESS_NAMES, register_builtin_harnesses
-from module_harness.config import HarnessConfig, OutputFormat
-from module_harness.consistency import ConsistencyError
-from module_harness.events import EventBus, HarnessFailed, ScriptCompleted
-from module_harness.loader import ModuleLoader, ModuleManifestError, ModuleRequirementError
-from module_harness.module import Module
-from module_harness.registry import HarnessRegistry
-from module_harness.spec import SpecSchema, TaskDefinition, Tasklist
-from module_harness.submodule import SpecValidationError, SubModule, script
+from module_harness.core.builtins import BUILTIN_HARNESS_NAMES, register_builtin_harnesses
+from module_harness.core.config import HarnessConfig, OutputFormat
+from module_harness.orchestrate.consistency import ConsistencyError
+from module_harness.infra.events import EventBus, HarnessFailed, ScriptCompleted
+from module_harness.cli.loader import ModuleLoader, ModuleManifestError, ModuleRequirementError
+from module_harness.model.module import Module
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.spec import SpecSchema, TaskDefinition, Tasklist
+from module_harness.model.submodule import SpecValidationError, SubModule, script
 
 
 @pytest.fixture

@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from module_harness.entry import ModuleEntry
-from module_harness.events import EventBus
+from module_harness.cli.entry import ModuleEntry
+from module_harness.infra.events import EventBus
 
 
 def build_registry(

@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from module_harness.cli import main
-from module_harness.control import (
+from module_harness.infra.control import (
     clear_control,
     control_path,
     control_tick_end,
@@ -18,10 +18,10 @@ from module_harness.control import (
     read_control,
     request_control,
 )
-from module_harness.events import EventBus
-from module_harness.module import Module
-from module_harness.registry import HarnessRegistry
-from module_harness.spec import Tasklist
+from module_harness.infra.events import EventBus
+from module_harness.model.module import Module
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.spec import Tasklist
 
 
 # ------------------------------------------------------------------

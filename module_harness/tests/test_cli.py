@@ -13,9 +13,9 @@ HELLO_PY = '''\
 """hello 测试模块：单 script 节点 Greet（无 LLM 依赖）。"""
 from __future__ import annotations
 
-from module_harness.entry import ModuleEntry
-from module_harness.events import EventBus
-from module_harness.registry import HarnessRegistry
+from module_harness.cli.entry import ModuleEntry
+from module_harness.infra.events import EventBus
+from module_harness.core.registry import HarnessRegistry
 
 
 def _registry_for(llm_client, template_name, event_bus):
@@ -61,9 +61,9 @@ FAIL_PY = '''\
 from __future__ import annotations
 
 from tickflow import Failure
-from module_harness.entry import ModuleEntry
-from module_harness.events import EventBus
-from module_harness.registry import HarnessRegistry
+from module_harness.cli.entry import ModuleEntry
+from module_harness.infra.events import EventBus
+from module_harness.core.registry import HarnessRegistry
 
 
 def _registry_for(llm_client, template_name, event_bus):
@@ -107,9 +107,9 @@ RESUME_HELLO_PY = '''\
 """resume_hello 测试模块：两节点流水线 [A] --> B（无 LLM 依赖）。"""
 from __future__ import annotations
 
-from module_harness.entry import ModuleEntry
-from module_harness.events import EventBus
-from module_harness.registry import HarnessRegistry
+from module_harness.cli.entry import ModuleEntry
+from module_harness.infra.events import EventBus
+from module_harness.core.registry import HarnessRegistry
 
 
 def _registry_for(llm_client, template_name, event_bus):
@@ -599,7 +599,7 @@ class TestVisualize:
 
     def test_run_id_defaults_to_module_dir_not_latest(self, cwd, modules_dir, capsys):
         # 坑1：缺省 run_id = 模块同名运行目录——全局更新的干扰目录被忽略
-        from module_harness.checkpoint import ModuleInputStore
+        from module_harness.infra.checkpoint import ModuleInputStore
 
         assert _run(cwd, "--module", "resume_hello", "--mock") == 0
         capsys.readouterr()
@@ -644,7 +644,7 @@ class TestFeed:
 
     def _serve(self, cwd):
         """起服务于临时端口，返回 (server, url)。"""
-        from module_harness.feed import RunFeedServer
+        from module_harness.orchestrate.feed import RunFeedServer
 
         server = RunFeedServer(("127.0.0.1", 0), base_dir=cwd)
         import threading

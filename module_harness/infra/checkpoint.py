@@ -26,10 +26,10 @@ from typing import Any
 
 from tickflow import Graph
 
-from .graph_builder import _is_constant_ref
+from ..orchestrate.graph_builder import _is_constant_ref
 from .query import run_db_path as _run_db_path  # 路径规则单一来源（query.run_db_path）
-from .spec import TaskDefinition, Tasklist
-from .translator import prepare_flow
+from ..model.spec import TaskDefinition, Tasklist
+from ..model.translator import prepare_flow
 
 log = logging.getLogger(__name__)
 

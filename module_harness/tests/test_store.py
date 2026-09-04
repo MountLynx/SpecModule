@@ -91,12 +91,12 @@ class TestListModules:
         py = d / f"{name}.py"
         py.write_text(f"""\
 from __future__ import annotations
-from module_harness.entry import ModuleEntry
-from module_harness.registry import HarnessRegistry
+from module_harness.cli.entry import ModuleEntry
+from module_harness.core.registry import HarnessRegistry
 
 
 def _registry_for(llm_client, template_name, event_bus):
-    return HarnessRegistry(llm_client=llm_client, event_bus=event_bus or __import__('module_harness.events', fromlist=['EventBus']).EventBus.null())
+    return HarnessRegistry(llm_client=llm_client, event_bus=event_bus or __import__('module_harness.infra.events', fromlist=['EventBus']).EventBus.null())
 
 
 entry = ModuleEntry(
@@ -183,10 +183,10 @@ def _detail_entry_py(d: Path, name: str = "hello") -> None:
     """造全字段 entry 模块文件（详情归一测试用：模板/默认 spec/schema/子模块）。"""
     (d / f"{name}.py").write_text(f"""\
 from __future__ import annotations
-from module_harness.entry import ModuleEntry
-from module_harness.events import EventBus
-from module_harness.registry import HarnessRegistry
-from module_harness.submodule import SubModule
+from module_harness.cli.entry import ModuleEntry
+from module_harness.infra.events import EventBus
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.submodule import SubModule
 
 
 class Helper(SubModule):
@@ -219,8 +219,8 @@ class _PackedMod:
 
     @staticmethod
     def make():
-        from module_harness.spec import SpecSchema, TaskDefinition, Tasklist
-        from module_harness.submodule import SubModule, script
+        from module_harness.model.spec import SpecSchema, TaskDefinition, Tasklist
+        from module_harness.model.submodule import SubModule, script
 
         class PackedMod(SubModule):
             name = "packed_mod"
@@ -244,8 +244,8 @@ class _BrokenPacked:
 
     @staticmethod
     def make():
-        from module_harness.spec import TaskDefinition, Tasklist
-        from module_harness.submodule import SubModule
+        from module_harness.model.spec import TaskDefinition, Tasklist
+        from module_harness.model.submodule import SubModule
 
         class Broken(SubModule):
             name = "broken_mod"

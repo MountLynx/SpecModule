@@ -10,11 +10,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from .call import HarnessCallError, call_harness
-from .config import HarnessConfig
-from .outputfmt import OutputFormat
-from .registry import HarnessRegistry
-from .spec import Spec, Tasklist
+from ..core.call import HarnessCallError, call_harness
+from ..core.config import HarnessConfig
+from ..core.outputfmt import OutputFormat
+from ..core.registry import HarnessRegistry
+from ..model.spec import Spec, Tasklist
 
 
 @dataclass

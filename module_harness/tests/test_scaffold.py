@@ -8,7 +8,7 @@ import json
 import pytest
 
 from module_harness.cli import main
-from module_harness.scaffold import (
+from module_harness.cli.scaffold import (
     ScaffoldResult,
     build_module_source,
     scaffold,

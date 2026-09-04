@@ -8,8 +8,8 @@ import pytest
 from tickflow import Failure
 from tickflow.views import DictView, Resolved
 
-from module_harness.command import Command, CommandConfig
-from module_harness.events import (
+from module_harness.cli.command import Command, CommandConfig
+from module_harness.infra.events import (
     EventBus,
     CommandStarted,
     CommandCompleted,

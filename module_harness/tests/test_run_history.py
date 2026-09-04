@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from module_harness.query import delete_run, list_runs
+from module_harness.infra.query import delete_run, list_runs
 from tickflow.persistence import SqliteBackend
 
 

@@ -38,12 +38,12 @@ from llm.mock import MockLLMClient
 
 from tickflow.persistence import SqliteBackend
 
-from .checkpoint import ResumeError
+from ..infra.checkpoint import ResumeError
 from .entry import discover_modules
-from .events import EventBus
-from .feed import RunFeedServer
-from .module import Module, _persist_dir
-from .query import (
+from ..infra.events import EventBus
+from ..orchestrate.feed import RunFeedServer
+from ..model.module import Module, _persist_dir
+from ..infra.query import (
     CheckpointList,
     ReviewTimeline,
     build_checkpoints,
@@ -59,12 +59,12 @@ from .query import (
     run_db_path,
     timeline_to_dict,
 )
-from .registry import HarnessRegistry
+from ..core.registry import HarnessRegistry
 from .scaffold import scaffold, scaffold_dir
-from . import store
-from .spec import Tasklist
-from .status import query_run_status
-from .translator import TemplateLoader
+from ..infra import store
+from ..model.spec import Tasklist
+from ..infra.status import query_run_status
+from ..model.translator import TemplateLoader
 
 
 def _preview(value: Any, width: int = 80) -> str:
@@ -385,7 +385,7 @@ def _run_resume_cmd(args: argparse.Namespace, *, require_target: bool) -> int:
             # 流程来源兜底：显式参数 > entry.default_template > module_inputs
             # 归档 tasklist（续跑语义本该默认沿用原任务书——tasklist 通道
             # 启动的 run 无模板可回落，此前只能靠显式 --tasklist 续跑）
-            from .query import read_module_inputs
+            from ..infra.query import read_module_inputs
 
             archived = read_module_inputs(module_id)
             if archived and archived.get("tasklist"):
@@ -488,7 +488,7 @@ def _cmd_control(args: argparse.Namespace) -> int:
     纯数据操作（file 即通道），不接触运行进程；前置只校验目标 run 存在
     （status.json 落盘）。生效时机取决于运行进程的下一 tick 边界。
     """
-    from .control import request_control
+    from ..infra.control import request_control
 
     module_id = args.run_id or _latest_run_id()
     if module_id is None or not (
@@ -762,7 +762,7 @@ def _cmd_visualize(args: argparse.Namespace) -> int:
     tasklist = _load_tasklist(args.tasklist) if args.tasklist else None
     run_id = args.run_id or args.module
     try:
-        from .query import build_run_graph
+        from ..infra.query import build_run_graph
 
         res = build_run_graph(
             args.module, run_id, tasklist=tasklist, src=src,
@@ -1012,10 +1012,10 @@ def _cmd_publish(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    from .builtins import BUILTIN_HARNESS_NAMES
+    from ..core.builtins import BUILTIN_HARNESS_NAMES
     from .entry import discover_modules
-    from .spec import SpecSchema
-    from .submodule import SubModule
+    from ..model.spec import SpecSchema
+    from ..model.submodule import SubModule
 
     entries = discover_modules(src / "modules")
     entry = entries.get(args.name)

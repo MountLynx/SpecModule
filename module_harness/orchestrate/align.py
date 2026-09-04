@@ -12,9 +12,9 @@ task.prompt（Layer 3）注入前置节点输出，例如模板中
 
 from __future__ import annotations
 
-from .config import HarnessConfig
-from .outputfmt import OutputFormat
-from .registry import HarnessRegistry
+from ..core.config import HarnessConfig
+from ..core.outputfmt import OutputFormat
+from ..core.registry import HarnessRegistry
 
 
 ALIGN_CHECK_CONFIG = HarnessConfig(

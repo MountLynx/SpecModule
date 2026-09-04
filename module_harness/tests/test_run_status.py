@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from llm.client import LLMResponse
-from module_harness.config import HarnessConfig
-from module_harness.events import EventBus
-from module_harness.graph_builder import TasklistTranslator
-from module_harness.module import Module
-from module_harness.registry import HarnessRegistry
-from module_harness.spec import Spec, TaskDefinition, Tasklist
-from module_harness.status import ModuleStatus, query_run_status
+from module_harness.core.config import HarnessConfig
+from module_harness.infra.events import EventBus
+from module_harness.orchestrate.graph_builder import TasklistTranslator
+from module_harness.model.module import Module
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.spec import Spec, TaskDefinition, Tasklist
+from module_harness.infra.status import ModuleStatus, query_run_status
 from tickflow import Failure
 from tickflow.async_runner import AsyncRunner
 from tickflow.persistence import SqliteBackend

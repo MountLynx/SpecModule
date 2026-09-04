@@ -15,7 +15,7 @@ from tickflow import Failure
 from tickflow.views import DictView, Resolved
 
 from .config import HarnessConfig
-from .events import EventBus
+from ..infra.events import EventBus
 from .harness import Harness
 
 

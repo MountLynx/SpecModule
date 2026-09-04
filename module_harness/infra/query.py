@@ -786,9 +786,9 @@ def build_run_graph(
     from . import store
     from .checkpoint import ModuleInputStore
     from .events import EventBus
-    from .graph_builder import TasklistTranslator
-    from .registry import HarnessRegistry
-    from .spec import Spec, Tasklist
+    from ..orchestrate.graph_builder import TasklistTranslator
+    from ..core.registry import HarnessRegistry
+    from ..model.spec import Spec, Tasklist
 
     if src is None:
         src = store.resolve_module(module_name)
@@ -816,7 +816,7 @@ def build_run_graph(
         raise TypeError(f"tasklist 类型不支持: {type(tasklist)!r}")
 
     if src.is_packed:
-        from .loader import ModuleLoader
+        from ..cli.loader import ModuleLoader
 
         try:
             sub = ModuleLoader().load(src.path, lazy_client=True)
@@ -831,7 +831,7 @@ def build_run_graph(
         if tl is None:
             tl = sub.tasklist
     else:
-        from .entry import discover_modules
+        from ..cli.entry import discover_modules
 
         entry = discover_modules(src.path.parent).get(module_name)
         if entry is None:

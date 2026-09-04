@@ -33,14 +33,14 @@ from typing import Any
 
 from llm import LLMConfig, create_llm_client
 
-from module_harness.command import CommandConfig
-from module_harness.config import HarnessConfig
-from module_harness.events import EventBus
-from module_harness.module import Module
-from module_harness.outputfmt import OutputFormat
-from module_harness.registry import HarnessRegistry
-from module_harness.spec import TaskDefinition, Tasklist
-from module_harness.translator import TemplateLoader
+from module_harness.cli.command import CommandConfig
+from module_harness.core.config import HarnessConfig
+from module_harness.infra.events import EventBus
+from module_harness.model.module import Module
+from module_harness.core.outputfmt import OutputFormat
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.spec import TaskDefinition, Tasklist
+from module_harness.model.translator import TemplateLoader
 
 from . import normalize
 

@@ -13,12 +13,12 @@ from typing import Any, Callable, Literal
 
 from llm import LLMConfig, create_llm_client
 
-from .builtins import register_builtin_harnesses
-from .command import CommandConfig
-from .config import HarnessConfig
-from .events import EventBus
+from ..core.builtins import register_builtin_harnesses
+from ..cli.command import CommandConfig
+from ..core.config import HarnessConfig
+from ..infra.events import EventBus
 from .module import Module
-from .registry import HarnessRegistry
+from ..core.registry import HarnessRegistry
 from .spec import SpecSchema, SpecValidationError, Tasklist
 
 
@@ -260,7 +260,7 @@ class SubModule:
             )
         for sname, fn in self._scripts.items():
             src = textwrap.dedent(inspect.getsource(fn))
-            header = "from __future__ import annotations\nfrom module_harness.submodule import script\n\n"
+            header = "from __future__ import annotations\nfrom module_harness.model.submodule import script\n\n"
             (p / "scripts" / f"{sname}.py").write_text(header + src, encoding="utf-8")
         for gname, gfn in self.guards:
             if gname != gfn.__name__:

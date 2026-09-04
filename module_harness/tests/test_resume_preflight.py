@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from module_harness.query import check_resume_compat_from_run
+from module_harness.infra.query import check_resume_compat_from_run
 
 MINI_TASKLIST_JSON = {
     "Tasks": {
@@ -20,9 +20,9 @@ MINI_MODULE_PY = '''\
 """resume_preflight 测试模块：script 流水线 + guard 分支。"""
 from __future__ import annotations
 
-from module_harness.entry import ModuleEntry
-from module_harness.events import EventBus
-from module_harness.registry import HarnessRegistry
+from module_harness.cli.entry import ModuleEntry
+from module_harness.infra.events import EventBus
+from module_harness.core.registry import HarnessRegistry
 
 
 def _registry_for(llm_client, template_name, event_bus):
@@ -76,7 +76,7 @@ def mini_env(tmp_path, monkeypatch):
 def _seed_run(base, run_id="preflight_mini", *, tasklist=None, firings=None,
               snapshots=None, inputs=True):
     """run.sqlite（firings/snapshots/checkpoints）+ module_inputs 存档。"""
-    from module_harness.checkpoint import ModuleInputStore
+    from module_harness.infra.checkpoint import ModuleInputStore
     from tickflow.persistence import SqliteBackend
     from tickflow.state import NodeState
 
@@ -220,6 +220,6 @@ class TestCheckResumeCompatFromRun:
 
 def backend_store(base, run_id, label):
     """给最新快照打手动检查点（测试助手）。"""
-    from module_harness.query import create_checkpoint
+    from module_harness.infra.query import create_checkpoint
 
     create_checkpoint(run_id, label.removeprefix("manual:"), base_dir=base)

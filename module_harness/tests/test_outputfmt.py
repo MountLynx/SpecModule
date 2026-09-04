@@ -1,7 +1,7 @@
 import json
 import pytest
 from tickflow import Failure
-from module_harness.outputfmt import OutputFormat, OutputValidator
+from module_harness.core.outputfmt import OutputFormat, OutputValidator
 
 
 class TestOutputFormat:

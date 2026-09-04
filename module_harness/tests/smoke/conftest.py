@@ -3,7 +3,7 @@
 import pytest
 from llm.config import LLMConfig
 from llm.client import create_llm_client
-from module_harness.events import EventBus
+from module_harness.infra.events import EventBus
 
 
 @pytest.fixture(scope="module")

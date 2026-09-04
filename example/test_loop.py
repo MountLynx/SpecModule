@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from llm.client import LLMResponse
-from module_harness.spec import SpecValidationError
+from module_harness.model.spec import SpecValidationError
 
 from example.fact_review_loop import FactReviewLoop
 
@@ -124,7 +124,7 @@ class TestFactReviewLoop:
     @pytest.mark.asyncio
     async def test_pack_load_roundtrip_runs(self, tmp_path, mock_llm):
         """pack → load roundtrip 后 guard 可解析、loop 照常运行。"""
-        from module_harness.loader import ModuleLoader
+        from module_harness.cli.loader import ModuleLoader
 
         dist = FactReviewLoop().pack(tmp_path / "dist")
         loaded = ModuleLoader(llm_client=mock_llm).load(dist)

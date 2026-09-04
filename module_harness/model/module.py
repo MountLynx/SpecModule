@@ -16,11 +16,11 @@ from tickflow.async_runner import AsyncRunner
 from tickflow.persistence import NullBackend, SqliteBackend
 
 from .spec import Spec, Tasklist
-from .consistency import ConsistencyError, ConsistencyReport, ConsistencyReviewer
+from ..orchestrate.consistency import ConsistencyError, ConsistencyReport, ConsistencyReviewer
 from .translator import Translator, TemplateLoader, TasklistValidator
-from .graph_builder import TasklistTranslator
-from .registry import HarnessRegistry
-from .events import (
+from ..orchestrate.graph_builder import TasklistTranslator
+from ..core.registry import HarnessRegistry
+from ..infra.events import (
     EventBus,
     ConsistencyReviewed,
     HarnessFailed,
@@ -28,16 +28,16 @@ from .events import (
     LlmCallStarted,
     LlmToken,
 )
-from .checkpoint import (
+from ..infra.checkpoint import (
     ModuleInputStore,
     ResumeError,
     check_resume_compat,
     tasklist_from_dict,
     tasklist_to_dict,
 )
-from .query import _executed_nodes
-from .control import clear_control, control_tick_end, control_tick_start
-from .stream import StreamLogWriter, stream_log_path
+from ..infra.query import _executed_nodes
+from ..infra.control import clear_control, control_tick_end, control_tick_start
+from ..infra.stream import StreamLogWriter, stream_log_path
 
 log = logging.getLogger(__name__)
 

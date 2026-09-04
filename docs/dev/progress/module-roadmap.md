@@ -7,7 +7,7 @@
 本仓库是 **SpecModule 的库（framework）**，不是某一形态的产品。它提供：
 
 - **执行引擎**：`tickflow`（独立上游）+ `llm` + `module_harness`（spec → tasklist → Petri-net 图 → 运行）
-- **共享查询层**：`module_harness/query.py`——运行状态/历史时间线的纯函数，被 CLI / MCP / Web / 嵌入方共同 import
+- **共享查询层**：`module_harness/infra/query.py`——运行状态/历史时间线的纯函数，被 CLI / MCP / Web / 嵌入方共同 import
 - **编程 API**：`Module / HarnessRegistry / SubModule / Translator` 等，可被其他项目直接 `import`（嵌入式：作为 LLM 工具套件开发）
 - **CLI（随库分发）**：`specmodule run/status/review/resume/checkpoint/checkpoints/snapshot/rollback/visualize/init`——参考 Django 自建管理壳，库内建最基础的终端入口，随 `pip install specmodule` 提供
 - **可选零依赖可视化开关**：stdlib `http.server` 推极简运行 feed；富交互终端界面 → TUI 生态项目；富交互编辑器 → webview 生态项目
@@ -194,7 +194,7 @@ publish / update 脏检测）+ 嵌入式验证 + stdlib 可视化开关（feed�
 - [x] **store 家目录与配置回退链**：`~/.specmodule`（modules/manifests/cache）+ 用户级配置
   （os.environ > 项目根 .env/config.json > store 级）→ 任务 1.2、2.x
 - [x] **run 打通已打包模块**：统一枚举（entry 单文件 / packed 目录 / pip entry points）进
-  `module_harness/store.py` 共享层，run/resume/rollback/visualize 一致解析 → 任务 3.x
+  `module_harness/infra/store.py` 共享层，run/resume/rollback/visualize 一致解析 → 任务 3.x
 - [x] **CLI 管理面**：`setup` / `install` / `list` / `info` / `uninstall` / `publish` / `update`
   （manifest 脏检测）→ 任务 4.x、6.x
 - [x] **init 目录形态**（`--as-dir`）：与已装模块同构的骨架，简单写 module 的默认入口；单文件形态
@@ -385,7 +385,7 @@ Loop1/Loop2 为 submodule 节点引用 fact_review_loop；`academic_writer_detai
 │   ↓                                             │
 │ 主线：module-user-store 实施                     │
 │   store/配置链 → run-packed → 管理面 → init 目录 │
-│   共享层 module_harness/store.py = 生态契约      │
+│   共享层 module_harness/infra/store.py = 生态契约      │
 │   ↓                                             │
 │ 收口：API 稳定化（冻结面含 store 枚举契约）       │
 ├───────────────────────────────────────────────┤

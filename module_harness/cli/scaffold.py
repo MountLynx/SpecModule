@@ -113,11 +113,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from module_harness.config import HarnessConfig
-from module_harness.entry import ModuleEntry
-from module_harness.events import EventBus
-from module_harness.outputfmt import OutputFormat
-from module_harness.registry import HarnessRegistry
+from module_harness.core.config import HarnessConfig
+from module_harness.cli.entry import ModuleEntry
+from module_harness.infra.events import EventBus
+from module_harness.core.outputfmt import OutputFormat
+from module_harness.core.registry import HarnessRegistry
 
 # ── harness 组件：HarnessConfig 数据类常量 ─────────────────────────────
 # prompt_core 中的 {message} 占位符由 tasklist inputs 的 {spec.message} 运行时填充。

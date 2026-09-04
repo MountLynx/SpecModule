@@ -5,16 +5,16 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from llm.client import LLMError, LLMResponse
-from module_harness.config import HarnessConfig, OutputFormat
-from module_harness.consistency import (
+from module_harness.core.config import HarnessConfig, OutputFormat
+from module_harness.orchestrate.consistency import (
     ConsistencyError,
     ConsistencyReport,
     ConsistencyReviewer,
     REVIEW_HARNESS_CONFIG,
     register_review_harness,
 )
-from module_harness.registry import HarnessRegistry
-from module_harness.spec import Spec, TaskDefinition, Tasklist
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.spec import Spec, TaskDefinition, Tasklist
 
 
 @pytest.fixture
@@ -192,7 +192,7 @@ class TestConsistencyReviewer:
 
 class TestConsistencyReviewedEvent:
     def test_event_emit_and_subscribe(self):
-        from module_harness.events import ConsistencyReviewed, EventBus
+        from module_harness.infra.events import ConsistencyReviewed, EventBus
         bus = EventBus()
         seen = []
         bus.subscribe(ConsistencyReviewed, lambda e: seen.append(e))

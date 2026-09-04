@@ -1,5 +1,5 @@
 # module_harness/tests/test_events.py
-from module_harness.events import (
+from module_harness.infra.events import (
     EventBus,
     HarnessEvent, PromptRendered, LlmCallStarted, LlmToken,
     LlmCallCompleted, OutputValidated, HarnessFailed,

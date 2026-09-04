@@ -1,7 +1,7 @@
 # module_harness/tests/test_prompt.py
 from tickflow.views import DictView, Resolved
-from module_harness.config import HarnessConfig
-from module_harness.prompt import PromptRenderer
+from module_harness.core.config import HarnessConfig
+from module_harness.core.prompt import PromptRenderer
 
 
 def _make_view(**inputs) -> DictView:

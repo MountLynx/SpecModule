@@ -26,13 +26,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .query import (
+from ..infra.query import (
     build_checkpoints,
     build_timeline,
     checkpoints_to_dict,
     timeline_to_dict,
 )
-from .status import query_run_status
+from ..infra.status import query_run_status
 
 log = logging.getLogger(__name__)
 

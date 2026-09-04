@@ -6,9 +6,9 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import MagicMock
 
-from module_harness.module import Module
-from module_harness.registry import HarnessRegistry
-from module_harness.spec import TaskDefinition, Tasklist
+from module_harness.model.module import Module
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.spec import TaskDefinition, Tasklist
 
 
 def _registry(llm):

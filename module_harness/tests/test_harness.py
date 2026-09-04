@@ -4,13 +4,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 from tickflow import Failure
 from tickflow.views import DictView, Resolved
-from module_harness.config import HarnessConfig
-from module_harness.outputfmt import OutputFormat
-from module_harness.events import (
+from module_harness.core.config import HarnessConfig
+from module_harness.core.outputfmt import OutputFormat
+from module_harness.infra.events import (
     EventBus, PromptRendered, LlmCallStarted, LlmToken,
     LlmCallCompleted, OutputValidated, HarnessFailed, HarnessEvent,
 )
-from module_harness.harness import Harness
+from module_harness.core.harness import Harness
 
 
 @pytest.fixture

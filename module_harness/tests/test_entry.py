@@ -8,12 +8,12 @@ import json
 
 import pytest
 
-from module_harness.entry import ModuleEntry, discover_modules
-from module_harness.module import Module
-from module_harness.spec import TaskDefinition, Tasklist
+from module_harness.cli.entry import ModuleEntry, discover_modules
+from module_harness.model.module import Module
+from module_harness.model.spec import TaskDefinition, Tasklist
 
 GOOD = '''
-from module_harness.entry import ModuleEntry
+from module_harness.cli.entry import ModuleEntry
 
 entry = ModuleEntry(
     name="hello",
@@ -25,7 +25,7 @@ entry = ModuleEntry(
 '''
 
 GOOD_B = '''
-from module_harness.entry import ModuleEntry
+from module_harness.cli.entry import ModuleEntry
 
 entry = ModuleEntry(
     name="hello",
@@ -111,7 +111,7 @@ _TL = {
 def _entry_with_registry():
     """tutorial 式 entry：script 翻译器 + echo 节点（零 LLM 依赖）。"""
     from module_harness import HarnessRegistry
-    from module_harness.events import EventBus
+    from module_harness.infra.events import EventBus
 
     def build_registry(llm_client, template_name, event_bus):
         reg = HarnessRegistry(llm_client=llm_client, event_bus=event_bus)

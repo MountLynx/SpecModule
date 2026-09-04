@@ -10,10 +10,10 @@ from tickflow.async_runner import AsyncRunner
 from tickflow.persistence import NullBackend
 
 from llm.client import LLMResponse
-from module_harness.config import HarnessConfig
-from module_harness.graph_builder import TasklistTranslator
-from module_harness.registry import HarnessRegistry
-from module_harness.spec import Spec, TaskDefinition, Tasklist
+from module_harness.core.config import HarnessConfig
+from module_harness.orchestrate.graph_builder import TasklistTranslator
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.spec import Spec, TaskDefinition, Tasklist
 
 
 @pytest.fixture
@@ -285,7 +285,7 @@ class TestHarnessInputAlias:
     async def test_prompt_renders_producer_value(self, mock_llm):
         from llm.client import LLMResponse
         from tickflow.async_runner import AsyncRunner
-        from module_harness.events import EventBus, PromptRendered
+        from module_harness.infra.events import EventBus, PromptRendered
 
         bus = EventBus()
         rendered: list[str] = []

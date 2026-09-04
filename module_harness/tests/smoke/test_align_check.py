@@ -7,11 +7,11 @@ A 翻译 → C align_check：真实 LLM 判断翻译产出是否对齐 spec 目�
 
 import pytest
 
-from module_harness.builtins import register_builtin_harnesses
-from module_harness.config import HarnessConfig
-from module_harness.graph_builder import TasklistTranslator
-from module_harness.registry import HarnessRegistry
-from module_harness.spec import Spec, TaskDefinition, Tasklist
+from module_harness.core.builtins import register_builtin_harnesses
+from module_harness.core.config import HarnessConfig
+from module_harness.orchestrate.graph_builder import TasklistTranslator
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.spec import Spec, TaskDefinition, Tasklist
 from tickflow.async_runner import AsyncRunner
 from tickflow.persistence import NullBackend
 

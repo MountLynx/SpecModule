@@ -4,11 +4,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from tickflow import Registry
 from tickflow.views import DictView, Resolved
-from module_harness.config import HarnessConfig
-from module_harness.events import (
+from module_harness.core.config import HarnessConfig
+from module_harness.infra.events import (
     EventBus, ScriptStarted, ScriptCompleted, ScriptFailed,
 )
-from module_harness.registry import HarnessRegistry
+from module_harness.core.registry import HarnessRegistry
 
 
 @pytest.fixture

@@ -7,10 +7,10 @@
 """
 
 import pytest
-from module_harness.config import HarnessConfig, OutputFormat
-from module_harness.registry import HarnessRegistry
-from module_harness.translator import TemplateLoader
-from module_harness.module import Module
+from module_harness.core.config import HarnessConfig, OutputFormat
+from module_harness.core.registry import HarnessRegistry
+from module_harness.model.translator import TemplateLoader
+from module_harness.model.module import Module
 
 pytestmark = pytest.mark.smoke
 

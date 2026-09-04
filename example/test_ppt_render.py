@@ -21,7 +21,7 @@ from example.ppt_writer.module import (
     _build_registry,
 )
 from example.ppt_writer.render_deck import render as render_deck
-from module_harness.cli import MockLLMClient
+from llm.mock import MockLLMClient
 
 import base64
 
