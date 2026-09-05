@@ -53,10 +53,10 @@ class TestHarnessScriptIntegration:
             output_format=OutputFormat(type="json_object"),
         ))
 
-        # 注册 script — 处理上游 JSON
+        # 注册 script — 处理上游 JSON（单 producer 自动 bind，位置消费）
         @reg.script("process")
         def process(view):
-            data = view.A.value
+            data = view.input()
             return {"char_count": len(data["text"])}
 
         graph = parse(_make_graph_text(), registry=reg)
@@ -119,7 +119,7 @@ class TestHarnessScriptIntegration:
 
         @reg.script("process")
         def process(view):
-            return view.A.value
+            return view.input()
 
         graph = parse(_make_graph_text(), registry=reg)
         runner = AsyncRunner(graph, registry=reg)
@@ -152,7 +152,7 @@ class TestHarnessScriptIntegration:
 
         @reg.script("process")
         def process(view):
-            return view.A.value["x"] * 2
+            return view.input()["x"] * 2
 
         graph = parse(_make_graph_text(), registry=reg)
         runner = AsyncRunner(graph, registry=reg)

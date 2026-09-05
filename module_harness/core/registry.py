@@ -9,7 +9,7 @@ import time
 from typing import Any, Callable
 
 from tickflow import Registry
-from tickflow.views import DictView
+from tickflow.views import NodeView
 
 from .config import HarnessConfig
 from ..cli.command import Command, CommandConfig
@@ -85,7 +85,7 @@ class HarnessRegistry(Registry):
 
             if is_async:
                 @functools.wraps(fn)
-                async def wrapped(view: DictView) -> Any:
+                async def wrapped(view: NodeView) -> Any:
                     node = view.node
                     bus.emit(ScriptStarted(
                         timestamp=time.monotonic(), node=node, tick=0,
@@ -105,7 +105,7 @@ class HarnessRegistry(Registry):
                     return result
             else:
                 @functools.wraps(fn)
-                def wrapped(view: DictView) -> Any:
+                def wrapped(view: NodeView) -> Any:
                     node = view.node
                     bus.emit(ScriptStarted(
                         timestamp=time.monotonic(), node=node, tick=0,

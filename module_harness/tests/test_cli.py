@@ -121,7 +121,7 @@ def _registry_for(llm_client, template_name, event_bus):
 
     @reg.script("B")
     def b(view):
-        data = view.A.value
+        data = view.field("value")
         return {"greeting": "hello " + data["value"]}
 
     @reg.script("tl")

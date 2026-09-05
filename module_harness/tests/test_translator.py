@@ -70,7 +70,6 @@ class TestTemplateLoader:
 
 import pytest
 from unittest.mock import AsyncMock
-from tickflow.views import DictView, Resolved
 from module_harness.model.spec import Spec
 from module_harness.model.translator import Translator
 from module_harness.core.registry import HarnessRegistry
@@ -86,7 +85,7 @@ class TestTranslator:
         # 注册翻译 script
         @reg.script("my_translator")
         def my_translator(view):
-            spec = view.spec.value
+            spec = view.field("spec")  # 翻译器合成视图具名字段
             return {
                 "A": {"type": "harness", "harness": spec["harness_name"], "inputs": {"text": spec["source_text"]}}
             }

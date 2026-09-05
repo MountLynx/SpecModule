@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from tickflow import Failure
-from tickflow.views import DictView, Resolved
+from tickflow.views import NodeView, Resolved
 
 from module_harness.cli.command import Command, CommandConfig
 from module_harness.infra.events import (
@@ -19,7 +19,7 @@ from module_harness.infra.events import (
 
 def _make_view(**inputs):
     resolved = {k: Resolved(value=v, k=None) for k, v in inputs.items()}
-    return DictView(resolved, node="test_cmd")
+    return NodeView(node="test_cmd", resolved=resolved)
 
 
 class TestCommandConfig:

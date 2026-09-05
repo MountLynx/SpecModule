@@ -778,10 +778,8 @@ class TestResume:
         """resume 后已执行节点的输出保留，可被新节点通过 inputs 消费。"""
         mod = self._make_module(mock_llm, tmp_path, monkeypatch)
         await mod.run()
-        # 新图：C 换成 record script，读取 B（已执行）的输出。
-        # 注：view 键用 producer 名（view["B"]）——field 名键（view["data"]）
-        # 按 graph_builder 设计恒为 Missing（graph_builder.py:88-93 注释）。
-        reg = _script_reg(mock_llm, record=lambda view: {"echo": view["B"].value})
+        # 新图：C 换成 record script，读取 B（已执行）的输出（bind 字段 data）。
+        reg = _script_reg(mock_llm, record=lambda view: {"echo": view.field("data")})
         monkeypatch.chdir(tmp_path)
         new_tl = Tasklist(
             tasks={
@@ -927,10 +925,9 @@ class TestResumeLoop:
     """loop（自循环）场景的检查点/resume 集成测试。
 
     自循环语义（README retry_loop 惯例）：counter 节点每 tick fire 一次，
-    在 view.state 中计数并返回 {"n": n}；guard until3 读
-    view["counter"].value["n"]（firing 节点输出在自己名下可见，
-    engine._guard_view，engine.py:235-250）与 view.state
-    （_NodeStateView 有 .get，engine.py:285）。
+    在 view.state 中计数并返回 {"n": n}；guard until3 读 view.output
+    （src=counter 当 tick 的输出；GuardView.output，engine._guard_node_view）
+    与 view.state（guard 侧为只读视图，engine.py 同源）。
     tick0→n=1、tick1→n=2、tick2→n=3（guard n<3 在 n=3 时放行退出）。
     """
 
@@ -975,7 +972,7 @@ class TestResumeLoop:
         reg = _script_reg(mock_llm, counter=counter)
 
         def until3(view):
-            return view["counter"].value["n"] < 3
+            return view.output["n"] < 3
 
         reg.guard("until3")(until3)
         from tickflow import registry as default_registry

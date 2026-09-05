@@ -39,7 +39,7 @@ def _setup_base_registry(llm_client, event_bus=None) -> HarnessRegistry:
 
     @reg.script("format_summary")
     def format_summary(view):
-        data = view.A.value
+        data = view.field("data")
         return {
             "summary": data["summary"].strip(),
             "points_count": len(data.get("key_points", [])),
@@ -89,9 +89,9 @@ def _setup_base_registry(llm_client, event_bus=None) -> HarnessRegistry:
 
     @reg.script("merge_review")
     def merge_review(view):
-        # DictView 以 producer 名为 key：view.A=review, view.B=rules
-        review = view.A.value or {}
-        rules = view.B.value or {}
+        # 具名 bind 字段消费：view.field("review")=A 输出, view.field("rules")=B 输出
+        review = view.field("review") or {}
+        rules = view.field("rules") or {}
         return {
             "issues": review.get("issues", []),
             "violations": rules.get("violations", []),
@@ -121,9 +121,9 @@ def _setup_base_registry(llm_client, event_bus=None) -> HarnessRegistry:
 
     @reg.script("merge_doc")
     def merge_doc(view):
-        # DictView 以 producer 名为 key：view.A=outline, view.B=sections
-        outline = view.A.value or {}
-        sections = view.B.value or {}
+        # 具名 bind 字段消费：view.field("outline")=A 输出, view.field("sections")=B 输出
+        outline = view.field("outline") or {}
+        sections = view.field("sections") or {}
         title = outline.get("title", "Untitled")
         content = sections.get("content", {})
         return {

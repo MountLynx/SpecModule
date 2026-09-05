@@ -26,7 +26,7 @@ async def _run_analyze(llm_client, event_bus, think):
 
     @reg.script("echo")
     def echo(view):
-        return view.A.value
+        return view.input()
 
     graph = parse("[A] --> B\nA.body: analyze\nB.body: echo", registry=reg)
     runner = AsyncRunner(graph, registry=reg, keep_records=True)

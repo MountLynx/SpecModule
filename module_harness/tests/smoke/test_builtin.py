@@ -40,7 +40,7 @@ async def test_builtin_translate_template(llm_client):
 
     @reg.script("format_output")
     def format_output(view):
-        data = view.A.value or {}
+        data = view.field("data") or {}
         # LLM 输出质量有波动，用 .get 兜底
         return {"result": (data.get("translation") or "").strip()}
 

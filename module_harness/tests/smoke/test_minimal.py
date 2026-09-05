@@ -33,7 +33,7 @@ async def test_harness_translate_and_script_echo(llm_client, event_bus):
 
     @reg.script("echo")
     def echo(view):
-        return view.A.value
+        return view.input()
 
     graph = parse("[A] --> B\nA.body: translate\nB.body: echo", registry=reg)
 

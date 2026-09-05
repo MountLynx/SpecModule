@@ -36,10 +36,14 @@ def has_issues(view: Any) -> bool:
     上限为函数内联常量（guard 读不到 spec；pack 单文件导出只含函数体，
     不能引用模块级常量）。达上限仍有 issues 时 clean 边触发退出，
     遗留 issues 由 Exit 收进 issues_remaining，不静默丢弃。
+
+    GuardView 消费：``output`` = 本 tick 被裁决的 src（Review）输出；
+    ``field("draft")`` = Review 具名 bind 字段（task.inputs 键），
+    即 Merge 的最新输出（同 producer 名访问同源同策略）。
     """
-    review = view["Review"].value
+    review = view.output
     issues = review.get("issues", []) if isinstance(review, dict) else []
-    merge = view["Merge"].value
+    merge = view.field("draft")
     attempt = merge.get("attempt", 0) if isinstance(merge, dict) else 0
     return bool(issues) and attempt < 3
 
@@ -50,9 +54,9 @@ def clean(view: Any) -> bool:
     注意：必须内联 has_issues 逻辑（pack 逐文件单函数导出，跨函数引用在
     加载后失效）——两处判断必须保持同步修改。
     """
-    review = view["Review"].value
+    review = view.output
     issues = review.get("issues", []) if isinstance(review, dict) else []
-    merge = view["Merge"].value
+    merge = view.field("draft")
     attempt = merge.get("attempt", 0) if isinstance(merge, dict) else 0
     return not (bool(issues) and attempt < 3)
 

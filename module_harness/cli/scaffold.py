@@ -130,9 +130,10 @@ HELLO_HARNESS = HarnessConfig(
 
 
 # ── script 组件：纯 Python 函数，注册后成为图节点 ──────────────────────
-# 签名固定为 fn(view)：view["spec"].value 读 spec（仅翻译器上下文），
+# 签名固定为 fn(view)：view 是 tickflow NodeView，经具名 bind 字段消费——
 # view.field("<字段名>") 读 task.inputs 声明的上游输入（runner 上下文，
-# 字段名即 inputs 键，经具名 bind 供数）。
+# 字段名即 inputs 键）；翻译器上下文（translation.script）读 spec 用
+# view.field("spec")。
 def echo(view: Any) -> dict[str, Any]:
     """回显上游 Translate 节点的输出（script 消费节点输出）。"""
     return {"message": view.field("data")}

@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from tickflow import Registry
-from tickflow.views import DictView, Resolved
+from tickflow.views import NodeView, Resolved
 from module_harness.core.config import HarnessConfig
 from module_harness.infra.events import (
     EventBus, ScriptStarted, ScriptCompleted, ScriptFailed,
@@ -24,9 +24,14 @@ def reg(mock_llm):
     return HarnessRegistry(llm_client=mock_llm, event_bus=bus)
 
 
-def _make_view(**inputs) -> DictView:
-    resolved = {k: Resolved(value=v, k=None) for k, v in inputs.items()}
-    return DictView(resolved, node="test_node")
+def _make_view(**inputs) -> NodeView:
+    """合成视图按具名 bind 供数（与引擎对具名 bind body 的形态一致）。"""
+    return NodeView(
+        node="test_node",
+        fields=tuple((k, k) for k in inputs),
+        values=tuple(inputs.values()),
+        resolved={k: Resolved(value=v, k=None) for k, v in inputs.items()},
+    )
 
 
 class TestHarnessRegistryInheritance:
@@ -95,7 +100,7 @@ class TestScriptRegistration:
     def test_script_registers_body(self, reg):
         @reg.script("compute")
         def compute(view):
-            return {"count": len(view.data.value)}
+            return {"count": len(view.field("data"))}
 
         assert reg.has_body("compute")
         assert reg.is_script("compute")
@@ -111,7 +116,8 @@ class TestScriptRegistration:
             return view["input"].value * 2  # "input" 是保留名，经 getitem 访问（tickflow 0.2 约定）
 
         body = reg.get_body("my_script")
-        result = body(_make_view(input=21))
+        with pytest.warns(DeprecationWarning):
+            result = body(_make_view(input=21))
 
         assert result == 42
         assert events == ["start", "complete"]

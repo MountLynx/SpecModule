@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from tickflow.views import DictView, Missing
+from tickflow.views import Missing, NodeView
 
 from .config import HarnessConfig
 
@@ -32,7 +32,7 @@ class PromptRenderer:
 
     def render(
         self,
-        view: DictView,
+        view: NodeView,
         *,
         promptmode: str | None = None,
         prompt_extra: str | None = None,
@@ -71,7 +71,7 @@ class PromptRenderer:
         取值顺序：视图的具名 bind 字段（v.named，未点火字段值为 Missing）->
         extra_values（spec 常量等）-> 保留原样（不隐藏问题）。
         """
-        # 所有 tickflow 视图（含 DictView 垫片）都带 .named；此守卫仅为容错非 tickflow 对象
+        # 所有 tickflow 视图（NodeView/GuardView）都带 .named；此守卫仅为容错非 tickflow 对象
         named = view.named if hasattr(view, "named") else {}
 
         def _replacer(m: re.Match) -> str:

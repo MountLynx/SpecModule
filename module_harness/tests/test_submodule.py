@@ -75,11 +75,11 @@ class Translator(SubModule):
 
     @script("format_output")
     def format_output(view):
-        return {"translation": view.A.value["translation"].strip()}
+        return {"translation": view.field("data")["translation"].strip()}
 
 
 def until3(view):
-    return view["counter"].value["n"] < 3
+    return view.output["n"] < 3
 
 
 class LoopMod(SubModule):

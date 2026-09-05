@@ -27,7 +27,7 @@ async def test_module_run_with_script_translator(llm_client, event_bus):
 
     @reg.script("format_output")
     def format_output(view):
-        data = view.A.value
+        data = view.field("data")
         return {"result": data["translation"].strip()}
 
     # 注册 script 翻译器：固定返回 tasklist

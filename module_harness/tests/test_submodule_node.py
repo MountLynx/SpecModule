@@ -68,7 +68,7 @@ class Parent(SubModule):
 
     @script("read")
     def read(view):
-        return {"got": view["B"].value}
+        return {"got": view.field("data")}
 
 
 class FastParent(Parent):
@@ -102,7 +102,7 @@ class LlmChild(SubModule):
 
 
 def until3(view):
-    return view["counter"].value["n"] < 3
+    return view.output["n"] < 3
 
 
 class GuardLoopMod(SubModule):
@@ -154,7 +154,7 @@ class MidChild(SubModule):
 
     @script("read")
     def read(view):
-        return {"got": view["B"].value}
+        return {"got": view.field("data")}
 
 
 class TestSubmoduleNode:
@@ -272,7 +272,7 @@ class TestSubmoduleNode:
 
             @script("read")
             def read(view):
-                return {"got": view["B"].value}
+                return {"got": view.field("data")}
 
         firings = await P3(llm_client=mock_llm).run({}, max_ticks=20)
         c_out = next(f.output for f in firings if f.node == "C")
@@ -309,7 +309,7 @@ class TestSubmoduleNode:
     @pytest.mark.asyncio
     async def test_submodule_node_in_loop(self, mock_llm):
         def until3(view):
-            return view["A"].value["n"] < 3
+            return view.output["n"] < 3
 
         class LoopChild(SubModule):
             name = "loop_child"
@@ -360,7 +360,7 @@ class TestSubmoduleNode:
 
         @reg.script("read")
         def read(view):
-            return {"got": view["B"].value}
+            return {"got": view.field("data")}
 
         mod = Module(
             spec={"x": 1},

@@ -217,7 +217,7 @@ TEMPLATE_REVIEW_TASKLIST = Tasklist(
 # ── 翻译器（script 类型，确定性）：spec → 信封 + tasklist ────────────
 def tl_ppt_render(view: Any) -> dict[str, Any]:
     """渲染翻译器：spec → normalize → 信封（pages/output/font）→ tasklist。"""
-    spec = view["spec"].value
+    spec = view.field("spec")  # 翻译器合成视图具名字段（v.named 直达）
     pages = normalize.normalize(spec)  # 非法 spec 在此抛含字段路径的错误
     normalize.write_envelope("render", {
         "pages": pages,
@@ -229,7 +229,7 @@ def tl_ppt_render(view: Any) -> dict[str, Any]:
 
 def tl_template_review(view: Any) -> dict[str, Any]:
     """制作工作流翻译器：校验 review spec → 信封 → tasklist。"""
-    spec = view["spec"].value
+    spec = view.field("spec")  # 翻译器合成视图具名字段（v.named 直达）
     for field, ftype, label in (
         ("draft_pptx", str, "字符串（草稿 .pptx 路径）"),
         ("template_name", str, "字符串（逻辑模板名）"),
@@ -308,7 +308,9 @@ DEFAULT_SPEC: dict[str, Any] = {
 
 # ── registry 构建 ───────────────────────────────────────────────────
 def _has_issues(view: Any) -> bool:
-    verify = view["Verify"].value
+    """guard（边 Opinion--|has_issues|-->Reject）：src=Opinion 经其具名
+    bind 字段 verify（task.inputs 键 → Verify producer）读校验输出。"""
+    verify = view.field("verify")
     issues = verify.get("issues", []) if isinstance(verify, dict) else []
     return bool(issues)
 

@@ -77,11 +77,11 @@ class CommitDigest(SubModule):
 
     @script("extract_log")
     def extract_log(view):
-        return view.A.value["stdout"]
+        return view.field("data")["stdout"]
 
     @script("format_digest")
     def format_digest(view):
-        data = view.C.value
+        data = view.field("data")
         return {"digest": data["digest"].strip(), "highlights": data.get("highlights", [])}
 
 

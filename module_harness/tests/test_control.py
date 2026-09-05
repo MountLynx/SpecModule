@@ -191,7 +191,7 @@ def _mini_loop_module(tmp_path, module_id, **kw):
 
     @reg.script("B")
     def b(view):
-        return {"greeting": "hello " + view.A.value["value"]}
+        return {"greeting": "hello " + view.field("value")["value"]}
 
     @reg.guard("g")
     def g(view):

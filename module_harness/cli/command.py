@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from tickflow import Failure
-from tickflow.views import DictView
+from tickflow.views import NodeView
 
 from ..infra.events import (
     EventBus,
@@ -63,7 +63,7 @@ class Command:
         final_timeout = timeout if timeout is not None else config.timeout
         final_cwd = cwd if cwd is not None else config.cwd
 
-        def body(view: DictView):
+        def body(view: NodeView):
             node = view.node
             bus.emit(CommandStarted(
                 timestamp=time.monotonic(), node=node, tick=0,

@@ -43,13 +43,13 @@ def setup_registry(mock_llm):
     # 后处理 script
     @reg.script("format_output")
     def format_output(view):
-        data = view.data.value
+        data = view.field("data")
         return {"result": "processed", "data": data}
 
     # 翻译 script
     @reg.script("translate_translator")
     def translate_translator(view):
-        spec = view.spec.value
+        spec = view.field("spec")  # 翻译器合成视图具名字段
         return {
             "A": {
                 "type": "harness",

@@ -252,26 +252,31 @@ academic_tasklist = Tasklist(
 )
 
 
-def _make_loop_guards(suffix: str, review_key: str, merge_key: str) -> list[tuple[str, Callable]]:
-    """生成绑定指定节点名的互补 guard 对（详细模式内联 loop 用）。
+def _make_loop_guards(suffix: str) -> list[tuple[str, Callable]]:
+    """生成互补 guard 对（详细模式内联 loop 用）。
 
     上限 3 内联在函数体（与 fact_review_loop 的 has_issues/clean 同语义）；
-    闭包绑定各 loop 自己的 Review/Merge 节点名。详细模式不打包（主 module
-    无 pack），无"注册名 = 函数名"自包含约束。
+    注册名带 suffix 区分两条 loop。两条 loop 的 Review 节点 bind 字段同名
+    （draft→MergeN），guard 按字段消费故无需绑定节点名。详细模式不打包
+    （主 module 无 pack），无"注册名 = 函数名"自包含约束。
+
+    GuardView 消费：``output`` = 本 tick 被裁决的 src（ReviewN）输出；
+    ``field("draft")`` = ReviewN 具名 bind 字段（task.inputs 键），
+    即 MergeN 的最新输出（同 producer 名访问同源同策略）。
     """
 
     def has_issues(view: Any) -> bool:
-        review = view[review_key].value
+        review = view.output
         issues = review.get("issues", []) if isinstance(review, dict) else []
-        merge = view[merge_key].value
+        merge = view.field("draft")
         attempt = merge.get("attempt", 0) if isinstance(merge, dict) else 0
         return bool(issues) and attempt < 3
 
     def clean(view: Any) -> bool:
         # 与 has_issues 严格互补（XOR 分支不得双走）
-        review = view[review_key].value
+        review = view.output
         issues = review.get("issues", []) if isinstance(review, dict) else []
-        merge = view[merge_key].value
+        merge = view.field("draft")
         attempt = merge.get("attempt", 0) if isinstance(merge, dict) else 0
         return not (bool(issues) and attempt < 3)
 
@@ -375,7 +380,8 @@ detailed_tasklist = Tasklist(
 
 # ── 翻译器（script 类型，确定性）："翻译为另一种形式的 tasklist"──────────
 # 模板通道经 translate(spec, template) 产出最终 tasklist——翻译器返回值即
-# 流程形式（submodule 黑盒 vs 内联展开），view["spec"] 可读 spec（此处不需要）。
+# 流程形式（submodule 黑盒 vs 内联展开），读 spec 用 view.field("spec")
+# （此处不需要）。
 def _tl_academic(view: Any) -> dict[str, Any]:
     """翻译器：返回 submodule 形式 tasklist（Loop1/Loop2 为 submodule 节点）。"""
     return academic_tasklist.to_dict()
@@ -426,9 +432,9 @@ def _build_registry(
         reg.body("merge2", _make_merge())
         reg.body("collect_result2", _make_collect_result())
         reg.body("build_report", _make_build_report())
-        for name, fn in _make_loop_guards("1", "Review1", "Merge1"):
+        for name, fn in _make_loop_guards("1"):
             reg.guard(name, fn)
-        for name, fn in _make_loop_guards("2", "Review2", "Merge2"):
+        for name, fn in _make_loop_guards("2"):
             reg.guard(name, fn)
     else:
         reg.body("build_report", _make_build_report())

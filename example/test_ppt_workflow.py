@@ -109,10 +109,15 @@ def test_noncompliant_picture_draft_lists_missing_image(tmp_path: Path, monkeypa
 def test_review_spec_validation_errors():
     """翻译器入口校验：缺字段/坏 kind/layout 报含字段路径的错误。"""
     from example.ppt_writer.module import tl_template_review
-    from tickflow.views import DictView, Resolved
+    from tickflow.views import NodeView
 
     def run_spec(spec):
-        view = DictView({"spec": Resolved(value=spec, k=None)}, node="t")
+        # 合成视图按具名 bind 供数（与 translator._translator_view 同形态）
+        view = NodeView(
+            node="t",
+            fields=(("spec", "spec"),),
+            values=(spec,),
+        )
         return tl_template_review(view)
 
     import pytest

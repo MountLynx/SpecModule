@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from tickflow import Failure
-from tickflow.views import DictView
+from tickflow.views import NodeView
 
 from .config import HarnessConfig
 from .prompt import PromptRenderer
@@ -68,10 +68,10 @@ class Harness:
         renderer = self._renderer
         validator = OutputValidator(config.output_format) if config.output_format else None
 
-        async def body(view: DictView) -> Any:
+        async def body(view: NodeView) -> Any:
             node = view.node
             now = time.monotonic()
-            # view.state 可为 None（bare DictView）；写入后自动进入 NodeState.mutable_state 审计
+            # view.state 可为 None（引擎外合成视图不挂状态）；写入后进入 NodeState.mutable_state 审计
             state = view.state
 
             # 1. 渲染 prompt
