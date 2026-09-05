@@ -22,7 +22,8 @@ class PromptRenderer:
       Layer 2: config.prompt_modes[mode]  — 由 Task promptmode 选出的动态 prompt
       Layer 3: prompt_extra             — Task prompt 字段，人工注入部分
 
-    关键词替换：模板中的 {key} 从 DictView 取值（view.key.value）。
+    关键词替换：模板中的 {key} 从视图的具名 bind 字段取值（v.named），
+    非 bind 字段落 extra_values（spec 常量等）。
     未匹配的 key 保留原样（不隐藏问题）。
     """
 
@@ -62,20 +63,26 @@ class PromptRenderer:
     def _substitute(
         self,
         template: str,
-        view: DictView,
+        view: Any,
         extra_values: dict[str, Any] | None = None,
     ) -> str:
-        """替换模板中的 {key} 占位符为 view 中的值。"""
+        """替换模板中的 {key} 占位符。
+
+        取值顺序：视图的具名 bind 字段（v.named，未点火字段值为 Missing）->
+        extra_values（spec 常量等）-> 保留原样（不隐藏问题）。
+        """
+        named = view.named if hasattr(view, "named") else {}
 
         def _replacer(m: re.Match) -> str:
             key = m.group(1)
-            try:
-                val = view[key].value
-            except (KeyError, AttributeError):
+            val = named.get(key)
+            if val is None and key not in named:
+                # not a bind field -> constants / literal
                 if extra_values and key in extra_values:
                     return str(extra_values[key])
-                return m.group(0)  # 保留原样
+                return m.group(0)
             if val is Missing:
+                # declared producer not fired yet -> spec fallback
                 if extra_values and key in extra_values:
                     return str(extra_values[key])
                 return m.group(0)

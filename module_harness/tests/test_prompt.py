@@ -1,13 +1,17 @@
 # module_harness/tests/test_prompt.py
-from tickflow.views import DictView, Resolved
+from tickflow.views import Missing, NodeView
 from module_harness.core.config import HarnessConfig
 from module_harness.core.prompt import PromptRenderer
 
 
-def _make_view(**inputs) -> DictView:
-    """构造一个测试用 DictView。"""
-    resolved = {k: Resolved(value=v, k=None) for k, v in inputs.items()}
-    return DictView(resolved, node="test_node")
+def _make_view(**inputs) -> NodeView:
+    """构造一个测试用 NodeView：模拟引擎对具名 bind body 供数的视图
+    （字段名 → 值经 v.named 消费）。"""
+    return NodeView(
+        node="test_node",
+        fields=tuple((k, k) for k in inputs),
+        values=tuple(inputs.values()),
+    )
 
 
 class TestPromptRenderer:
@@ -94,3 +98,42 @@ class TestPromptRenderer:
         result = r.render(_make_view())
         # 单一层不应有多余空行
         assert result == "核心。"
+
+
+class TestNamedBindSubstitution:
+    """_substitute 的具名 bind 查找契约（bind 迁移回归钉）。
+
+    Missing 三态（tickflow bind 设计 §4.6）：
+      - 字段已点火 → 渲染值（含生产者真产出 None → 渲染 "None"）；
+      - 字段未点火（值 = Missing）→ extra_values 兜底（spec 常量）；
+      - 非 bind 字段的 key → extra_values 兜底 -> 保留原样（不隐藏问题）。
+    """
+
+    TEMPLATE = "值：{text} / {unknown_key}"
+
+    def _sub(self, view, extra_values=None):
+        cfg = HarnessConfig(prompt_core="x")
+        return PromptRenderer(cfg)._substitute(self.TEMPLATE, view, extra_values)
+
+    def test_field_renders_value(self):
+        view = _make_view(text="Hello")
+        assert self._sub(view) == "值：Hello / {unknown_key}"
+
+    def test_missing_field_falls_back_to_extra_values(self):
+        # 字段已声明（具名 bind）但生产者未点火 → Missing → spec 常量兜底
+        view = NodeView(node="n", fields=(("text", "src"),), values=(Missing,))
+        assert self._sub(view, {"text": "SPEC-CONST"}) == "值：SPEC-CONST / {unknown_key}"
+
+    def test_missing_field_without_extra_keeps_literal(self):
+        view = NodeView(node="n", fields=(("text", "src"),), values=(Missing,))
+        assert self._sub(view) == "值：{text} / {unknown_key}"
+
+    def test_none_field_renders_none_not_fallback(self):
+        # 生产者真产出 None：渲染 "None"，不落兜底、不保留字面（与 Missing 可区分）
+        view = NodeView(node="n", fields=(("text", "src"),), values=(None,))
+        assert self._sub(view, {"text": "SPEC-CONST"}) == "值：None / {unknown_key}"
+
+    def test_unknown_key_uses_extra_then_literal(self):
+        # 非 bind 字段：先落 extra_values（常量），再保留字面
+        view = _make_view(other="x")
+        assert self._sub(view, {"text": "SPEC-CONST"}) == "值：SPEC-CONST / {unknown_key}"

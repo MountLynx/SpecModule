@@ -73,7 +73,10 @@ class TestConstantTokens:
         assert "spec" not in graph.nodes["C"].inputs
         assert "tasklist" not in graph.nodes["C"].inputs
         assert "position" not in graph.nodes["C"].inputs
-        assert "data" in graph.nodes["C"].inputs
+        # 非常量 input：producer 键进 inputs，field 名进具名 bind（不再双键）
+        assert "A" in graph.nodes["C"].inputs
+        assert "data" not in graph.nodes["C"].inputs
+        assert dict(graph.nodes["C"].bind.entries) == {"data": "A"}
 
     @pytest.mark.asyncio
     async def test_tokens_render_into_prompt(self, mock_llm_async, reg):
@@ -271,7 +274,10 @@ class TestTasklistTranslator:
         graph, _ = builder.build(tl)
 
         assert "A" in graph.nodes
-        assert graph.nodes["A"].inputs["text"].kind == "latest"
+        # bind 时代：非常量 inputs 写成具名 bind（field → producer），
+        # inputs 只保留 producer 键
+        assert dict(graph.nodes["A"].bind.entries) == {"text": "src"}
+        assert graph.nodes["A"].inputs["src"].kind == "latest"
 
 
 class TestHarnessInputAlias:

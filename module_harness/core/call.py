@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from tickflow import Failure
-from tickflow.views import DictView, Resolved
+from tickflow.views import NodeView, Resolved
 
 from .config import HarnessConfig
 from ..infra.events import EventBus
@@ -58,7 +58,7 @@ async def call_harness(
     """独立调用一个 harness：一次函数调用拿到校验后的输出。
 
     ``values``：prompt 占位符取值 {key: value}。task 层的占位符兜底就是它
-    （无 spec_inputs / input_aliases —— 那些是图概念）。
+    （无 spec_inputs —— 那是图概念）。
 
     ``event_bus``：传则收全套 harness 事件（PromptRendered / LlmToken /
     OutputValidated / ...），不传零开销（EventBus.null()）。
@@ -73,10 +73,14 @@ async def call_harness(
         prompt_extra=prompt_extra,
     )
     state: dict[str, Any] = {}
-    view = DictView(
-        {key: Resolved(value=val, k=None) for key, val in values.items()},
-        state=state,
+    # bind 时代：values 即具名 bind 字段（field → 值），
+    # 视图按引擎对具名 bind body 的供数形态构造（v.named 直达占位符）
+    view = NodeView(
         node="__call__",
+        fields=tuple((key, key) for key in values),
+        values=tuple(values.values()),
+        state=state,
+        resolved={key: Resolved(value=val, k=None) for key, val in values.items()},
     )
     result = await body(view)
 

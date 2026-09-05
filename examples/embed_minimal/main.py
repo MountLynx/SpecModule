@@ -101,7 +101,7 @@ async def main() -> int:
 
     @reg.script("format_output")
     def format_output(view):
-        return {"result": view.A.value["translation"].strip()}
+        return {"result": view.field("data")["translation"].strip()}
 
     # 4. 内置模板（spec only → 翻译通道）+ 运行
     loader = TemplateLoader()

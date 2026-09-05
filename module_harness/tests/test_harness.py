@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from tickflow import Failure
-from tickflow.views import DictView, Resolved
+from tickflow.views import NodeView
 from module_harness.core.config import HarnessConfig
 from module_harness.core.outputfmt import OutputFormat
 from module_harness.infra.events import (
@@ -28,9 +28,14 @@ def basic_config():
     )
 
 
-def _make_view(**inputs) -> DictView:
-    resolved = {k: Resolved(value=v, k=None) for k, v in inputs.items()}
-    return DictView(resolved, node="test_node")
+def _make_view(**inputs) -> NodeView:
+    """构造一个测试用 NodeView：模拟引擎对具名 bind body 供数的视图
+    （字段名 → 值经 v.named 消费）。"""
+    return NodeView(
+        node="test_node",
+        fields=tuple((k, k) for k in inputs),
+        values=tuple(inputs.values()),
+    )
 
 
 class TestHarnessBuildBody:

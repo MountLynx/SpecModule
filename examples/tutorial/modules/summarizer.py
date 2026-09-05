@@ -34,7 +34,7 @@ def build_registry(
     # 节点 2：script——纯 Python 处理（清洗 harness 输出）
     @reg.script("format_summary")
     def format_summary(view):
-        data = view.A.value  # producer 名访问（field 名 data 仅作 prompt 占位符）
+        data = view.field("data")  # bind 字段名访问（字段名即 task.inputs 键）
         if isinstance(data, dict):
             text = str(data.get("summary", "")) or str(data)
         else:

@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from tickflow import Failure
-from tickflow.views import DictView, Missing
+from tickflow.views import DictView
 
 from .config import HarnessConfig
 from .prompt import PromptRenderer
@@ -46,17 +46,15 @@ class Harness:
         promptmode: str | None = None,
         prompt_extra: str | None = None,
         spec_inputs: dict[str, Any] | None = None,
-        input_aliases: dict[str, str] | None = None,
     ):
         """返回一个 async body callable。
 
         ``spec_inputs``：spec 字段常量（{field_name: value}），
         渲染时作为占位符兜底值（graph_builder 解析 ``{spec.xxx}`` 后注入）。
 
-        ``input_aliases``：跨节点输入别名（{field_name: producer}）。
-        task.inputs 的 field 名在 view 中解析为 Missing（field 不是节点名），
-        运行时把 producer 的实际值合并进 extra_values，使 prompt 的
-        ``{field}`` 占位符能渲染（与 {spec.xxx} 兜底同一机制）。
+        跨节点输入不再经别名传递：graph_builder 把非常量 task.inputs 写成
+        具名 bind，body 按字段名经视图的 ``v.named`` 直达（未点火字段值为
+        Missing，渲染时走 spec_inputs 兜底）。
 
         body 执行流程：
           1. 渲染三层 prompt
@@ -78,16 +76,6 @@ class Harness:
 
             # 1. 渲染 prompt
             extra = dict(spec_inputs) if spec_inputs else {}
-            if input_aliases:
-                for field, producer in input_aliases.items():
-                    if field in extra:
-                        continue
-                    try:
-                        val = view[producer].value
-                    except (KeyError, AttributeError):
-                        continue
-                    if val is not Missing:
-                        extra[field] = val
             rendered = renderer.render(
                 view,
                 promptmode=promptmode,

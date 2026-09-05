@@ -96,18 +96,19 @@ FINALIZE_CONFIG = HarnessConfig(
 )
 
 
-def _make_build_report(loop1_key: str, loop2_key: str) -> Callable[[Any], dict[str, Any]]:
-    """生成绑定 loop 终点节点名的 build_report body。
+def _make_build_report() -> Callable[[Any], dict[str, Any]]:
+    """生成 build_report body（bind 字段消费：finalize/loop1/loop2）。
 
     逻辑与 submodule 形式一致（聚合 {text, attempt, clean, issues_remaining}
-    同构输出）；submodule 形式 loop1_key="Loop1"、详细模式 loop1_key="Exit1"。
-    用 reg.body 注册（非 @script——绑定的节点名因形式而异）。
+    同构输出）。字段名即 task.inputs 键——submodule 形式与详细模式的字段
+    名相同（仅 producer 节点名不同），具名 bind 下无需再按节点名闭包绑定。
+    用 reg.body 注册（非 @script——注册名按 body 名隔离）。
     """
 
     def build_report(view: Any) -> dict[str, Any]:
-        f_out = view["Finalize"].value
-        l1_out = view[loop1_key].value
-        l2_out = view[loop2_key].value
+        f_out = view.field("finalize")
+        l1_out = view.field("loop1")
+        l2_out = view.field("loop2")
         finalize = f_out if isinstance(f_out, dict) else {}
         loop1 = l1_out if isinstance(l1_out, dict) else {}
         loop2 = l2_out if isinstance(l2_out, dict) else {}
@@ -145,25 +146,26 @@ def _make_build_report(loop1_key: str, loop2_key: str) -> Callable[[Any], dict[s
     return build_report
 
 
-def _make_merge(seed_key: str, fix_key: str) -> Callable[[Any], dict[str, Any]]:
-    """生成绑定节点名的 merge body（详细模式内联 loop 用）。
+def _make_merge() -> Callable[[Any], dict[str, Any]]:
+    """生成 merge body（详细模式内联 loop 用；bind 字段消费：seed/fixed）。
 
     逻辑与 FactReviewLoop.merge 一致（修复稿优先于种子稿、计数轮次）——
     fact_review_loop 的 @script 版本受 pack 单文件导出约束需自包含，此处
-    闭包绑定各自节点名，两处必须保持同步修改。
+    独立实现，两处必须保持同步修改。字段名即 task.inputs 键——两条内联
+    loop 的字段名相同，具名 bind 下无需再按节点名闭包绑定。
     """
 
     def merge(view: Any) -> dict[str, Any]:
         try:
-            fixed = view[fix_key].value
-        except (KeyError, AttributeError):
+            fixed = view.field("fixed")
+        except (KeyError, TypeError):
             fixed = None
         if isinstance(fixed, dict) and fixed.get("text"):
             draft = fixed["text"]
         elif isinstance(fixed, str) and fixed:
             draft = fixed
         else:
-            seed = view[seed_key].value
+            seed = view.field("seed")
             draft = seed if isinstance(seed, str) else (
                 seed.get("text", "") if isinstance(seed, dict) else ""
             )
@@ -174,13 +176,14 @@ def _make_merge(seed_key: str, fix_key: str) -> Callable[[Any], dict[str, Any]]:
     return merge
 
 
-def _make_collect_result(review_key: str, merge_key: str) -> Callable[[Any], dict[str, Any]]:
-    """生成绑定节点名的 collect_result body（同 FactReviewLoop.collect_result
-    逻辑——当前稿 + 轮次 + verdict + 遗留 issues）。"""
+def _make_collect_result() -> Callable[[Any], dict[str, Any]]:
+    """生成 collect_result body（详细模式内联 loop 用；bind 字段消费：
+    review/merge。逻辑同 FactReviewLoop.collect_result——当前稿 + 轮次 +
+    verdict + 遗留 issues）。"""
 
     def collect_result(view: Any) -> dict[str, Any]:
-        review = view[review_key].value
-        merge = view[merge_key].value
+        review = view.field("review")
+        merge = view.field("merge")
         issues = review.get("issues", []) if isinstance(review, dict) else []
         clean_flag = review.get("clean", False) if isinstance(review, dict) else False
         return {
@@ -279,8 +282,9 @@ def _make_loop_guards(suffix: str, review_key: str, merge_key: str) -> list[tupl
 
 # ── 详细模式：事实审阅 loop 内联展开（不用 submodule，全程可审计）──────
 # 两组 loop 节点（Seed1/.../Exit1 与 Seed2/.../Exit2）；merge / collect_result
-# / build_report 经闭包工厂绑定各自节点名（reg.body 注册，非 @script——绑定
-# 名因形式而异；逻辑与 FactReviewLoop 的 @script 版本保持同步）。
+# / build_report 按 bind 字段消费（字段名即 task.inputs 键，两条 loop 字段
+# 名相同——reg.body 注册，非 @script；逻辑与 FactReviewLoop 的 @script 版本
+# 保持同步）。
 detailed_tasklist = Tasklist(
     tasks={
         "Organize": TaskDefinition(
@@ -417,17 +421,17 @@ def _build_registry(
         # 内联 loop 所需的 harness / 闭包 body / guard
         for hc in (SEED_DRAFT_CONFIG, FACT_REVIEW_CONFIG, FIX_ISSUES_CONFIG):
             reg.harness(hc.name, hc)
-        reg.body("merge1", _make_merge("Seed1", "Fix1"))
-        reg.body("collect_result1", _make_collect_result("Review1", "Merge1"))
-        reg.body("merge2", _make_merge("Seed2", "Fix2"))
-        reg.body("collect_result2", _make_collect_result("Review2", "Merge2"))
-        reg.body("build_report", _make_build_report("Exit1", "Exit2"))
+        reg.body("merge1", _make_merge())
+        reg.body("collect_result1", _make_collect_result())
+        reg.body("merge2", _make_merge())
+        reg.body("collect_result2", _make_collect_result())
+        reg.body("build_report", _make_build_report())
         for name, fn in _make_loop_guards("1", "Review1", "Merge1"):
             reg.guard(name, fn)
         for name, fn in _make_loop_guards("2", "Review2", "Merge2"):
             reg.guard(name, fn)
     else:
-        reg.body("build_report", _make_build_report("Loop1", "Loop2"))
+        reg.body("build_report", _make_build_report())
     # 模板通道翻译器（两种模式都需要）
     reg.script("tl_academic")(_tl_academic)
     if mode == "detailed":

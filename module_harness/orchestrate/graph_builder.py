@@ -12,7 +12,7 @@ import json
 from typing import Any
 
 from tickflow import Failure, Graph, parse as parse_graph
-from tickflow.ir import InputPolicy
+from tickflow.ir import Bind, InputPolicy
 
 from ..core.config import HarnessConfig
 from ..core.outputfmt import OutputFormat
@@ -90,21 +90,22 @@ class TasklistTranslator:
             graph.nodes[key].body = isolated_name
 
         # 5.  Wire task inputs to graph node inputs.
-        #     ``task.inputs = {field_name: producer}`` — 同时注册 field 名与
-        #     producer 名两个 key：body 用 ``view.<producer>.value``（有值），
-        #     ``view.<field_name>.value`` 为 Missing（不崩溃，脚本旧写法兼容）。
-        #     harness 的 prompt 占位符 ``{field}`` 经 _register_harness 传入的
-        #     input_aliases 在运行时解析 producer 输出值。
-        #     常量引用（{spec}/{tasklist}/{node}、{spec.xxx}）已由
-        #     _register_harness 解析为 spec_inputs，此处跳过。
+        #     Non-constant ``task.inputs`` become a NAMED bind (field ->
+        #     producer): prompt/script/submodule bodies consume by field name
+        #     via the view (``v.named`` / ``v.field``), so no zip/order
+        #     contract exists. Constant refs ({spec.xxx} etc.) stay in
+        #     spec_inputs / const_inputs (handled at registration).
         for key, task in tasklist.tasks.items():
-            if task.inputs:
-                for field_name, producer in task.inputs.items():
-                    if _is_constant_ref(producer):
-                        continue
-                    graph.nodes[key].inputs[field_name] = InputPolicy.latest()
-                    if producer != field_name:
-                        graph.nodes[key].inputs[producer] = InputPolicy.latest()
+            if not task.inputs:
+                continue
+            named = {}
+            for field_name, producer in task.inputs.items():
+                if _is_constant_ref(producer):
+                    continue
+                named[field_name] = producer
+                graph.nodes[key].inputs.setdefault(producer, InputPolicy.latest())
+            if named:
+                graph.nodes[key].bind = Bind.named(named)
 
         return graph, self.reg
 
@@ -216,22 +217,15 @@ class TasklistTranslator:
                     resolved = self._resolve_spec_ref(producer, spec_dict)
                     spec_inputs[field_name] = resolved
 
-        # 跨节点输入别名：非常量引用的 inputs 把 field 名映射到 producer 节点，
-        # harness body 运行时据此把 producer 输出渲染进 prompt 的 {field} 占位符。
-        input_aliases: dict[str, str] = {}
-        if task.inputs:
-            for field_name, producer in task.inputs.items():
-                if _is_constant_ref(producer):
-                    continue
-                input_aliases[field_name] = producer
-
+        # 跨节点输入：非常量 inputs 已由 build() 写成具名 bind（field →
+        # producer），harness body 运行时经视图的 v.named 按字段名消费，
+        # 此处只传常量 spec_inputs。
         self.reg.harness(
             self._isolated(key),
             cfg,
             promptmode=promptmode,
             prompt_extra=task.prompt,
             spec_inputs=spec_inputs,
-            input_aliases=input_aliases,
         )
 
     def _register_script(self, key: str, task: TaskDefinition) -> None:
@@ -315,7 +309,8 @@ class TasklistTranslator:
                 for field_name, producer in task.inputs.items():
                     if _is_constant_ref(producer):
                         continue
-                    spec_input[field_name] = view[producer].value
+                    # 非常量 inputs 已写成具名 bind，字段名即 task.inputs 键
+                    spec_input[field_name] = view.field(field_name)
             try:
                 firings = await child.run(
                     spec_input, audit=False, persist=False,

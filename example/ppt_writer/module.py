@@ -110,7 +110,7 @@ def verify_draft(view: Any) -> dict[str, Any]:
 
 def report_reject(view: Any) -> dict[str, Any]:
     """拒绝分支：输出逐项问题清单，不写任何变更。"""
-    verify = view["Verify"].value
+    verify = view.field("verify")
     issues = verify.get("issues", []) if isinstance(verify, dict) else []
     warnings = verify.get("warnings", []) if isinstance(verify, dict) else []
     return {
@@ -164,10 +164,9 @@ def register_template(view: Any) -> dict[str, Any]:
 def ppt_report(view: Any) -> dict[str, Any]:
     """渲染结果聚合：command stdout JSON 或错误信息。
 
-    注意：脚本节点输入按 producer 名取值（``view["Render"]``）——field 名
-    key 恒为 Missing（graph_builder 别名语义，脚本旧写法兼容）。
+    按 bind 字段名取值（``view.field("render")``）——字段名即 task.inputs 键。
     """
-    render = view["Render"].value
+    render = view.field("render")
     if not isinstance(render, dict):
         return {"status": "error", "error": f"渲染节点输出异常: {render!r}"}
     if render.get("returncode") not in (0, None):
