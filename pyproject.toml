@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "specmodule"
-version = "0.1.4"
+version = "0.2.0"
 description = "可审计、可调试、可完全掌控的 LLM 使用框架（tickflow + llm + module_harness）"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,7 +21,9 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "tickflow-py>=0.1.0",
+    # 0.2.0 起依赖 tickflow bind 时代 API（Bind/NodeView/GuardView/保留名约定）；
+    # 0.1 的 DictView 视图时代不满足
+    "tickflow-py>=0.2.0,<0.3",
 ]
 
 [project.optional-dependencies]
