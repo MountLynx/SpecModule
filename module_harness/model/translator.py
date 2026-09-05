@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from tickflow import Failure, parse as parse_graph
-from tickflow.views import DictView, Resolved
+from tickflow.views import NodeView, Resolved
 
 from ..core.config import HarnessConfig
 from ..core.harness import Harness
@@ -67,6 +67,16 @@ def prepare_flow(flow: str) -> str:
             return f"[{first}]{stripped[idx:]}"
 
     return stripped
+
+
+def _translator_view(data: dict[str, Any], node: str) -> NodeView:
+    """Engine-less view for direct body calls: the migrated prompt/_substitute
+    reads v.named, so the synthetic view must carry the entries as a named
+    bind (mirrors engine.prepare_body_call's view supply)."""
+    pairs = tuple((k, k) for k in data)
+    values = tuple(data.values())
+    resolved = {k: Resolved(v, None) for k, v in data.items()}
+    return NodeView(node=node, fields=pairs, values=values, state=None, resolved=resolved)
 
 
 class TasklistValidator:
@@ -251,10 +261,7 @@ class Translator:
     async def _call_script_translator(self, script_name: str, spec: Spec) -> dict:
         """直接调用已注册的 script 函数。"""
         body = self.reg.get_body(script_name)
-        view = DictView(
-            {"spec": Resolved(value=spec.to_dict(), k=None)},
-            node="__translator__",
-        )
+        view = _translator_view({"spec": spec.to_dict()}, "__translator__")
         result = body(view)
         if inspect.isawaitable(result):
             result = await result
@@ -293,10 +300,10 @@ class Translator:
         else:
             body = self.reg.get_body(harness_name)
 
-        view_data: dict[str, Resolved] = {"spec": Resolved(value=spec.to_dict(), k=None)}
+        view_data: dict[str, Any] = {"spec": spec.to_dict()}
         if prompt_extra:
-            view_data["prompt_extra"] = Resolved(value=prompt_extra, k=None)
-        view = DictView(view_data, node="__translator__")
+            view_data["prompt_extra"] = prompt_extra
+        view = _translator_view(view_data, "__translator__")
         result = await body(view)
 
         if isinstance(result, Failure):

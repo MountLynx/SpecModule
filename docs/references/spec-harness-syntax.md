@@ -121,7 +121,7 @@ C.join: OR                  # 覆盖 join（默认 AND）
 | 常量 token | `{"text": "{spec.source_text}"}`、`{"doc": "{spec}"}`、`{"self": "{node}"}` | 注册时解析为字面值（spec 字段 / 整体 JSON / 节点名） |
 | 节点名 | `{"data": "A"}` | 运行时从 producer A 的输出解析 |
 
-> **双 key 语义**：节点输入同时注册 `字段名` 与 `producer 名` 两个 key——body 用 `view.<producer>.value`（有值），`view.<field>.value` 恒为 `Missing`（不崩溃，旧写法兼容）。prompt 的 `{field}` 占位符经 `input_aliases` 在运行时合并 producer 值。
+> **具名 bind 语义**：非常量节点输入写成 field→producer 的**具名 bind**（tickflow 0.2），`inputs` 只保留 producer 键。body 按字段名消费：`view.field("字段名")` / `view.named`；prompt 的 `{field}` 占位符运行时经 `v.named` 渲染 producer 值（未点火字段值为 Missing，走常量兜底）。
 
 ---
 
@@ -265,7 +265,7 @@ mod = Module(spec=..., template_name="academic_writer_detailed",
 | Task `inputs` | `{spec.xxx}` / `{spec}` / `{tasklist}` / `{node}` | 注册时（graph_builder） | 字面值 |
 | Task `promptmode` | `{spec.xxx}` | 注册时 | 字面值（选 Layer 2 prompt） |
 | Task `inputs` | 节点名 | 运行时 | producer 最新输出（`latest_before`，严格前序 tick） |
-| prompt 模板 | `{key}` | 运行时（渲染） | `view[key].value`；常量输入与 input_aliases 兜底；未匹配保留原样 |
+| prompt 模板 | `{key}` | 运行时（渲染） | 具名 bind 字段（`v.named`）；常量输入（spec_inputs）兜底；未匹配保留原样 |
 
 ---
 

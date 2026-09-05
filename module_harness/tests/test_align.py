@@ -46,7 +46,7 @@ class TestRegisterAlignCheck:
     def test_config_shape(self):
         assert ALIGN_CHECK_CONFIG.name == "align_check"
         assert ALIGN_CHECK_CONFIG.temperature == 0.1
-        # prompt_core 不误导：前置输出由 task.prompt 注入（input_aliases），措辞为「若有」
+        # prompt_core 不误导：前置输出由 task.prompt 注入（具名 bind），措辞为「若有」
         assert "已提供的前置节点输出判断（若有）" in ALIGN_CHECK_CONFIG.prompt_core
 
 
@@ -90,7 +90,7 @@ class TestAlignCheckEndToEnd:
         assert '"source_text": "你好"' in prompt
         assert '"Tasks"' in prompt
         assert "当前位置: C" in prompt
-        # {output_a} 经 input_aliases 注入 A 节点原始输出（task.prompt Layer 3）
+        # {output_a} 经具名 bind 注入 A 节点原始输出（task.prompt Layer 3，v.named 渲染）
         assert '前置输出：{"aligned": true, "suggestions": "ok"}' in prompt
 
     @pytest.mark.asyncio

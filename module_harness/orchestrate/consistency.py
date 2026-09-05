@@ -63,7 +63,7 @@ class ConsistencyReviewer:
     审核走 call_harness（task 级地板）：不传 bus，内部中间事件静默
     （ConsistencyReviewed 领域事件由 Module 直接发射，不经此处）。
     按 register_review_harness 契约，审核 harness 只带 config 注册
-    （注册期 promptmode/prompt_extra/spec_inputs/input_aliases 对审核器无意义，
+    （注册期 promptmode/prompt_extra/spec_inputs 对审核器无意义，
     call_harness 路径不传）。
     """
 

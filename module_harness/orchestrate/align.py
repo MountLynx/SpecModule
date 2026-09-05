@@ -7,7 +7,8 @@
 前置输出注入：prompt_core 不含 {字段} 占位符（无隐式行为）；模板设计者通过
 task.prompt（Layer 3）注入前置节点输出，例如模板中
 "inputs": {"output_a": "A"} + "prompt": "节点 A 输出：{output_a}"
-（input_aliases 机制，运行时把 A 的输出渲染进 {output_a}）。
+（具名 bind 机制：task.inputs 写成 field→producer 具名 bind，运行时经
+视图 v.named 把 A 的输出渲染进 {output_a}）。
 """
 
 from __future__ import annotations

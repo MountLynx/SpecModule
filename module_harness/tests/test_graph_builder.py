@@ -280,11 +280,11 @@ class TestTasklistTranslator:
         assert graph.nodes["A"].inputs["src"].kind == "latest"
 
 
-class TestHarnessInputAlias:
+class TestHarnessInputBind:
     """跨节点 harness 输入：task.inputs 的 field 名应能渲染进 prompt。
 
-    回归：graph_builder 把 {field: producer} 注册为输入 key 后，view[field]
-    解析为 Missing（field 不是节点名），prompt 的 {field} 占位符原样保留。
+    回归：graph_builder 把非常量 {field: producer} 写成具名 bind 后，
+    harness 的 prompt {field} 占位符经视图 v.named 拿到 producer 输出值。
     """
 
     @pytest.mark.asyncio

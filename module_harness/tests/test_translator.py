@@ -185,3 +185,52 @@ class TestTranslator:
 
         with pytest.raises(ValueError, match="校验"):
             await translator.translate(spec, tmpl)
+
+    @pytest.mark.asyncio
+    async def test_harness_translation_renders_spec_placeholder(self, mock_llm):
+        """harness 翻译 prompt 的 {spec}/{prompt_extra} 占位符必须渲染。
+
+        bind 迁移回归钉：翻译器合成视图按具名 bind 供数（v.named），
+        占位符不得原样直达 LLM。
+        """
+        from llm.client import LLMResponse
+
+        reg = HarnessRegistry(llm_client=mock_llm)
+        loader = TemplateLoader()
+
+        from module_harness.core.config import HarnessConfig
+        from module_harness.core.outputfmt import OutputFormat
+        reg.harness("spec_to_tasklist", HarnessConfig(
+            prompt_core="根据 spec 生成 tasklist JSON。\nspec：{spec}\n附加：{prompt_extra}",
+            output_format=OutputFormat(type="json_object"),
+        ))
+        reg.harness("translate", HarnessConfig(prompt_core="翻译：{text}"))
+
+        mock_llm.complete = AsyncMock(return_value=LLMResponse(
+            content='{"A": {"type": "harness", "harness": "translate", "inputs": {"text": "Hello"}}}',
+            usage={},
+            finish_reason="end_turn",
+        ))
+
+        loader.register("test_llm_module_placeholder", {
+            "name": "test_llm_module_placeholder",
+            "translation": {
+                "type": "harness",
+                "harness": "spec_to_tasklist",
+                "prompt": "附加说明文本",
+            },
+            "tasklist": {"Tasks": {}, "Flow": "[A]"},
+        })
+
+        translator = Translator(reg)
+        tmpl = loader.get("test_llm_module_placeholder")
+        spec = Spec({"task_type": "translate", "source_text": "Hello"})
+
+        await translator.translate(spec, tmpl)
+
+        prompt = mock_llm.complete.call_args.kwargs["prompt"]
+        # {spec} → spec dict（str() 渲染，与迁移前 view[key].value 语义一致）
+        assert str(spec.to_dict()) in prompt
+        assert "附加：附加说明文本" in prompt          # {prompt_extra} → ts.prompt 字符串
+        assert "{spec}" not in prompt                # 不得原样直达 LLM
+        assert "{prompt_extra}" not in prompt
