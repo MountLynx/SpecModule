@@ -1,5 +1,8 @@
 # 灵感写作 → 学术英语（academic_writer）设计文档
 
+> ⚠️ **tickflow 0.2.0 bind 迁移注记（2026-09-05）**：本文档编写于旧视图机制时期——`input_aliases` / producer 名访问（`view["X"].value`、`view.A.value`）/ DictView 构造均已被具名 bind 机制取代：body/guard 经 `view.field()`、`view.output`、`v.named` 消费，字段名即 `task.inputs` 键。文中代码示例为当时形态，勿照抄；当前契约见 `docs/references/spec-harness-syntax.md` 与 `docs/references/tickflow-integration.md`。
+
+
 > 日期：2026-08-10 | 状态：已实现（example/，mock 测试 + demo 入口；实现计划见
 > docs/dev/superpowers/plans/2026-08-10-academic-writer-example.md）
 > 状态更新（2026-08-10）：两个框架缺口已修复（随框架实现落地，见 2026-08-10-submodule-node-design.md）；Loop1/Loop2 组合方式改为 submodule 一等节点（本设计的嵌套执行表述作废）。

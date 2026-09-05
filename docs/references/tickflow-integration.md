@@ -26,7 +26,7 @@ TasklistTranslator.build()             Runner 按 tick 步进：
 |---|---|---|
 | `[A]` | `Node.is_start = True` | 起始节点，运行起点。无 `[` 标记时首 token 自动包为 start（`prepare_flow`） |
 | `A --> B` | 普通边（`Edge.guard = None`） | 恒 True 数据流边：A 每次成功 firing 都向 B 送输入槽 |
-| `B --\|g1\|--> C` | guard 边（`Edge.guard = "g1"`） | 条件边：guard 函数结果决定本轮是否放行（False 则不写槽值） |
+| `B --\|g1\|--> C` | guard 边（`Edge.guard = "g1"`） | 条件边：guard 函数结果决定本轮是否放行（False 则写入槽值 False——显式 clobber，防上一轮残留 True 泄漏进下游 join） |
 | `C.inputs: A, B[2]` | `Node.inputs`（`InputPolicy`） | C 读 A 的最近输出（latest）+ B 的第 2 次输出（1-based） |
 | `C.join: OR` | `Node.join` | join 策略覆盖（默认 AND） |
 | `C.body: compute_c` | `Node.body` | 绑定已注册 body（graph_builder 自动绑定，手写不需要） |
@@ -83,7 +83,7 @@ B --> A          # 返回边
 B --|done|--> C  # guard：满足 done 条件才走向出口
 ```
 
-解析器对"无至少一条 guard 边的循环"发出 `UnguardedCycleWarning`。循环内做条件判断的 guard 函数读写 `view` 中节点输出（如 `view["node"].value`）决定放行。
+解析器对"无至少一条 guard 边的循环"发出 `UnguardedCycleWarning`。循环内做条件判断的 guard 收 **GuardView**（非节点体视图）：`v.output` = 被裁决节点（guard 边的 src）当 tick 的输出；读 src 的入站数据经其具名 bind 字段 `v.field("字段名")`（字段名 = src 的 `task.inputs` 键，见 `spec-harness-syntax.md` 的 bind 语义）。guard 只能读声明连接的数据，不能偷读图外节点。
 
 ## 陷阱 3：循环里别依赖"同 tick 自读"
 
@@ -92,7 +92,7 @@ B --|done|--> C  # guard：满足 done 条件才走向出口
 ## 快照、回退与审计的粒度
 
 - **tick 粒度**：`Module(persist=True)`（默认）时引擎每 tick 落盘轻量快照，`resume(rollback_to=tick)` 可精确回退到任意 tick 重跑；进程内 `snapshot()` / `restore()` 支持任意分支探索。
-- **审计与输入解析分离**：`RunState` 三层——`_edges`（快速输入解析，每节点仅保留最近 2 次 firing 的窗口）、`_state`（每节点可变状态）、`_records`（完整审计，`keep_records` 开关门控，落盘经 backend）。写 tasklist 无需关心分层，只需知道：**`keep_records=False` 时事件照常可达，但历史查询接口（`review` 等）无数据可查**。
+- **审计与输入解析分离**：`RunState` 四层——`_edges`（快速输入解析，每节点仅保留最近 2 次 firing 的窗口）、`_fire_counts`（每节点累计 firing 计数，把窗口条目映射回 `A[k]` 序号）、`_state`（每节点可变状态）、`_records`（完整审计，`keep_records` 开关门控，落盘经 backend）。写 tasklist 无需关心分层，只需知道：**`keep_records=False` 时事件照常可达，但历史查询接口（`review` 等）无数据可查**。
 - **嵌入模式**（`SubModule` / `persist=False` / `mode="fast"`）：`audit=False` 内存不保留审计但记录仍落盘（除非 `mode="fast"` 全内存零落盘）。
 
 ## 校验与错误

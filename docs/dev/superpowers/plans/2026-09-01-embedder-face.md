@@ -1,5 +1,8 @@
 # 嵌入者消费面实施计划（call_harness task 级地板）
 
+> ⚠️ **tickflow 0.2.0 bind 迁移注记（2026-09-05）**：本文档编写于旧视图机制时期——`input_aliases` / producer 名访问（`view["X"].value`、`view.A.value`）/ DictView 构造均已被具名 bind 机制取代：body/guard 经 `view.field()`、`view.output`、`v.named` 消费，字段名即 `task.inputs` 键。文中代码示例为当时形态，勿照抄；当前契约见 `docs/references/spec-harness-syntax.md` 与 `docs/references/tickflow-integration.md`。
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 落地嵌入者消费面——task 级 API 地板 `call_harness`、ConsistencyReviewer 瘦身、嵌入者 import 契约标注、嵌入指南补全（spec: `docs/dev/superpowers/specs/2026-09-01-embedder-face-design.md`）。

@@ -1,5 +1,8 @@
 # 嵌入者消费面设计 — task 级 API 地板 `call_harness` + 分层红线论证
 
+> ⚠️ **tickflow 0.2.0 bind 迁移注记（2026-09-05）**：本文档编写于旧视图机制时期——`input_aliases` / producer 名访问（`view["X"].value`、`view.A.value`）/ DictView 构造均已被具名 bind 机制取代：body/guard 经 `view.field()`、`view.output`、`v.named` 消费，字段名即 `task.inputs` 键。文中代码示例为当时形态，勿照抄；当前契约见 `docs/references/spec-harness-syntax.md` 与 `docs/references/tickflow-integration.md`。
+
+
 > 日期：2026-09-01
 > 状态：设计已确认（brainstorm 三分叉：完整嵌入者面 / 显式注入 / 自由函数），待实施
 > 关联：`docs/dev/progress/module-roadmap.md`「三种消费形式」章节（嵌入者面三个 🔜 checkbox）；

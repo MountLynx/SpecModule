@@ -154,7 +154,7 @@ reg.harness("translate", HarnessConfig(
 | 2 | `prompt_modes[mode]` | Task 的 `promptmode` 选择 | **mode 键不存在 → KeyError**（无静默回退） |
 | 3 | `prompt_extra` | Task 的 `prompt` 字段 | 人工注入段 |
 
-渲染顺序：`prompt_core` + `prompt_modes[mode]` + `prompt_extra`，以空行拼接。模板中的 `{key}` 从 view 取值（未匹配的 key **保留原样**，不隐藏问题）。
+渲染顺序：`prompt_core` + `prompt_modes[mode]` + `prompt_extra`，以空行拼接。模板中的 `{key}` 从视图的具名 bind 字段取值（`v.named`），未匹配的 key **保留原样**，不隐藏问题。
 
 ### output_format
 
@@ -223,7 +223,7 @@ submodule 的 `harnesses` 列表中的 `HarnessConfig` 必须带 `name` 字段�
 | 翻译器类型 | 语义 | 适用 |
 |-----------|------|------|
 | `type: "harness"`（LLM） | 读 spec + translation.prompt 生成 tasklist JSON | spec 驱动、流程由 LLM 设计的场景（内置模板） |
-| `type: "script"`（确定性） | 直接调用已注册 script 函数，返回 tasklist dict（可读 `view["spec"].value`） | **固定流水线的多形态封装**——零 LLM 成本、流程稳定 |
+| `type: "script"`（确定性） | 直接调用已注册 script 函数，返回 tasklist dict（需 spec 时读合成视图的具名字段 `view.field("spec")`） | **固定流水线的多形态封装**——零 LLM 成本、流程稳定 |
 
 ```python
 # script 翻译器：确定性返回"特定形式的 tasklist"（是否读 spec 由实现决定）

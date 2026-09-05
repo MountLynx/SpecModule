@@ -51,7 +51,7 @@ def build_registry(llm_client, template_name, event_bus):
     # 节点 B：script——纯 Python 处理（清洗 harness 输出）
     @reg.script("format_summary")
     def format_summary(view):
-        data = view.A.value  # producer 名访问上游节点输出
+        data = view.field("data")  # bind 字段名访问上游节点输出
         if isinstance(data, dict):
             text = str(data.get("summary", "")) or str(data)
         else:
@@ -74,7 +74,7 @@ entry = ModuleEntry(
 三个要点：
 
 - **`{text}` / `{max_words}` 是 prompt 占位符**，运行时由 Task 的 `inputs` 解析（第 3 步）。
-- **script 里读上游输出用 producer 名**（`view.A.value`）——Task 的 `inputs` 字段名只是 prompt 占位符别名，不是 view 访问名。
+- **script 读上游输出用 bind 字段名**（`view.field("data")`）——字段名即 `task.inputs` 的键，由 graph_builder 写成具名 bind 供数；producer 节点名不是 view 访问名。
 - **`review_harness=None`**：自定义 tasklist 默认经 LLM 一致性审核（spec↔tasklist 语义检查）；固定流水线模板发布前已验证，置 `None` 跳过。想保留审核就不设此字段（默认 `"spec_tasklist_review"`，需注册内置审核 harness，见 `register_review_harness`）。
 
 ## 3. 写 tasklist：`{Tasks, Flow}`
@@ -100,7 +100,7 @@ tasklist 是流程控制。两个节点：A（harness 总结）→ B（script �
 - **`{spec.xxx}` 引用**：运行时把 spec 字段解析进 Task 输入。
 - **`Flow` 是 tickflow DSL**：`[A]` = 起始节点，`-->` = 恒 True 数据流边，`--|guard|-->` = 条件边。执行语义（AND/OR join、死锁陷阱）见 [`references/tickflow-integration.md`](../references/tickflow-integration.md)。
 
-> **一条边只有一种数据流**：B 的 `inputs: {"data": "A"}` 里 `data` 是 field 名（供 prompt 占位符），B 的 script 读输出仍用 `view.A`。多输入节点写法：`"inputs": {"a": "A", "b": "B[2]"}`（读 B 第 2 次输出）。
+> **一条边只有一种数据流**：B 的 `inputs: {"data": "A"}` 里 `data` 是 bind 字段名（供 prompt 占位符与 script 的 `view.field("data")` 读），`A` 是 producer 节点名。多输入节点写法：`"inputs": {"a": "A", "b": "B"}`，script 侧对应 `view.field("a")` / `view.field("b")`。
 
 ## 4. `--mock` 冒烟：免 key 跑通
 
