@@ -108,7 +108,7 @@ class TestScriptRegistration:
 
         @reg.script("my_script")
         def my_script(view):
-            return view.input.value * 2
+            return view["input"].value * 2  # "input" 是保留名，经 getitem 访问（tickflow 0.2 约定）
 
         body = reg.get_body("my_script")
         result = body(_make_view(input=21))
