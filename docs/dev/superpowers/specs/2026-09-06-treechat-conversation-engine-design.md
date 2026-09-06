@@ -51,17 +51,18 @@
 
 一个会话 = 一个 JSONL 事件文件（`<data_dir>/sessions/<name>.jsonl`，`data_dir` 默认 `~/.treechat`，可配置）。**只追加**；追加后 fsync。
 
-事件类型共 5 种（刻意少；`seq` 显式写入，等于行序号，加载时校验连续性）：
+事件类型共 7 种（刻意少；`seq` 显式写入，等于行序号，加载时校验连续性）：
 
 ```jsonl
 {"seq":1,"type":"session_meta","name":"specmodule-branching","created_at":"...","system":"会话级 system 指令"}
 {"seq":2,"type":"user_msg","parent":null,"text":"讨论 TreeChat 的分支语义"}        ← 首条 = 会话根
-{"seq":3,"type":"assistant_msg","parent":2,"text":"...","meta":{"model":"...","usage":{...}}}
+{"seq":3,"type":"assistant_msg","parent":2,"text":"...","model":"...","usage":{...}}
 {"seq":4,"type":"user_msg","parent":2,"text":"回到第 2 条，追问一个概念"}          ← parent 指向历史 = 分支
 {"seq":5,"type":"user_msg","parent":null,"text":"（无上下文的概念提问）"}          ← 非首条 parent=null = 叶子链
 {"seq":6,"type":"card_create","card":{"id":"card_a1b2","title":"...","body":"..."},"from_path":[2,3],"instruction":"..."}
 {"seq":7,"type":"pin","card_id":"card_a1b2"}
 {"seq":8,"type":"unpin","card_id":"card_a1b2"}
+{"seq":9,"type":"system_update","text":"新的会话级指令"}                            ← /system 修改（追加式日志不改首行）
 ```
 
 **分支/叶子语义就藏在 parent 指针里**，无独立 branch 事件：
@@ -76,7 +77,7 @@
 `turn(text)` 的持久顺序：
 
 1. 追加 `user_msg` 事件（parent=指针；leaf 模式则 null）+ fsync
-2. 组装上下文 → 调 LLM（流式）
+2. 组装上下文 → 调 LLM（`chat()` 多轮，V1 非流式）
 3. **成功** → 追加 `assistant_msg`（parent=该 user 节点）+ fsync，指针推进到新 assistant 节点
 4. **失败** → 不再追加。留下**悬而未答的用户节点**——对树是诚实状态（"问了没答上"），`/tree` 可见；重试在该节点下补 `assistant_msg`，**问题不丢、不重复**
 
@@ -155,8 +156,8 @@ class Card:
 
 ### 4.2 LLM 桥
 
-- 客户端：`llm.create_llm_client()`（SpecModule env 驱动：`LLM_PROVIDER`/`LLM_MODEL`/key 等），`chat(messages)` 多轮接口 + 流式
-- `/model` 会话内临时覆盖（只改本次会话运行时，不写 env）
+- 客户端：`llm.LLMConfig.from_env(project_root=cwd, store_root=~/.specmodule)`（复用 SpecModule 配置回退链）+ `llm.create_llm_client(config)`；轮次走 `chat(messages)` 多轮接口——**V1 非流式**（流式回调 `on_token` 目前只在单轮 `complete()` 上；待 llm 层给 `chat()` 补 `on_token` 后接通，见 §10）
+- `/model` 临时切换 = 以 `LLMConfig.from_env(model=名)` **重建客户端**（`chat()` 无 per-call model 参数）；不写 env
 - 卡片提炼：`module_harness.call_harness(config, values)`（`values = {"transcript": ..., "instruction": ...}`）
 
 ## 5. 薄 CLI（REPL）
@@ -169,11 +170,12 @@ REPL 命令：
 
 | 命令 | 作用 |
 |---|---|
-| 裸输入 | 对当前指针说话（流式回显） |
-| `/tree` | ASCII 树视图：`*` 当前指针、分支/叶子可见、卡片来源节点标注 |
+| 裸输入 | 对当前指针说话（V1 整段回显，流式见 §10） |
+| `/tree` | ASCII 树视图：`*` 当前指针、`◆` 主干末端、分支/叶子可见、卡片来源节点标注 |
 | `/branch <seq>` | 指针挪到历史节点 → 下一条输入长新枝 |
 | `/trunk` | 指针跳回主干末端（`trunk_end()`） |
 | `/leaf` | 下一条输入为无上下文叶子提问 |
+| `/retry` | 对最后一个悬而未答的 user 节点重新调 LLM（LLM 失败后用） |
 | `/card [all\|<a>-<b>\|指令]` | 提炼为卡片（默认当前分支段；首个参数为 all/区间时其余为指令，否则全部为指令） |
 | `/cards`；`/card show <id>`；`/pin\|/unpin <id>` | 卡片列表/查看/pin |
 | `/card export <id> <file>` | 导出 markdown |
@@ -214,10 +216,13 @@ treechat/
       cards.py              # Card + 注册表 + pin 状态
       context.py            # 组装（system+卡片+history/current 分离）+ WindowStrategy
       store.py              # JSONL 追加/fsync/加载（撕裂尾/损坏行策略）
-    llm_bridge.py           # 唯一 import specmodule 处：turn 调用 + 卡片提炼封装
+    llm_bridge.py           # 唯一 import specmodule 处：chat 轮次 + 卡片提炼（call_harness）
+    session.py              # TreeChatSession 门面：send/complete/turn_retry + make_card/export_card
+    config.py               # TreeChatConfig（data_dir/budget/model 默认）
     cli/
-      repl.py               # REPL 主循环（stdlib）
-      commands.py           # 斜杠命令表
+      repl.py               # REPL 主循环（stdlib；asyncio 单循环 + to_thread input）
+      commands.py           # 斜杠命令路由
+      treeview.py           # /tree ASCII 渲染（纯展示，第二消费方出现再上收）
   tests/
 ```
 
@@ -236,7 +241,7 @@ treechat/
 
 ## 8. 测试
 
-沿用本仓库手法（pytest + `unittest.mock`；LLM 侧优先用 `llm.MockLLMClient`）：
+沿用本仓库手法（pytest + `unittest.mock`）。注意 `llm.MockLLMClient` 只有 `complete()`（卡片提炼可用），对话轮次测试用自带 `async chat()` 的假客户端：
 
 - **events/store**：roundtrip（tmp_path 写读一致）、重放幂等（同文件重放两次派生态一致）、撕裂尾容忍、中间损坏/seq 断裂/未知 type 报错
 - **conversation**：顺延/分支/叶子三种 parent 语义、指针推进、`path_to`/`trunk`（含平局取最新）/`fork_point`
@@ -261,4 +266,4 @@ treechat/
 
 - **V1（本 spec §2–§8）**：核心模型 + 轮次 + 卡片 + stdlib REPL + 测试；新仓库脚手架（git init / pyproject / CI 可后置）
 - **V2**：自动摘要卡片压缩（`compact` 事件 + 分支水位线）；`/card import` 与跨会话卡库
-- **后续**：Module 桥（卡片 → spec 输入 → SpecModule Module run——届时才回头评估 SpecModule 侧改动，如 issue #1 fork API）；富 TUI（独立项目）；prompt_toolkit/Rich 化 REPL；媒体消息（占位降级持久化，参考 nanobot 图片降级）；token 精确计费统计（用 provider 返回 usage 替代 chars/4 估算）
+- **后续**：Module 桥（卡片 → spec 输入 → SpecModule Module run——届时才回头评估 SpecModule 侧改动，如 issue #1 fork API）；富 TUI（独立项目）；prompt_toolkit/Rich 化 REPL；`llm.chat()` 补流式 `on_token`（SpecModule llm 层改动，具普遍价值）后接通对话流式；媒体消息（占位降级持久化，参考 nanobot 图片降级）；token 精确计费统计（用 provider 返回 usage 替代 chars/4 估算）
