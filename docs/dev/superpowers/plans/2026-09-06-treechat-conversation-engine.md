@@ -1,5 +1,15 @@
 # TreeChat 对话引擎实现计划（V1）
 
+> ⚠️ **实施修订注记（2026-09-06，执行后回写）**：执行中发现并修正了 9 处计划缺陷，实现以修正后为准
+> （详见仓库 TreeChat 提交历史 f4d1945..7aa25d8）：① config.py 加 `__post_init__`（str→Path）；②
+> CardCreate 事件加 `created_at` 字段（重放同一性）；③ test_reopen 断言改 `pointer==a`（set_pointer
+> 不落事件，重放指针=文件序末 assistant）；④ 窗口测试预算 200 / history 末条 msg7（原值永不触发
+> 丢弃 / off-by-one）；⑤ branch_segment 断言含 user fork 自身（[2,4,5]/[2,6,7]）+ 补 assistant-fork
+> 排除测试 + test_list_sessions monkeypatch create_client + session.create/open 的 window=None 归一
+> 默认策略；⑥ SessionStore.append 自动 mkdir 父目录；⑦ /branch 非 int 转 TreeChatError；⑧
+> test_repl_card_show 改两段式 REPL（卡片 id 运行时才产生）；⑨ CLI 测试 create/open 均需
+> monkeypatch create_client（环境无 config.json）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在独立新仓库实现 TreeChat V1——事件溯源消息树（分支/叶子一等公民）+ 卡片式上下文产出 + 薄 REPL CLI，LLM 层复用 SpecModule（`llm` 客户端 + `call_harness`）。

@@ -59,7 +59,7 @@
 {"seq":3,"type":"assistant_msg","parent":2,"text":"...","model":"...","usage":{...}}
 {"seq":4,"type":"user_msg","parent":2,"text":"回到第 2 条，追问一个概念"}          ← parent 指向历史 = 分支
 {"seq":5,"type":"user_msg","parent":null,"text":"（无上下文的概念提问）"}          ← 非首条 parent=null = 叶子链
-{"seq":6,"type":"card_create","card":{"id":"card_a1b2","title":"...","body":"..."},"from_path":[2,3],"instruction":"..."}
+{"seq":6,"type":"card_create","card":{"id":"card_a1b2","title":"...","body":"..."},"from_path":[2,3],"instruction":"...","created_at":"..."}
 {"seq":7,"type":"pin","card_id":"card_a1b2"}
 {"seq":8,"type":"unpin","card_id":"card_a1b2"}
 {"seq":9,"type":"system_update","text":"新的会话级指令"}                            ← /system 修改（追加式日志不改首行）
