@@ -116,7 +116,7 @@ CLI 双身份：既是使用者最基础入口，也是开发者终端工作台�
 
 ## 完成度速览
 
-已实现（库核心）：**18** 项框架能力（第一级）
+已实现（库核心）：**19** 项框架能力（第一级）
 已完成（库自身主线 + 独立线，2026-08-22）：打包接线 + module-user-store 全系列
 （store 家目录 / 配置回退链 / 统一枚举 run 打通 / CLI 管理面 / init 目录形态 /
 publish / update 脏检测）+ 嵌入式验证 + stdlib 可视化开关（feed）
@@ -134,6 +134,8 @@ publish / update 脏检测）+ 嵌入式验证 + stdlib 可视化开关（feed�
 | 功能 | 实现 | 关键文件 |
 |------|------|----------|
 | **harness** — LLM 调用节点，三层 prompt（核心/动态/人工注入）、outputformat 校验与自动提取、notdo 否定性约束 | `Harness` + `HarnessConfig` + `PromptRenderer` + `OutputValidator` | `harness.py`, `config.py`, `prompt.py`, `outputfmt.py` |
+| **harness 图像模式** — `mode="image"` 承载文生图：三层 prompt 复用、产物落盘返路径、`ImageSaved` 事件、usage 审计；tasklist Task 级 `mode`/`image_size`/`image_dir` 覆盖传播 | `Harness._run_image` + `ImageSaved` + `HarnessConfig.mode` | `harness.py`, `events.py`, `core/config.py`, `graph_builder.py` |
+| **多 provider 路由** — config.json providers 全量按名注册，models 注册表 `provider` 字段生效，按调用模型惰性建连缓存；图像生成 `generate_image`（OpenAI 兼容 images API，Anthropic 显式无此能力） | `ProviderConfig` + `LLMConfig.provider_for/for_provider` + `RoutingClient` + `ImageResult` | `llm/config.py`, `llm/client.py`, `llm/mock.py` |
 | **script** — 纯 Python 函数节点，装饰器注册，事件包裹（start/complete/failed） | `@reg.script()` | `registry.py` |
 | **command** — Shell 命令节点，subprocess 执行，一行字符串即节点 | `Command` + `CommandConfig` + `reg.command()` | `command.py`, `registry.py` |
 
@@ -155,7 +157,7 @@ publish / update 脏检测）+ 嵌入式验证 + stdlib 可视化开关（feed�
 |------|------|----------|
 | **Module 编排器** — spec + template → 翻译 → graph → runner | `Module.build_runner()` / `Module.run()` | `module.py` |
 | **命名空间隔离** — body 注册名 `{module_id}:{key}`，同进程多 module 不冲突 | `TasklistTranslator` | `graph_builder.py` |
-| **EventBus** — 类型安全的事件发布订阅，harness 6 种 + script 3 种 + command 3 种 + 一致性审核 1 种事件 | `EventBus` | `events.py` |
+| **EventBus** — 类型安全的事件发布订阅，harness 7 种 + script 3 种 + command 3 种 + 一致性审核 1 种事件 | `EventBus` | `events.py` |
 | **tickflow 零修改集成** — `HarnessRegistry` 子类化 `Registry`，不修改 tickflow 任何代码 | `HarnessRegistry(Registry)` | `registry.py` |
 | **submodule — 类式定义 + 打包发布** | `SubModule`（类式声明 + `@script` + `pack()` 导出）+ `ModuleLoader`（加载 + requires 校验）+ 内置 harness 集 | `submodule.py`, `loader.py`, `builtins.py` |
 | **运行状态查询** — 跨进程查询 Module 当前运行状态：status.json 阶段机（9 阶段原子写，status_file 独立开关）+ run.sqlite 最新快照叠加 | `Module._write_phase` + `query_run_status` | `module.py`, `status.py` |
