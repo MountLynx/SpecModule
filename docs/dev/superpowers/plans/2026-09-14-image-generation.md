@@ -352,6 +352,8 @@ git commit -m "feat(llm): ProviderConfig + LLMConfig.providers 全量注册表 �
 
 ### Task 3: ImageResult + generate_image(双客户端对称)
 
+> ⚠️ **实施修订注记（2026-09-14）**：本任务原文本含「统一请求 `response_format="b64_json"`」的硬编码，实施复审发现其会令 gpt-image-* 全系 400（该家族不接受该参数、总返 b64），且 `api_params` 无法删除该键。已改为**默认不发送 `response_format`**，URL 默认端点显式 `api_params={"response_format": "b64_json"}`；b64 解码失败亦纳入 `LLMError`。最终形态以 spec §2.2（commit `b72214f`）与实现 commit `17f9671` 为准，下文原始代码勿照抄。
+
 **Files:**
 - Modify: `llm/client.py`
 - Test: `llm/tests/test_image_gen.py`(新建)
