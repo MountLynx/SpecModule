@@ -80,6 +80,31 @@ def _load_rules_txt(roots: Path | list[Path]) -> str:
 
 
 @dataclass
+class ProviderConfig:
+    """单个 provider 的连接配置（来自 config.json providers 条目）。
+
+    多 provider 路由的地基：models 注册表每模型的 provider 字段指向这里的 name。
+    """
+    name: str = ""
+    sdktype: str = "openai"
+    api_key: str = ""
+    base_url: str | None = None
+    timeout: float = 60.0
+    max_retries: int = 3
+
+    def to_client_kwargs(self) -> dict[str, Any]:
+        """转为 SDK 客户端构造参数（连接级）。"""
+        kwargs: dict[str, Any] = {
+            "api_key": self.api_key,
+            "timeout": self.timeout,
+            "max_retries": self.max_retries,
+        }
+        if self.base_url:
+            kwargs["base_url"] = self.base_url
+        return kwargs
+
+
+@dataclass
 class LLMConfig:
     """LLM 配置
 
@@ -106,6 +131,10 @@ class LLMConfig:
     models: dict[str, dict[str, Any]] = field(default_factory=dict)
     """{model_name: {provider, think, multimodal, max_tokens, ...}}。"""
 
+    providers: dict[str, ProviderConfig] = field(default_factory=dict)
+    """{provider_name: ProviderConfig}。from_env 解析全部 providers；
+    手工构造可为空（provider_for 返回 None = 用默认顶层连接）。"""
+
     # ── 框架规则（来自 rules.txt）──
     system_rules: str = ""
     """框架级输出格式约束，注入每次 LLM 调用的 system prompt 最前面。"""
@@ -113,6 +142,38 @@ class LLMConfig:
     def model_info(self, name: str) -> dict[str, Any]:
         """获取指定模型的能力声明。"""
         return self.models.get(name, {})
+
+    def provider_for(self, model: str | None) -> ProviderConfig | None:
+        """查模型所属 provider 的连接配置。
+
+        models 注册表声明 provider 名且在 providers 表中 → 该 provider；
+        任何一步缺失（模型未注册 / 未指明 provider / 表无此名）→ None = 默认连接。
+        """
+        name = self.models.get(model or "", {}).get("provider")
+        if name:
+            return self.providers.get(name)
+        return None
+
+    def for_provider(self, provider: ProviderConfig) -> "LLMConfig":
+        """返回连接字段切到指定 provider 的配置副本（请求级字段共享）。
+
+        RoutingClient 按 provider 建连用：client 构造签名接收 LLMConfig，
+        切片把连接字段填进顶层字段，client 内 config.to_client_kwargs()
+        即取到该 provider 的连接。
+        """
+        return LLMConfig(
+            provider=provider.sdktype,
+            api_key=provider.api_key,
+            base_url=provider.base_url,
+            timeout=provider.timeout,
+            max_retries=provider.max_retries,
+            model=self.model,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            models=self.models,
+            system_rules=self.system_rules,
+            providers=self.providers,
+        )
 
     @classmethod
     def from_env(
@@ -155,14 +216,28 @@ class LLMConfig:
         # 3. 加载 rules.txt
         system_rules = _load_rules_txt(roots)
 
-        # ── 选中 provider（取第一个）──
+        # ── 解析全部 providers（name → 连接配置）──
+        providers_map: dict[str, ProviderConfig] = {}
+        for i, entry in enumerate(providers):
+            pname = entry.get("name", "") or f"provider_{i}"
+            key_env = entry.get("api_key_env", "")
+            providers_map[pname] = ProviderConfig(
+                name=pname,
+                sdktype=entry.get("sdktype", "openai"),
+                api_key=os.environ.get(key_env, "") if key_env else "",
+                base_url=entry.get("base_url"),
+                timeout=float(entry.get("timeout", 60.0)),
+                max_retries=int(entry.get("max_retries", 3)),
+            )
         p = providers[0]
+        default_pc = providers_map[p.get("name", "") or "provider_0"]
 
-        # ── 解析 API key ──
+        # ── 解析 API key（overrides 优先，同步回默认 provider 条目）──
         api_key = overrides.pop("api_key", None)
-        if api_key is None:
-            key_env = p.get("api_key_env", "")
-            api_key = os.environ.get(key_env, "") if key_env else ""
+        if api_key is not None:
+            default_pc.api_key = api_key
+        else:
+            api_key = default_pc.api_key
 
         # ── 构建 models 注册表 ──
         models_map: dict[str, dict[str, Any]] = {}
@@ -180,16 +255,17 @@ class LLMConfig:
                 default_max_tokens = int(m.get("max_tokens", 4096))
 
         config = cls(
-            provider=p.get("sdktype", "openai"),
+            provider=default_pc.sdktype,
             api_key=api_key,
-            base_url=p.get("base_url"),
-            timeout=float(p.get("timeout", 60.0)),
-            max_retries=int(p.get("max_retries", 3)),
+            base_url=default_pc.base_url,
+            timeout=default_pc.timeout,
+            max_retries=default_pc.max_retries,
             model=overrides.pop("model", None) or default_model,
             max_tokens=int(overrides.pop("max_tokens", None) or default_max_tokens),
             temperature=float(overrides.pop("temperature", None) or default_temperature),
             models=models_map,
             system_rules=system_rules,
+            providers=providers_map,
         )
         for key, value in overrides.items():
             if hasattr(config, key) and value is not None:
