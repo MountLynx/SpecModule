@@ -62,10 +62,13 @@ class ImageResult:
 
 - `OpenAIClient.generate_image(prompt, *, model=None, size=None,
   api_params=None) -> ImageResult`：调 `client.images.generate(model, prompt,
-  size?, response_format="b64_json", n=1, **api_params)`，取 `data[0].b64_json`
-  解码为字节。统一请求 b64——临时 URL（dall-e 系列默认，1 小时时效）不落库。
-  `api_params` 沿用 `_apply_api_params`（已知字段直入，未知入 extra_body）。
-  SDK 异常 → `LLMError`。
+  size?, n=1, **api_params)`，取 `data[0].b64_json` 解码为字节（解码失败同归
+  `LLMError`）。**不主动发送 `response_format`**：gpt-image-* 不接受该参数
+  （其总是返回 b64，硬编码会令其全系 400）；dall-e 系 / 默认返 URL 的兼容
+  端点需显式 `api_params={"response_format": "b64_json"}`，否则报带指引的
+  `LLMError`——显式请求优于猜测模型家族（2026-09-14 实施修订，替换原
+  「统一请求 b64_json」设计）。`api_params` 沿用 `_apply_api_params`
+  （已知字段直入，未知入 extra_body）。SDK 异常 → `LLMError`。
 - `AnthropicClient.generate_image(...)`：抛 `LLMError("Anthropic 无图像生成 API")`。
   两客户端接口对称，调用方无需预判 provider；能力缺失是基础设施故障，显式暴露，
   框架不猜测、不降级。
