@@ -186,6 +186,8 @@ class TestTasklistToDict:
                             "cwd": None, "promptmode": None, "prompt": None,
                             "outputformat": None, "notdo": None, "model": None,
                             "temperature": None, "think": None,
-                            "api_params": None, "inputs": {"x": "B"}}},
+                            "api_params": None, "mode": None,
+                            "image_size": None, "image_dir": None,
+                            "inputs": {"x": "B"}}},
             "Flow": "[A] --> B",
         }

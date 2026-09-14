@@ -198,11 +198,19 @@ class TasklistTranslator:
             ),
             think=task.think if task.think is not None else existing.think,
             api_params=api_params,
-            # 调用形态三字段无 task 级覆盖（TaskDefinition 不含），从注册
-            # config 原样携带——漏掉会让 image 模式在 Module 内静默降级为 text
-            mode=existing.mode,
-            image_size=existing.image_size,
-            image_dir=existing.image_dir,
+            # 调用形态三字段：task 级覆盖，缺省沿用注册 config——漏掉会让
+            # image 模式在 Module 内静默降级为 text
+            mode=task.mode if task.mode is not None else existing.mode,
+            image_size=(
+                task.image_size
+                if task.image_size is not None
+                else existing.image_size
+            ),
+            image_dir=(
+                task.image_dir
+                if task.image_dir is not None
+                else existing.image_dir
+            ),
         )
 
         # 解析常量引用：promptmode 的 "{spec.xxx}" 与 inputs 的常量 token

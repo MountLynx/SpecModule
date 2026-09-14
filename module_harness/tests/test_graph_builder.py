@@ -321,3 +321,63 @@ class TestHarnessInputBind:
         assert any(
             "HELLO-FROM-A" in p for p in rendered
         ), f"prompt 未渲染 producer 值: {rendered!r}"
+
+
+class TestImageModePropagation:
+    """Task 级 mode/image_size/image_dir 覆盖传播到隔离注册的 HarnessConfig。"""
+
+    def test_task_overrides_image_fields(self, mock_llm, reg):
+        reg.harness("draw", HarnessConfig(prompt_core="画:{title}"))
+        tl = Tasklist(
+            tasks={
+                "D": TaskDefinition(
+                    type="harness", harness="draw",
+                    mode="image", image_size="1024x1024", image_dir="out",
+                ),
+            },
+            flow="[D]",
+        )
+        builder = TasklistTranslator(reg, module_id="m1")
+        graph, out_reg = builder.build(tl)
+        cfg = out_reg.harness_config("m1:D")
+        assert cfg.mode == "image"
+        assert cfg.image_size == "1024x1024"
+        assert cfg.image_dir == "out"
+
+    def test_task_without_image_fields_keeps_base(self, mock_llm, reg):
+        reg.harness("draw", HarnessConfig(prompt_core="画:{title}",
+                                          image_size="512x512"))
+        tl = Tasklist(tasks={"D": TaskDefinition(type="harness", harness="draw")},
+                      flow="[D]")
+        builder = TasklistTranslator(reg, module_id="m1")
+        _, out_reg = builder.build(tl)
+        cfg = out_reg.harness_config("m1:D")
+        assert cfg.mode == "text"
+        assert cfg.image_size == "512x512"      # 未覆盖,保留基配置
+
+    def test_task_partial_override(self, mock_llm, reg):
+        """只覆盖 image_size,其余保留基配置。"""
+        reg.harness("draw", HarnessConfig(prompt_core="画:{title}",
+                                          mode="image", image_dir="base_dir"))
+        tl = Tasklist(
+            tasks={"D": TaskDefinition(type="harness", harness="draw",
+                                       image_size="1024x1024")},
+            flow="[D]",
+        )
+        _, out_reg = TasklistTranslator(reg, module_id="m1").build(tl)
+        cfg = out_reg.harness_config("m1:D")
+        assert cfg.mode == "image"
+        assert cfg.image_size == "1024x1024"
+        assert cfg.image_dir == "base_dir"
+
+    def test_image_mode_conflict_raises_at_build(self, mock_llm, reg):
+        reg.harness("draw", HarnessConfig(prompt_core="画:{title}"))
+        tl = Tasklist(
+            tasks={"D": TaskDefinition(
+                type="harness", harness="draw", mode="image",
+                outputformat={"type": "json_object"},
+            )},
+            flow="[D]",
+        )
+        with pytest.raises(ValueError, match="互斥"):
+            TasklistTranslator(reg, module_id="m1").build(tl)

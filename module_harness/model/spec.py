@@ -62,6 +62,9 @@ class TaskDefinition:
     temperature: float | None = None
     think: bool | dict | None = None
     api_params: dict[str, Any] | None = None  # 透传给 LLM SDK 的额外参数
+    mode: str | None = None             # "image" = 图像生成节点
+    image_size: str | None = None       # 图像尺寸覆盖
+    image_dir: str | None = None        # 图像落盘目录覆盖
     inputs: dict[str, str] | None = None
 
     @classmethod
@@ -83,6 +86,9 @@ class TaskDefinition:
             temperature=d.get("temperature"),
             think=d.get("think"),
             api_params=d.get("api_params"),
+            mode=d.get("mode"),
+            image_size=d.get("image_size"),
+            image_dir=d.get("image_dir"),
             inputs=d.get("inputs"),
         )
 
