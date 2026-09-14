@@ -92,23 +92,64 @@ class TestRouting:
             await client.generate_image("p", model="claude-sonnet-4")
 
     @pytest.mark.asyncio
-    async def test_complete_delegates_with_model_routing(self, monkeypatch):
-        """complete 按调用模型路由;Anthropic 分支走 chat 语义的客户端,
-        这里仅验证 OpenAI 侧委托参数透传(model 覆盖生效)。"""
-        cap: dict = {}
-        _install_fake_sdk(monkeypatch, "openai", "AsyncOpenAI", cap)
+    async def test_complete_passthrough_reaches_routed_client(self):
+        """complete 全参透传到被路由客户端,且按模型路由到正确 provider 槽位。"""
+        from unittest.mock import AsyncMock
+
+        from llm.client import LLMResponse
+
         client = RoutingClient(_multi_config())
-        # 未注册模型 → 默认客户端;注册模型 → 对应客户端
-        assert client._client_for("cogview-4") is client._client_for("cogview-4")
-        assert client._client_for("deepseek-chat") is not client._client_for("cogview-4")
+        # 注:facade 在槽位对象上调用 .complete(),return_value 须配置在该子方法上
+        # (配置在父 AsyncMock 上对 .complete 属性调用不生效)
+        zhipu_mock = AsyncMock()
+        zhipu_mock.complete.return_value = LLMResponse(content="y")
+        client._clients[None] = AsyncMock()
+        client._clients["zhipu"] = zhipu_mock
 
+        token_calls: list[str] = []
+        resp = await client.complete(
+            "p", system="s", model="cogview-4", temperature=0.3,
+            think=True, output_format={"type": "json_object"},
+            notdo=["a"], on_token=token_calls.append, api_params={"k": "v"},
+        )
+        assert resp.content == "y"
+        assert zhipu_mock.complete.call_args.args[0] == "p"
+        kw = zhipu_mock.complete.call_args.kwargs
+        assert kw["system"] == "s"
+        assert kw["model"] == "cogview-4"
+        assert kw["temperature"] == 0.3
+        assert kw["think"] is True
+        assert kw["output_format"] == {"type": "json_object"}
+        assert kw["notdo"] == ["a"]
+        assert callable(kw["on_token"])
+        assert kw["api_params"] == {"k": "v"}
 
-class TestFactory:
-    def test_create_llm_client_returns_routing_client(self):
-        assert isinstance(create_llm_client(LLMConfig(api_key="k")), RoutingClient)
+    @pytest.mark.asyncio
+    async def test_complete_default_slot_and_chat_passthrough(self):
+        """model=None 走默认槽位;chat 透传 messages/tools 到默认客户端。"""
+        from unittest.mock import AsyncMock
+
+        from llm.client import LLMResponse, Message
+
+        client = RoutingClient(_multi_config())
+        default_mock = AsyncMock(return_value=LLMResponse(content="d"))
+        client._clients[None] = default_mock
+
+        await client.complete("p")
+        default_mock.complete.assert_awaited_once()
+        assert default_mock.complete.call_args.kwargs["model"] is None
+
+        msgs = [Message(role="user", content="hi")]
+        await client.chat(msgs, tools=[{"name": "t"}])
+        default_mock.chat.assert_awaited_once_with(msgs, [{"name": "t"}])
 
     def test_ready_uses_default_client(self, monkeypatch):
         cap: dict = {}
         _install_fake_sdk(monkeypatch, "openai", "AsyncOpenAI", cap)
         client = RoutingClient(_multi_config())
         assert client.ready is True   # 假 SDK 构造成功
+
+
+class TestFactory:
+    def test_create_llm_client_returns_routing_client(self):
+        assert isinstance(create_llm_client(LLMConfig(api_key="k")), RoutingClient)

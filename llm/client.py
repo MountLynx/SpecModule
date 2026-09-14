@@ -743,6 +743,8 @@ class RoutingClient:
             if cfg.provider == "anthropic":
                 self._clients[key] = AnthropicClient(cfg)
             else:
+                if cfg.provider not in ("openai", "openai-compatible"):
+                    log.warning("未知 sdktype '%s'，回退到 OpenAI 兼容客户端", cfg.provider)
                 self._clients[key] = OpenAIClient(cfg)
         return self._clients[key]
 
@@ -782,7 +784,7 @@ class RoutingClient:
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
     ) -> LLMResponse:
-        """多轮聊天(底层接口),按 config.model 路由。"""
+        """多轮聊天（底层接口），始终走默认连接（与原直连行为一致）。"""
         return await self._client_for(None).chat(messages, tools)
 
     async def generate_image(
