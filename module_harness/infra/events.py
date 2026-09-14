@@ -38,6 +38,7 @@ class LlmToken(HarnessEvent):
 
 @dataclass
 class LlmCallCompleted(HarnessEvent):
+    """LLM 调用完成。图像模式：content_chars = 产物字节数，finish_reason=None。"""
     content_chars: int
     usage: dict[str, int]
     finish_reason: str | None

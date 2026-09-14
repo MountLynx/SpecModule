@@ -98,6 +98,10 @@ class Harness:
                 ))
                 return Failure(str(e), type="infrastructure")
 
+            # usage 在落盘前写入：已计费的 LLM 调用审计不因落盘失败丢失
+            if state is not None:
+                state["_usage"] = dict(result.usage)
+
             out_dir = Path(config.image_dir)
             path = out_dir / f"{node}-{time.monotonic_ns()}.png"
             try:
@@ -112,7 +116,6 @@ class Harness:
 
             if state is not None:
                 state["_image_path"] = str(path)
-                state["_usage"] = dict(result.usage)
 
             bus.emit(LlmCallCompleted(
                 timestamp=time.monotonic(), node=node, tick=0,

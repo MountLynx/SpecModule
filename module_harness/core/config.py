@@ -65,7 +65,7 @@ class HarnessConfig:
                 "mode='image' 与 output_format 互斥（图像无文本输出格式可校验）"
             )
         if self.mode == "image" and self.image_dir is None:
-            raise ValueError("mode='image' 需要显式 image_dir（不接受显式 null）")
+            raise ValueError("mode='image' 不接受显式 null 的 image_dir")
 
     def to_dict(self) -> dict[str, Any]:
         """序列化为 JSON 可写 dict（含 output_format）。"""
@@ -96,6 +96,8 @@ class HarnessConfig:
         - mode          → 调用形态："text"（默认）| "image"
         - image_size    → 图像尺寸（仅 mode="image"）
         - image_dir     → 图像落盘目录（仅 mode="image"）
+
+        mode/image_size/image_dir：显式 null 的 image_dir 会被拒绝。
         """
         output_format = None
         of_data = task.get("outputformat")

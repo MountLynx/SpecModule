@@ -8,7 +8,7 @@ import os
 
 import pytest
 
-from llm.client import LLMError, LLMResponse
+from llm.client import LLMError, LLMResponse, ImageResult
 from module_harness.core.config import HarnessConfig
 from module_harness.infra.events import EventBus
 from module_harness.model.module import Module
@@ -71,10 +71,19 @@ class _ErrorLLM:
         raise LLMError("连接超时")
 
 
-def _harness_module(llm, tmp_path, monkeypatch, module_id="mod_stream", **kw):
+class _ImageLLM:
+    """图像模式 fake：generate_image 返回固定字节。"""
+
+    async def generate_image(self, *, prompt, model=None, size=None, api_params=None):
+        return ImageResult(data=b"\x89PNG fake-image-bytes",
+                           usage={"input_tokens": 3, "output_tokens": 100})
+
+
+def _harness_module(llm, tmp_path, monkeypatch, module_id="mod_stream",
+                    harness_config=None, **kw):
     monkeypatch.chdir(tmp_path)
     reg = HarnessRegistry(llm_client=llm, event_bus=EventBus())
-    reg.harness("probe", HarnessConfig(prompt_core="x={spec}"))
+    reg.harness("probe", harness_config or HarnessConfig(prompt_core="x={spec}"))
     return Module(
         spec={"x": 1},
         tasklist=Tasklist(
@@ -123,6 +132,21 @@ class TestModuleWiring:
         err = next(r for r in recs if r["type"] == "call_error")
         assert err["reason"] == "连接超时"
         assert err["failure_type"] == "infrastructure"
+
+    @pytest.mark.asyncio
+    async def test_image_saved_forwarded(self, tmp_path, monkeypatch):
+        # 图像模式：ImageSaved → stream.log image_saved 记录（path + bytes_len）
+        llm = _ImageLLM()
+        mod = _harness_module(
+            llm, tmp_path, monkeypatch, module_id="mod_image",
+            harness_config=HarnessConfig(prompt_core="画:{spec}", mode="image"),
+        )
+        await mod.run()
+        recs = _read_records(stream_log_path("mod_image", tmp_path))
+        saved = next(r for r in recs if r["type"] == "image_saved")
+        assert saved["node"] == "A"
+        assert saved["path"].endswith(".png")
+        assert saved["bytes_len"] == len(b"\x89PNG fake-image-bytes")
 
     @pytest.mark.asyncio
     async def test_stream_log_disabled(self, tmp_path, monkeypatch):

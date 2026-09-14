@@ -24,6 +24,7 @@ from ..infra.events import (
     EventBus,
     ConsistencyReviewed,
     HarnessFailed,
+    ImageSaved,
     LlmCallCompleted,
     LlmCallStarted,
     LlmToken,
@@ -411,7 +412,8 @@ class Module:
             return None
         if not self._stream_subscribed:
             bus = self._reg._event_bus
-            for evt in (LlmCallStarted, LlmToken, LlmCallCompleted, HarnessFailed):
+            for evt in (LlmCallStarted, LlmToken, LlmCallCompleted, ImageSaved,
+                        HarnessFailed):
                 bus.subscribe(evt, self._on_stream_event)
             self._stream_subscribed = True
         writer = StreamLogWriter(stream_log_path(self.module_id, self._base_dir))
@@ -426,7 +428,7 @@ class Module:
             writer.close()
 
     def _on_stream_event(self, event: Any) -> None:
-        """EventBus → stream.log 记录（四类事件 → 四种记录，见 stream.py）。"""
+        """EventBus → stream.log 记录（五类事件 → 五种记录，见 stream.py）。"""
         w = self._stream_writer
         if w is None:
             return
@@ -439,6 +441,9 @@ class Module:
             w.write({"type": "call_end", "node": event.node,
                      "content_chars": event.content_chars,
                      "finish_reason": event.finish_reason})
+        elif isinstance(event, ImageSaved):
+            w.write({"type": "image_saved", "node": event.node,
+                     "path": event.path, "bytes_len": event.bytes_len})
         elif isinstance(event, HarnessFailed):
             w.write({"type": "call_error", "node": event.node,
                      "reason": event.reason, "failure_type": event.failure_type})

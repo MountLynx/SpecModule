@@ -21,10 +21,13 @@ from .harness import Harness
 
 @dataclass
 class HarnessCallResult:
-    """独立调用结果：校验后输出 + LLM 原始输出 + token 用量。"""
+    """独立调用结果：校验后输出 + LLM 原始输出 + token 用量。
+
+    图像模式不产生文本 raw（无 _llm_raw），raw 为 None。
+    """
 
     value: Any  # 校验后的输出（json_object → 解析值；text → str）
-    raw: str    # LLM 原始输出（审计链）
+    raw: str | None    # LLM 原始输出（审计链）
     usage: dict[str, int]  # token 用量
 
 

@@ -296,6 +296,10 @@ class TestHarnessImageMode:
         blocker.write_text("i am a file", encoding="utf-8")
         cfg = HarnessConfig(prompt_core="x", mode="image", image_dir=str(blocker))
         h = Harness(cfg, mock_image_llm, EventBus())
-        result = await h.build_body()(_make_view())
+        state: dict = {}
+        view = NodeView(node="test_node", fields=(), values=(), state=state)
+        result = await h.build_body()(view)
         assert isinstance(result, Failure)
         assert result.type == "infrastructure"
+        assert state["_usage"] == {"input_tokens": 3, "output_tokens": 100}  # 已计费调用的审计不因落盘失败丢失
+        assert "_image_path" not in state

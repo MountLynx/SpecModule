@@ -147,6 +147,10 @@ class SubModule:
             temperature=overrides.get("temperature", hc.temperature),
             think=overrides.get("think", hc.think),
             api_params=api_params,
+            # 调用形态三字段原样携带——漏掉会让 image 模式在覆盖时静默降级为 text
+            mode=hc.mode,
+            image_size=hc.image_size,
+            image_dir=hc.image_dir,
         )
 
     async def run(

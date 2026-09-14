@@ -306,6 +306,16 @@ class TestSubModule:
         assert calls
         assert all(c.kwargs.get("api_params", {}).get("max_tokens") == 200 for c in calls)
 
+    def test_harness_overrides_keep_image_mode(self):
+        """LLM 覆盖重建 config 时不得丢图像三字段——漏掉会静默降级为 text。"""
+        hc = HarnessConfig(name="painter", prompt_core="画", mode="image",
+                           image_size="1024x1024", image_dir="out")
+        out = SubModule._apply_harness_overrides(hc, {"model": "img-model"})
+        assert out.mode == "image"
+        assert out.image_size == "1024x1024"
+        assert out.image_dir == "out"
+        assert out.model == "img-model"
+
     @pytest.mark.asyncio
     async def test_run_persist_false_zero_residue(self, tmp_path, monkeypatch, mock_llm):
         monkeypatch.chdir(tmp_path)
