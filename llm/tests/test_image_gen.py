@@ -9,6 +9,8 @@ api_params 沿用 _apply_api_params(已知字段直入,未知入 extra_body—�
 from __future__ import annotations
 
 import base64
+import sys
+import types
 from typing import Any
 
 import pytest
@@ -39,9 +41,6 @@ class _Usage:
 
 def _install_fake_openai_images(monkeypatch, capture: dict, response: Any) -> None:
     """注入带 images.generate 的假 openai 模块。"""
-    import sys
-    import types
-
     fake = types.ModuleType("openai")
 
     class FakeImages:
@@ -67,7 +66,7 @@ def _openai_client(monkeypatch, capture: dict, response: Any) -> OpenAIClient:
 
 class TestOpenAIGenerateImage:
     @pytest.mark.asyncio
-    async def test_requests_b64_and_decodes(self, monkeypatch):
+    async def test_no_response_format_by_default_and_decodes(self, monkeypatch):
         capture: dict = {}
         resp = _ImagesResp([_Item(B64_PNG, revised="a better prompt")], usage=_Usage())
         client = _openai_client(monkeypatch, capture, resp)
@@ -75,12 +74,19 @@ class TestOpenAIGenerateImage:
         kw = capture["generate_kwargs"]
         assert kw["model"] == "cogview-4"           # 缺省回落 config.model
         assert kw["prompt"] == "一只猫"
-        assert kw["response_format"] == "b64_json"  # 统一取字节
+        assert "response_format" not in kw  # 不主动请求:gpt-image-* 不接受该参数
         assert kw["n"] == 1
         assert kw["size"] == "1024x1024"
         assert result.data == b"fake-png-bytes"
         assert result.revised_prompt == "a better prompt"
         assert result.usage == {"input_tokens": 10, "output_tokens": 5}
+
+    @pytest.mark.asyncio
+    async def test_explicit_response_format_via_api_params(self, monkeypatch):
+        capture: dict = {}
+        client = _openai_client(monkeypatch, capture, _ImagesResp([_Item(B64_PNG)]))
+        await client.generate_image("p", api_params={"response_format": "b64_json"})
+        assert capture["generate_kwargs"]["response_format"] == "b64_json"
 
     @pytest.mark.asyncio
     async def test_model_override_and_size_omitted(self, monkeypatch):
@@ -111,6 +117,15 @@ class TestOpenAIGenerateImage:
         capture: dict = {}
         client = _openai_client(monkeypatch, capture, _ImagesResp([_Item(None)]))
         with pytest.raises(LLMError, match="b64_json"):
+            await client.generate_image("p")
+
+    @pytest.mark.asyncio
+    async def test_malformed_b64_raises_llm_error(self, monkeypatch):
+        capture: dict = {}
+        client = _openai_client(
+            monkeypatch, capture, _ImagesResp([_Item("!!!not-base64!!!")])
+        )
+        with pytest.raises(LLMError, match="无法解码"):
             await client.generate_image("p")
 
 

@@ -210,8 +210,18 @@ class AnthropicClient:
         }
         return [tool], {"type": "tool", "name": name}
 
-    async def generate_image(self, prompt: str, **kwargs: Any) -> ImageResult:
-        """Anthropic 无图像生成 API——能力缺失显式暴露,框架不猜测不降级。"""
+    async def generate_image(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        size: str | None = None,
+        api_params: dict[str, Any] | None = None,
+    ) -> ImageResult:
+        """Anthropic 无图像生成 API——能力缺失显式暴露,框架不猜测不降级。
+
+        签名与 OpenAIClient.generate_image 对称（参数不消费，仅保持路由委托无 TypeError）。
+        """
         raise LLMError("Anthropic 无图像生成 API；图像生成请配置 OpenAI 兼容 provider")
 
     async def complete(
@@ -445,12 +455,16 @@ class OpenAIClient:
         - ``model``：生图模型（如 gpt-image-1 / cogview-4），缺省回落 config
         - ``size``：如 "1024x1024"，None = API 默认
         - ``api_params``：透传 SDK 额外参数（已知字段直入，未知入 extra_body）
+
+        不主动发送 ``response_format``：gpt-image-* 不接受该参数（其总是返回
+        b64）；dall-e 系 / 默认返 URL 的兼容端点需显式
+        ``api_params={"response_format": "b64_json"}``，否则因未拿到 b64 数据
+        而 LLMError——显式请求优于猜测模型家族。
         """
         self._require_ready()
         kwargs: dict[str, Any] = {
             "model": model or self.config.model,
             "prompt": prompt,
-            "response_format": "b64_json",
             "n": 1,
         }
         if size:
@@ -466,7 +480,10 @@ class OpenAIClient:
         item = items[0] if items else None
         b64 = getattr(item, "b64_json", None) if item is not None else None
         if not b64:
-            raise LLMError("images API 未返回 b64_json 图像数据")
+            raise LLMError(
+                "images API 未返回 b64_json 图像数据"
+                "（端点默认返 URL 时，请以 api_params 传 response_format='b64_json'）"
+            )
         usage: dict[str, int] = {}
         resp_usage = getattr(response, "usage", None)
         if resp_usage is not None:
@@ -474,8 +491,12 @@ class OpenAIClient:
                 val = getattr(resp_usage, key, None)
                 if val is not None:
                     usage[key] = val
+        try:
+            data = base64.b64decode(b64)
+        except (ValueError, TypeError) as exc:
+            raise LLMError(f"images API 返回的 b64_json 无法解码: {exc}") from exc
         return ImageResult(
-            data=base64.b64decode(b64),
+            data=data,
             revised_prompt=getattr(item, "revised_prompt", None),
             usage=usage,
         )
