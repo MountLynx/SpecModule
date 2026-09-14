@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from typing import Any
 
-from .client import LLMResponse
+from .client import ImageResult, LLMResponse
+
+
+# 1x1 透明 PNG（最小合法图像,测试断言 PNG magic 用）
+_PNG_1X1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+)
 
 
 class MockLLMClient:
@@ -24,3 +31,7 @@ class MockLLMClient:
         else:
             content = "mock output"
         return LLMResponse(content=content)
+
+    async def generate_image(self, **kwargs: Any) -> ImageResult:
+        """假生图:返回 1x1 PNG。"""
+        return ImageResult(data=_PNG_1X1)
