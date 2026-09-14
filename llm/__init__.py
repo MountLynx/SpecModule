@@ -7,6 +7,7 @@ from .client import (
     OpenAIClient,
     Message,
     LLMResponse,
+    ImageResult,
     create_llm_client,
 )
 from .mock import MockLLMClient
@@ -18,6 +19,7 @@ __all__ = [
     "OpenAIClient",
     "Message",
     "LLMResponse",
+    "ImageResult",
     "create_llm_client",
     "MockLLMClient",
 ]

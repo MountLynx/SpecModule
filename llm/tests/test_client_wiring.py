@@ -8,23 +8,9 @@ SDK 依赖用假模块注入（sys.modules），测试不依赖 anthropic/openai
 
 from __future__ import annotations
 
-import sys
-import types
-
+from conftest import _install_fake_sdk
 from llm.config import LLMConfig
 from llm.client import AnthropicClient, OpenAIClient
-
-
-def _install_fake_sdk(monkeypatch, module_name: str, class_name: str, capture: dict) -> None:
-    """注入假 SDK 模块，Fake 客户端构造参数记录进 capture。"""
-    fake = types.ModuleType(module_name)
-
-    class FakeAsyncClient:
-        def __init__(self, **kwargs):
-            capture.update(kwargs)
-
-    setattr(fake, class_name, FakeAsyncClient)
-    monkeypatch.setitem(sys.modules, module_name, fake)
 
 
 class TestToClientKwargs:

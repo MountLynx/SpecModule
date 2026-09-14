@@ -20,6 +20,7 @@ tool-use 原生适配，扩展思考(think)经各 provider 原生参数启用。
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -65,6 +66,14 @@ class LLMResponse:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
     finish_reason: str | None = None
+
+
+@dataclass
+class ImageResult:
+    """图像生成结果。generate_image 成功时返回；调用失败抛 LLMError 而非返回此对象。"""
+    data: bytes
+    revised_prompt: str | None = None
+    usage: dict[str, int] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +209,10 @@ class AnthropicClient:
             "input_schema": schema,
         }
         return [tool], {"type": "tool", "name": name}
+
+    async def generate_image(self, prompt: str, **kwargs: Any) -> ImageResult:
+        """Anthropic 无图像生成 API——能力缺失显式暴露,框架不猜测不降级。"""
+        raise LLMError("Anthropic 无图像生成 API；图像生成请配置 OpenAI 兼容 provider")
 
     async def complete(
         self,
@@ -418,6 +431,54 @@ class OpenAIClient:
     def _is_reasoning_model(model: str) -> bool:
         """o1/o3/o4 系列 reasoning 模型：不支持 temperature，用 max_completion_tokens / reasoning_effort。"""
         return bool(re.match(r"^o[134]", model.lower()))
+
+    async def generate_image(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        size: str | None = None,
+        api_params: dict[str, Any] | None = None,
+    ) -> ImageResult:
+        """图像生成(harness 图像模式用)。走 images/generations,统一取 b64。
+
+        - ``model``：生图模型（如 gpt-image-1 / cogview-4），缺省回落 config
+        - ``size``：如 "1024x1024"，None = API 默认
+        - ``api_params``：透传 SDK 额外参数（已知字段直入，未知入 extra_body）
+        """
+        self._require_ready()
+        kwargs: dict[str, Any] = {
+            "model": model or self.config.model,
+            "prompt": prompt,
+            "response_format": "b64_json",
+            "n": 1,
+        }
+        if size:
+            kwargs["size"] = size
+        _apply_api_params(kwargs, api_params, _KNOWN_OPENAI_PARAMS)
+        try:
+            response = await self._client.images.generate(**kwargs)
+        except LLMError:
+            raise
+        except Exception as exc:
+            raise LLMError(f"OpenAI images API 调用失败: {exc}") from exc
+        items = getattr(response, "data", None) or []
+        item = items[0] if items else None
+        b64 = getattr(item, "b64_json", None) if item is not None else None
+        if not b64:
+            raise LLMError("images API 未返回 b64_json 图像数据")
+        usage: dict[str, int] = {}
+        resp_usage = getattr(response, "usage", None)
+        if resp_usage is not None:
+            for key in ("input_tokens", "output_tokens"):
+                val = getattr(resp_usage, key, None)
+                if val is not None:
+                    usage[key] = val
+        return ImageResult(
+            data=base64.b64decode(b64),
+            revised_prompt=getattr(item, "revised_prompt", None),
+            usage=usage,
+        )
 
     async def complete(
         self,
