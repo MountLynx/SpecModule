@@ -1,14 +1,18 @@
 import time
+from pathlib import Path
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from tickflow import Failure
 from tickflow.views import NodeView
+
+from llm.client import ImageResult, LLMError
 from module_harness.core.config import HarnessConfig
 from module_harness.core.outputfmt import OutputFormat
 from module_harness.infra.events import (
     EventBus, PromptRendered, LlmCallStarted, LlmToken,
-    LlmCallCompleted, OutputValidated, HarnessFailed, HarnessEvent,
+    LlmCallCompleted, OutputValidated, HarnessFailed, HarnessEvent, ImageSaved,
 )
 from module_harness.core.harness import Harness
 
@@ -206,3 +210,92 @@ class TestHarnessBuildBody:
         passed_notdo = mock_llm.complete.call_args.kwargs.get("notdo") or []
         assert "不要废话" in passed_notdo
         assert "不要重复" in passed_notdo
+
+
+@pytest.fixture
+def mock_image_llm():
+    client = MagicMock()
+    client.generate_image = AsyncMock(
+        return_value=ImageResult(data=b"\x89PNG\r\n\x1a\nfake-bytes",
+                                 usage={"input_tokens": 3, "output_tokens": 100})
+    )
+    return client
+
+
+class TestHarnessImageMode:
+    """mode="image"：渲染→生成→落盘→事件→返回路径。"""
+
+    @pytest.mark.asyncio
+    async def test_returns_path_and_writes_file(self, mock_image_llm, tmp_path):
+        cfg = HarnessConfig(prompt_core="画:{title}", mode="image",
+                            image_dir=str(tmp_path / "imgs"))
+        h = Harness(cfg, mock_image_llm, EventBus())
+        result = await h.build_body()(_make_view(title="封面"))
+        p = Path(result)
+        assert p.parent == tmp_path / "imgs"
+        assert p.name.startswith("test_node-") and p.suffix == ".png"
+        assert p.read_bytes() == b"\x89PNG\r\n\x1a\nfake-bytes"
+
+    @pytest.mark.asyncio
+    async def test_prompt_and_params_reach_client(self, mock_image_llm, tmp_path):
+        cfg = HarnessConfig(prompt_core="画:{title}", mode="image",
+                            image_size="1024x1024", image_dir=str(tmp_path))
+        h = Harness(cfg, mock_image_llm, EventBus())
+        await h.build_body()(_make_view(title="封面"))
+        kw = mock_image_llm.generate_image.call_args.kwargs
+        assert kw["prompt"] == "画:封面"
+        assert kw["model"] is None          # HarnessConfig 未指定 model
+        assert kw["size"] == "1024x1024"
+        assert kw["api_params"] is None
+
+    @pytest.mark.asyncio
+    async def test_no_token_callback_and_no_output_validation(self, mock_image_llm, tmp_path):
+        cfg = HarnessConfig(prompt_core="x", mode="image", image_dir=str(tmp_path))
+        bus = EventBus()
+        seen: list = []
+        bus.subscribe(LlmToken, lambda e: seen.append(e))
+        bus.subscribe(OutputValidated, lambda e: seen.append(e))
+        h = Harness(cfg, mock_image_llm, bus)
+        await h.build_body()(_make_view())
+        assert seen == []                    # 图像模式不发 LlmToken / OutputValidated
+
+    @pytest.mark.asyncio
+    async def test_events_and_state(self, mock_image_llm, tmp_path):
+        cfg = HarnessConfig(prompt_core="x", mode="image", image_dir=str(tmp_path))
+        bus = EventBus()
+        seen: list = []
+        for evt in (PromptRendered, LlmCallStarted, LlmCallCompleted, ImageSaved):
+            bus.subscribe(evt, lambda e: seen.append(e))
+        h = Harness(cfg, mock_image_llm, bus)
+        state: dict = {}
+        view = NodeView(node="img_node", fields=(), values=(), state=state)
+        result = await h.build_body()(view)
+        assert [type(e) for e in seen] == [PromptRendered, LlmCallStarted, LlmCallCompleted, ImageSaved]
+        saved = seen[-1]
+        assert saved.path == result
+        assert saved.bytes_len == len(b"\x89PNG\r\n\x1a\nfake-bytes")
+        assert state["_image_path"] == result
+        assert state["_usage"] == {"input_tokens": 3, "output_tokens": 100}
+
+    @pytest.mark.asyncio
+    async def test_llm_error_maps_to_infrastructure_failure(self, mock_image_llm, tmp_path):
+        mock_image_llm.generate_image.side_effect = LLMError("provider 挂了")
+        cfg = HarnessConfig(prompt_core="x", mode="image", image_dir=str(tmp_path))
+        bus = EventBus()
+        seen: list = []
+        bus.subscribe(HarnessFailed, lambda e: seen.append(e))
+        h = Harness(cfg, mock_image_llm, bus)
+        result = await h.build_body()(_make_view())
+        assert isinstance(result, Failure)
+        assert result.type == "infrastructure"
+        assert seen and seen[0].failure_type == "infrastructure"
+
+    @pytest.mark.asyncio
+    async def test_disk_error_maps_to_infrastructure_failure(self, mock_image_llm, tmp_path):
+        blocker = tmp_path / "blocker"
+        blocker.write_text("i am a file", encoding="utf-8")
+        cfg = HarnessConfig(prompt_core="x", mode="image", image_dir=str(blocker))
+        h = Harness(cfg, mock_image_llm, EventBus())
+        result = await h.build_body()(_make_view())
+        assert isinstance(result, Failure)
+        assert result.type == "infrastructure"

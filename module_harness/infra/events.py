@@ -51,6 +51,13 @@ class OutputValidated(HarnessEvent):
 
 
 @dataclass
+class ImageSaved(HarnessEvent):
+    """图像产物已落盘（mode="image" harness）。"""
+    path: str
+    bytes_len: int
+
+
+@dataclass
 class HarnessFailed(HarnessEvent):
     reason: str
     failure_type: str  # "llm" | "infrastructure"

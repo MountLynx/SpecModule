@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
+from pathlib import Path
 from typing import Any
 
 from tickflow import Failure
@@ -19,6 +20,7 @@ from ..infra.events import (
     LlmToken,
     LlmCallCompleted,
     OutputValidated,
+    ImageSaved,
     HarnessFailed,
 )
 
@@ -58,7 +60,8 @@ class Harness:
 
         body 执行流程：
           1. 渲染三层 prompt
-          2. 调 LLM（流式 token 经 on_token 发射）
+          2. 调 LLM（流式 token 经 on_token 发射；mode="image" 改走
+             generate_image → 落盘 → ImageSaved，无 token 流、无文本校验）
           3. 校验输出格式
           4. 发事件
         """
@@ -67,6 +70,61 @@ class Harness:
         bus = self.bus
         renderer = self._renderer
         validator = OutputValidator(config.output_format) if config.output_format else None
+
+        async def _run_image(view: NodeView, rendered: str,
+                             state: dict[str, Any] | None) -> Any:
+            """图像模式：渲染好的 prompt → generate_image → 落盘 → 事件 → 返回路径。
+
+            无 token 流（LlmToken 不发）、无文本校验（OutputValidated 不发）；
+            LLMError 与落盘 OSError 同归 infrastructure Failure。
+            ``state`` 由 body 传入（body 局部变量，闭包不可见）。
+            """
+            node = view.node
+            try:
+                from llm.client import LLMError
+
+                result = await llm.generate_image(
+                    prompt=rendered,
+                    model=config.model,
+                    size=config.image_size,
+                    api_params=config.api_params if config.api_params else None,
+                )
+            except LLMError as e:
+                if state is not None:
+                    state["_llm_error"] = str(e)
+                bus.emit(HarnessFailed(
+                    timestamp=time.monotonic(), node=node, tick=0,
+                    reason=str(e), failure_type="infrastructure",
+                ))
+                return Failure(str(e), type="infrastructure")
+
+            out_dir = Path(config.image_dir)
+            path = out_dir / f"{node}-{time.monotonic_ns()}.png"
+            try:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(result.data)
+            except OSError as e:
+                bus.emit(HarnessFailed(
+                    timestamp=time.monotonic(), node=node, tick=0,
+                    reason=f"图像落盘失败: {e}", failure_type="infrastructure",
+                ))
+                return Failure(f"图像落盘失败: {e}", type="infrastructure")
+
+            if state is not None:
+                state["_image_path"] = str(path)
+                state["_usage"] = dict(result.usage)
+
+            bus.emit(LlmCallCompleted(
+                timestamp=time.monotonic(), node=node, tick=0,
+                content_chars=len(result.data),
+                usage=result.usage,
+                finish_reason=None,
+            ))
+            bus.emit(ImageSaved(
+                timestamp=time.monotonic(), node=node, tick=0,
+                path=str(path), bytes_len=len(result.data),
+            ))
+            return str(path)
 
         async def body(view: NodeView) -> Any:
             node = view.node
@@ -95,6 +153,9 @@ class Harness:
                 model=config.model or "default",
                 prompt_chars=len(rendered),
             ))
+
+            if config.mode == "image":
+                return await _run_image(view, rendered, state)
 
             def on_token(chunk: str) -> None:
                 bus.emit(LlmToken(
