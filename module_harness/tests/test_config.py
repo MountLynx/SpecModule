@@ -160,3 +160,7 @@ class TestImageModeConfig:
         assert data["mode"] == "image"
         restored = HarnessConfig.from_dict(data)
         assert restored == cfg
+
+    def test_image_mode_rejects_null_image_dir(self):
+        with pytest.raises(ValueError, match="image_dir"):
+            HarnessConfig(prompt_core="x", mode="image", image_dir=None)

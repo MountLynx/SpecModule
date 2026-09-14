@@ -64,6 +64,8 @@ class HarnessConfig:
             raise ValueError(
                 "mode='image' 与 output_format 互斥（图像无文本输出格式可校验）"
             )
+        if self.mode == "image" and self.image_dir is None:
+            raise ValueError("mode='image' 需要显式 image_dir（不接受显式 null）")
 
     def to_dict(self) -> dict[str, Any]:
         """序列化为 JSON 可写 dict（含 output_format）。"""
