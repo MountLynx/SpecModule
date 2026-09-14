@@ -86,6 +86,7 @@ provider），`models[0]` 为默认 model。**按模型路由**：每次 LLM 调
 | `model` | models[0] 或 override | 默认模型名 |
 | `max_tokens` / `temperature` | models[0] 或默认值 | 默认生成参数 |
 | `models` | config.json `models` | 模型能力注册表（`model_info(name)` 查询） |
+| `providers` | config.json `providers` 全量 | `{provider 名: ProviderConfig}` 连接注册表（`provider_for(model)` 路由查询） |
 | `system_rules` | rules.txt | 框架规则文本 |
 
 ## 各消费位置

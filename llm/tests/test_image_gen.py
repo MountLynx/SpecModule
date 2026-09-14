@@ -1,7 +1,8 @@
 # llm/tests/test_image_gen.py
 """generate_image 适配测试:参数组装 / b64 解码 / 错误包装 / Anthropic 能力缺失。
 
-images/generations 统一请求 response_format="b64_json"(临时 URL 不落库);
+不主动发送 response_format(gpt-image-* 不接受该参数,其总返 b64;spec §2.2);
+URL 默认端点需显式 api_params={"response_format": "b64_json"};
 api_params 沿用 _apply_api_params(已知字段直入,未知入 extra_body——线上合并进
 请求体顶层,对 images 端点同样生效)。
 """

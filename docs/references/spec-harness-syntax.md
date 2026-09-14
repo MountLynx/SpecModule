@@ -115,7 +115,7 @@ tasklist = Tasklist(
 | `image_dir` | `str \| None` | 图像落盘目录覆盖（cwd 相对）；图像节点输出为**文件路径字符串** |
 | `inputs` | `dict[str, str] \| None` | `{字段名: 来源}`——来源为节点名或常量 token |
 
-图像产物文件名为 `<节点 key>-<monotonic_ns>.png`——节点 key 需为文件名安全字符（避免 `/` 等）。
+图像产物文件名为 `<节点 key>-<monotonic_ns>.png`——节点 key 需为文件名安全字符（避免 `/`、`:` 等）。
 
 ### Flow 语法（tickflow DSL 子集）
 
