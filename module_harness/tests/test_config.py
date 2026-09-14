@@ -1,3 +1,5 @@
+import pytest
+
 from module_harness.cli.command import CommandConfig
 from module_harness.core.config import HarnessConfig
 from module_harness.core.outputfmt import OutputFormat
@@ -105,3 +107,56 @@ class TestSerialization:
             env={"A": "1"}, capture_output=False, shell=False,
         )
         assert CommandConfig.from_dict(cfg.to_dict()) == cfg
+
+
+class TestImageModeConfig:
+    """mode="image" 配置：字段默认、非法值与 output_format 互斥。"""
+
+    def test_defaults(self):
+        cfg = HarnessConfig(prompt_core="x")
+        assert cfg.mode == "text"
+        assert cfg.image_size is None
+        assert cfg.image_dir == "images"
+
+    def test_invalid_mode_rejected(self):
+        with pytest.raises(ValueError, match="mode"):
+            HarnessConfig(prompt_core="x", mode="video")
+
+    def test_image_mode_rejects_output_format(self):
+        with pytest.raises(ValueError, match="互斥"):
+            HarnessConfig(
+                prompt_core="x",
+                mode="image",
+                output_format=OutputFormat(type="json_object"),
+            )
+
+    def test_image_mode_without_output_format_ok(self):
+        cfg = HarnessConfig(prompt_core="画:{title}", mode="image")
+        assert cfg.mode == "image"
+
+    def test_from_task_definition_reads_image_fields(self):
+        cfg = HarnessConfig.from_task_definition({
+            "prompt_core": "画:{title}",
+            "mode": "image",
+            "image_size": "1024x1024",
+            "image_dir": "out/imgs",
+        })
+        assert cfg.mode == "image"
+        assert cfg.image_size == "1024x1024"
+        assert cfg.image_dir == "out/imgs"
+
+    def test_from_task_definition_image_rejects_outputformat(self):
+        with pytest.raises(ValueError, match="互斥"):
+            HarnessConfig.from_task_definition({
+                "prompt_core": "画:{title}",
+                "mode": "image",
+                "outputformat": {"type": "json_object"},
+            })
+
+    def test_to_dict_from_dict_roundtrip(self):
+        cfg = HarnessConfig(prompt_core="画:{title}", mode="image",
+                            image_size="1024x1024", image_dir="d")
+        data = cfg.to_dict()
+        assert data["mode"] == "image"
+        restored = HarnessConfig.from_dict(data)
+        assert restored == cfg

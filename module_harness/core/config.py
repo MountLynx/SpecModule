@@ -43,9 +43,27 @@ class HarnessConfig:
     ``{"temperature": 0.3, "thinking": {"type": "enabled"}}``。
     会与 temperature / think 等独立字段合并（api_params 优先级更高）。"""
 
+    # ── 调用形态 ──
+    mode: str = "text"
+    """调用形态："text" = chat 补全（默认）；"image" = 图像生成（文生图）。"""
+
+    image_size: str | None = None
+    """图像尺寸，如 "1024x1024"；None = API 默认。仅 mode="image" 生效。"""
+
+    image_dir: str = "images"
+    """图像产物落盘目录（cwd 相对）。仅 mode="image" 生效。"""
+
     # ── 注册信息（submodule 用）──
     name: str | None = None
     """注册名。submodule 的 harnesses 列表中必须提供。"""
+
+    def __post_init__(self) -> None:
+        if self.mode not in ("text", "image"):
+            raise ValueError(f"mode 须为 'text' | 'image'，得到 {self.mode!r}")
+        if self.mode == "image" and self.output_format is not None:
+            raise ValueError(
+                "mode='image' 与 output_format 互斥（图像无文本输出格式可校验）"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         """序列化为 JSON 可写 dict（含 output_format）。"""
@@ -73,6 +91,9 @@ class HarnessConfig:
         - temperature   → 温度覆盖
         - think         → 扩展思考覆盖
         - api_params    → SDK 透传参数（dict）
+        - mode          → 调用形态："text"（默认）| "image"
+        - image_size    → 图像尺寸（仅 mode="image"）
+        - image_dir     → 图像落盘目录（仅 mode="image"）
         """
         output_format = None
         of_data = task.get("outputformat")
@@ -92,4 +113,7 @@ class HarnessConfig:
             temperature=task.get("temperature"),
             think=task.get("think"),
             api_params=task.get("api_params", {}),
+            mode=task.get("mode", "text"),
+            image_size=task.get("image_size"),
+            image_dir=task.get("image_dir", "images"),
         )
