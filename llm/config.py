@@ -92,17 +92,6 @@ class ProviderConfig:
     timeout: float = 60.0
     max_retries: int = 3
 
-    def to_client_kwargs(self) -> dict[str, Any]:
-        """转为 SDK 客户端构造参数（连接级）。"""
-        kwargs: dict[str, Any] = {
-            "api_key": self.api_key,
-            "timeout": self.timeout,
-            "max_retries": self.max_retries,
-        }
-        if self.base_url:
-            kwargs["base_url"] = self.base_url
-        return kwargs
-
 
 @dataclass
 class LLMConfig:
@@ -220,6 +209,8 @@ class LLMConfig:
         providers_map: dict[str, ProviderConfig] = {}
         for i, entry in enumerate(providers):
             pname = entry.get("name", "") or f"provider_{i}"
+            if pname in providers_map:
+                raise ValueError(f"config.json providers 名重复: {pname!r}")
             key_env = entry.get("api_key_env", "")
             providers_map[pname] = ProviderConfig(
                 name=pname,

@@ -78,6 +78,15 @@ class TestProvidersMap:
         c = LLMConfig.from_env(project_root=project, store_root=store_root(roots))
         assert list(c.providers) == ["provider_0"]
 
+    def test_duplicate_provider_name_raises(self, roots, monkeypatch):
+        project, _ = roots
+        _write(project, {"providers": [
+            {"name": "a", "sdktype": "openai"},
+            {"name": "a", "sdktype": "anthropic"},
+        ]})
+        with pytest.raises(ValueError, match="名重复"):
+            LLMConfig.from_env(project_root=project, store_root=roots[1])
+
 
 def store_root(roots):
     return roots[1]
@@ -101,6 +110,19 @@ class TestProviderFor:
         c = LLMConfig(api_key="k", model="m")  # providers 空
         assert c.provider_for("m") is None
 
+    def test_provider_for_returns_map_instance(self, roots, monkeypatch):
+        c = _multi_config(roots, monkeypatch)
+        assert c.provider_for("cogview-4") is c.providers["zhipu"]
+
+    def test_provider_name_not_in_map_returns_none(self, roots, monkeypatch):
+        project, store = roots
+        _write(project, {"providers": [
+            {"name": "deepseek", "sdktype": "openai", "api_key_env": "DS_KEY"},
+        ], "models": [{"name": "m", "provider": "ghost"}]})
+        monkeypatch.setenv("DS_KEY", "kd")
+        c = LLMConfig.from_env(project_root=project, store_root=store)
+        assert c.provider_for("m") is None  # models 声明的 provider 名不在表中
+
 
 class TestForProvider:
     def test_slice_switches_connection_shares_request_level(self, roots, monkeypatch):
@@ -121,3 +143,16 @@ class TestForProvider:
             "timeout": 60.0,
             "max_retries": 3,
         }
+
+    def test_slice_shares_providers_registry(self, roots, monkeypatch):
+        c = _multi_config(roots, monkeypatch)
+        assert c.for_provider(c.providers["zhipu"]).providers is c.providers
+
+    def test_api_key_override_syncs_to_default_provider_entry(self, roots, monkeypatch):
+        project, store = roots
+        _write(project, MULTI)
+        for k in ("DS_KEY", "ZP_KEY", "AN_KEY"):
+            monkeypatch.setenv(k, "x")
+        c = LLMConfig.from_env(project_root=project, store_root=store, api_key="override")
+        assert c.api_key == "override"
+        assert c.providers["deepseek"].api_key == "override"
