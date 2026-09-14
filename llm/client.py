@@ -460,6 +460,8 @@ class OpenAIClient:
         b64）；dall-e 系 / 默认返 URL 的兼容端点需显式
         ``api_params={"response_format": "b64_json"}``，否则因未拿到 b64 数据
         而 LLMError——显式请求优于猜测模型家族。
+
+        ``api_params`` 可覆盖 ``n``；返回仅取第一张，多余图像将被丢弃。
         """
         self._require_ready()
         kwargs: dict[str, Any] = {
@@ -716,18 +718,92 @@ class OpenAIClient:
 
 
 # ---------------------------------------------------------------------------
-# 客户端工厂
+# 路由门面客户端
 # ---------------------------------------------------------------------------
 
 
-def create_llm_client(config: LLMConfig):
-    """根据配置创建合适的 LLM 客户端。"""
-    if config.provider == "anthropic":
-        return AnthropicClient(config)
-    elif config.provider in ("openai", "openai-compatible"):
-        return OpenAIClient(config)
-    else:
-        # 默认尝试 OpenAI 格式（最常见）
-        log.warning("未知 provider '%s'，回退到 OpenAI 兼容客户端", config.provider)
-        config.provider = "openai-compatible"
-        return OpenAIClient(config)
+class RoutingClient:
+    """按模型路由的客户端门面。
+
+    每次调用按「模型 → models 注册表 provider 名 → provider 连接」选择客户端,
+    同一 provider 惰性建连一次。模型未注册 / 未指明 provider / 手工配置
+    (providers 表为空)→ 默认连接(config 顶层字段)——单 provider 配置行为
+    与直连客户端一致。
+    """
+
+    def __init__(self, config: LLMConfig) -> None:
+        self.config = config
+        self._clients: dict[str | None, Any] = {}
+
+    def _client_for(self, model: str | None):
+        pc = self.config.provider_for(model)
+        key = pc.name if pc is not None else None
+        if key not in self._clients:
+            cfg = self.config.for_provider(pc) if pc is not None else self.config
+            if cfg.provider == "anthropic":
+                self._clients[key] = AnthropicClient(cfg)
+            else:
+                self._clients[key] = OpenAIClient(cfg)
+        return self._clients[key]
+
+    @property
+    def ready(self) -> bool:
+        """默认 provider 客户端就绪(惰性触发建连)。"""
+        return self._client_for(None).ready
+
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        think: bool | dict | None = None,
+        output_format: dict[str, Any] | None = None,
+        notdo: list[str] | None = None,
+        on_token: Callable[[str], None] | None = None,
+        api_params: dict[str, Any] | None = None,
+    ) -> LLMResponse:
+        """单轮调用(harness body 入口),按调用模型路由。"""
+        return await self._client_for(model).complete(
+            prompt,
+            system=system,
+            model=model,
+            temperature=temperature,
+            think=think,
+            output_format=output_format,
+            notdo=notdo,
+            on_token=on_token,
+            api_params=api_params,
+        )
+
+    async def chat(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> LLMResponse:
+        """多轮聊天(底层接口),按 config.model 路由。"""
+        return await self._client_for(None).chat(messages, tools)
+
+    async def generate_image(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        size: str | None = None,
+        api_params: dict[str, Any] | None = None,
+    ) -> ImageResult:
+        """图像生成,按调用模型路由。"""
+        return await self._client_for(model).generate_image(
+            prompt, model=model, size=size, api_params=api_params,
+        )
+
+    async def close(self) -> None:
+        for client in self._clients.values():
+            await client.close()
+        self._clients.clear()
+
+
+def create_llm_client(config: LLMConfig) -> RoutingClient:
+    """创建按模型路由的 LLM 客户端门面(原工厂签名不变,消费方透明切换)。"""
+    return RoutingClient(config)
