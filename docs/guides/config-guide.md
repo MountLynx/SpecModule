@@ -39,11 +39,15 @@ ANTHROPIC_API_KEY=sk-ant-...
 {
   "providers": [
     {"name": "deepseek", "sdktype": "openai", "base_url": "https://api.deepseek.com",
-     "api_key_env": "DEEPSEEK_API_KEY", "timeout": 120, "max_retries": 3}
+     "api_key_env": "DEEPSEEK_API_KEY", "timeout": 120, "max_retries": 3},
+    {"name": "zhipu", "sdktype": "openai", "base_url": "https://open.bigmodel.cn/api/paas/v4",
+     "api_key_env": "ZHIPU_API_KEY", "timeout": 120, "max_retries": 3}
   ],
   "models": [
     {"name": "deepseek-v4-flash", "provider": "deepseek",
-     "think": true, "multimodal": false, "max_tokens": 1000000}
+     "think": true, "multimodal": false, "max_tokens": 1000000},
+    {"name": "cogview-4", "provider": "zhipu",
+     "image_gen": true, "max_tokens": 4096}
   ]
 }
 ```
@@ -56,9 +60,14 @@ ANTHROPIC_API_KEY=sk-ant-...
 | `base_url` | providers | API 端点；OpenAI 兼容服务必须指定 |
 | `api_key_env` | providers | 读 key 的环境变量名（key 本身放 `.env`） |
 | `timeout` / `max_retries` | providers | 连接参数 |
-| `models[]` | models | 模型能力注册表：`{name, provider, think, multimodal, max_tokens}`——`think`/`multimodal` 供客户端能力判断 |
+| `models[]` | models | 模型能力注册表：`{name, provider, think, multimodal, image_gen, max_tokens}`——`think`/`multimodal`/`image_gen` 供客户端能力判断 |
 
-`from_env` 取 `providers[0]` 为当前 provider，`models[0]` 为默认 model。**providers 为空 → `ValueError`**（"请参照 config.example.json 配置"）——框架不猜。
+`from_env` 解析**全部** providers 按名注册；顶层连接字段取 `providers[0]`（默认
+provider），`models[0]` 为默认 model。**按模型路由**：每次 LLM 调用查 models
+注册表该模型的 `provider` 名 → 对应 provider 连接（未注册/未指明 → 默认连接；
+同名 provider 声明重复 → `ValueError`）。chat 用 A 家、生图用 B 家由此可配。
+**providers 为空 → `ValueError`**（"请参照 config.example.json 配置"）——框架不猜。
+省略 `timeout` 时每次请求上限 60 秒（SDK 默认 600 秒），可按 provider 覆盖。
 
 ### `rules.txt` — 框架规则
 

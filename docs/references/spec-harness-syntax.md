@@ -82,6 +82,19 @@ tasklist = Tasklist(
 )
 ```
 
+图像节点写法（mode="image"）：
+
+```python
+# 图像生成节点：mode="image"，输出为落盘路径（下游节点消费路径字符串）
+"draw_cover": {
+    "type": "harness",
+    "harness": "draw",
+    "mode": "image",
+    "image_size": "1024x1024",
+    "inputs": {"title": "outline"},
+}
+```
+
 ### TaskDefinition 字段
 
 | 字段 | 类型 | 说明 |
@@ -97,7 +110,12 @@ tasklist = Tasklist(
 | `notdo` | `list[str] \| None` | 否定性约束（拼入 system prompt） |
 | `model` / `temperature` / `think` | 覆盖 harness 基础配置 |
 | `api_params` | `dict \| None` | 透传 LLM SDK 额外参数 |
+| `mode` | `str \| None` | 调用形态覆盖：`"image"` = 图像生成节点（缺省 text）。与 `outputformat` 互斥，同设 → 构建期 `ValueError` |
+| `image_size` | `str \| None` | 图像尺寸覆盖，如 `"1024x1024"`；仅 `mode="image"` 生效 |
+| `image_dir` | `str \| None` | 图像落盘目录覆盖（cwd 相对）；图像节点输出为**文件路径字符串** |
 | `inputs` | `dict[str, str] \| None` | `{字段名: 来源}`——来源为节点名或常量 token |
+
+图像产物文件名为 `<节点 key>-<monotonic_ns>.png`——节点 key 需为文件名安全字符（避免 `/` 等）。
 
 ### Flow 语法（tickflow DSL 子集）
 

@@ -14,6 +14,14 @@
       "api_key_env": "ANTHROPIC_API_KEY",
       "timeout": 120,
       "max_retries": 3
+    },
+    {
+      "name": "zhipu",
+      "sdktype": "openai",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_key_env": "ZHIPU_API_KEY",
+      "timeout": 120,
+      "max_retries": 3
     }
   ],
   "models": [
@@ -36,6 +44,12 @@
       "provider": "anthropic",
       "think": true,
       "multimodal": true,
+      "max_tokens": 4096
+    },
+    {
+      "name": "cogview-4",
+      "provider": "zhipu",
+      "image_gen": true,
       "max_tokens": 4096
     }
   ]

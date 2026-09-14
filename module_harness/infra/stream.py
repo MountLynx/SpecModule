@@ -13,6 +13,7 @@ Harness 每个LLM chunk 经 EventBus 发 ``LlmToken``，但 EventBus 是进程�
     {"type": "call_start", "ts", "node", "model", "prompt_chars"}
     {"type": "token",      "ts", "node", "chunk"}
     {"type": "call_end",   "ts", "node", "content_chars", "finish_reason"}
+    {"type": "image_saved", "ts", "node", "path", "bytes_len"}
     {"type": "call_error", "ts", "node", "reason", "failure_type"}
 
 append-only：每次执行以 ``run_start`` 开边界，不截断旧执行（崩溃残留可事后
