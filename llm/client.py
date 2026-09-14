@@ -143,7 +143,7 @@ class AnthropicClient:
         self.config = config
         try:
             from anthropic import AsyncAnthropic
-            self._client = AsyncAnthropic(api_key=config.api_key)
+            self._client = AsyncAnthropic(**config.to_client_kwargs())
             self._ready = True
         except ImportError:
             log.error("anthropic 包未安装，请执行: pip install anthropic")
@@ -395,10 +395,7 @@ class OpenAIClient:
         self.config = config
         try:
             from openai import AsyncOpenAI
-            kwargs: dict[str, Any] = {"api_key": config.api_key}
-            if config.base_url:
-                kwargs["base_url"] = config.base_url
-            self._client = AsyncOpenAI(**kwargs)
+            self._client = AsyncOpenAI(**config.to_client_kwargs())
             self._ready = True
         except ImportError:
             log.error("openai 包未安装，请执行: pip install openai")

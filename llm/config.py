@@ -197,13 +197,16 @@ class LLMConfig:
         return config
 
     def to_client_kwargs(self) -> dict[str, Any]:
-        """转为客户端构造参数"""
+        """转为 SDK 客户端构造参数（连接级，两个 SDK 构造器同名接受）。
+
+        仅含构造级参数：api_key / base_url / timeout / max_retries。
+        model / max_tokens / temperature 是请求级参数，由 complete() 逐调用
+        传入，混入构造器会 TypeError——构造层与请求层不可混。
+        """
         kwargs: dict[str, Any] = {
-            "model": self.model,
             "api_key": self.api_key,
-            "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
             "timeout": self.timeout,
+            "max_retries": self.max_retries,
         }
         if self.base_url:
             kwargs["base_url"] = self.base_url
