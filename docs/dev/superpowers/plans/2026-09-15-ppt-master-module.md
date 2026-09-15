@@ -1550,7 +1550,7 @@ git commit -m "feat(ppt_master): 确定性节点（门裁决/守卫/校验/就�
 - Create: `example/ppt_master/translator.py`
 - Test: `example/test_ppt_master_translator.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 # example/test_ppt_master_translator.py
@@ -1635,12 +1635,12 @@ def test_tl_generate_writes_envelope_and_returns_tasks(tmp_path, monkeypatch):
 
 （`DictView` 若与翻译器取值方式不合，以 `module_harness/model/translator.py::_translator_view` 的合成视图为准——测试里复用该函数构造视图：`from module_harness.model.translator import _translator_view; view = _translator_view({"spec": spec}, "__translator__")`。实现时择一，测试与实现保持一致。）
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest example/test_ppt_master_translator.py -q`
 Expected: FAIL
 
-- [ ] **Step 3: 实现 translator.py**
+- [x] **Step 3: 实现 translator.py**
 
 ```python
 # example/ppt_master/translator.py
@@ -1825,12 +1825,12 @@ def tl_generate(view) -> dict[str, Any]:
 守卫边命名（early_issues/early_clean/final_errors/final_clean）与 Task 8
 registry 注册的四个 guard 名严格一致。
 
-- [ ] **Step 4: 跑测试确认通过（按干净版修正断言）**
+- [x] **Step 4: 跑测试确认通过（按干净版修正断言）**
 
 Run: `python -m pytest example/test_ppt_master_translator.py -q`
 Expected: PASS（断言以干净版流为准：`EarlyDispatch --> P06` 存在、无 `early_clean2`）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add example/ppt_master/translator.py example/test_ppt_master_translator.py
