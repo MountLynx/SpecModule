@@ -35,6 +35,18 @@ def _page_svg_path(root: Path, page_id: str) -> Path:
     return root / "svg_output" / f"page_{page_id}.svg"
 
 
+def _node_name(view: Any) -> str:
+    """视图节点裸名（末段），page id 派生与 repair stage 判定共用此一约定。
+
+    运行时证据：引擎传入的 ``view.node`` 是**图节点 key**（tasklist 里的裸
+    task 名）——`{module_id}:{key}` 前缀只加在 registry body 名上
+    （graph_builder.py:88-90 只改 ``graph.nodes[key].body``），且 DSL key 语法
+    不含 ``:``（translator.py:22/145）。末段剥离纯作防御（嵌入者合成视图等
+    非常规来源），并保证两处派生永不彼此漂移。
+    """
+    return str(view.node).split(":")[-1]
+
+
 def make_plan_node(llm_client: Any, event_bus: Any = None):
     """规划节点：契约+源事实 → design_spec.md + spec_lock.md + 收据。"""
 
@@ -94,8 +106,7 @@ def make_page_node(llm_client: Any, event_bus: Any = None):
 
     async def page_node(view: Any) -> dict[str, Any]:
         env = workspace.read_envelope()
-        # "P01" -> "p01"；取末段以兼容翻译器的 {module_id}:{key} 前缀（架构规则 4）
-        page_id = str(view.node).split(":")[-1].lower()
+        page_id = _node_name(view).lower()  # "P01" -> "p01"
         page = next((p for p in env["roster"] if p["id"] == page_id), None)
         if page is None:
             return {"status": "failed", "error": f"页册中无 id '{page_id}'"}
@@ -131,7 +142,9 @@ def make_repair_node(llm_client: Any, event_bus: Any = None, max_rounds: int = 2
     """
 
     async def repair_node(view: Any) -> dict[str, Any]:
-        stage = "early" if str(view.node).startswith("Early") else "final"
+        # 与 page_node 同一裸名约定：前缀（如合成视图的 "mod:EarlyRepair"）
+        # 不得把 Early 修复轮误记进 final 预算（反之亦然）
+        stage = "early" if _node_name(view).startswith("Early") else "final"
         env = workspace.read_envelope()
         root = Path(env["output_dir"])
         rounds_file = root / "validation" / "repair_rounds.json"

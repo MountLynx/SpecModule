@@ -117,3 +117,23 @@ def test_repair_node_round_limit(env):
 
     out = _run(repair(view))
     assert isinstance(out, Failure) and out.type == "infrastructure"
+
+
+def test_repair_node_namespaced_name_resolves_early_stage(env):
+    """命名空间前缀不得漂移 stage 判定："ppt_master:EarlyRepair" → early。
+
+    若误判为 final，则 early 计数不动、final 从 1 起步 → 不触发上限，
+    节点继续走修复循环返回 ok 收据；正确判定则 early 2+1 超限 → Failure。
+    """
+    repair = make_repair_node(OkClient("<svg/>"), max_rounds=2)
+    verdict = {"ok": False, "issues": [{"page": "p01", "message": "溢出"}]}
+    view = _View("ppt_master:EarlyRepair", {"verdict": verdict, "calibration": "{}"})
+    rounds = env / "validation" / "repair_rounds.json"
+    rounds.write_text(json.dumps({"early": 2}), encoding="utf-8")
+    from tickflow import Failure
+
+    out = _run(repair(view))
+    assert isinstance(out, Failure) and out.type == "infrastructure"
+    assert "early" in out.error and "超过上限" in out.error
+    # 计数确实记进 early 桶（而非另开 final 桶）
+    assert json.loads(rounds.read_text(encoding="utf-8")) == {"early": 3}
