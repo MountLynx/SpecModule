@@ -2215,7 +2215,7 @@ git commit -m "test(ppt_master): mock 全链 E2E + CLI 冒烟（真跑 vendor �
 - Modify: `docs/dev/progress/module-roadmap.md`（M2 段）
 - Create: `example/test_ppt_master_smoke_llm.py`
 
-- [ ] **Step 1: 归档 ppt_writer**
+- [x] **Step 1: 归档 ppt_writer**
 
 ```bash
 git rm -r example/ppt_writer example/modules/ppt_writer.py \
@@ -2226,7 +2226,7 @@ git rm -r example/ppt_writer example/modules/ppt_writer.py \
 
 跑 `python -m pytest example/ -q` 确认无残留引用报错（`academic_writer`/`demo_*` 等不 import ppt_writer，已核实）。
 
-- [ ] **Step 2: roadmap M2 段更新**
+- [x] **Step 2: roadmap M2 段更新**
 
 `docs/dev/progress/module-roadmap.md`：
 - 行 208–214（M2 基础版状态块）替换为：
@@ -2249,7 +2249,7 @@ git rm -r example/ppt_writer example/modules/ppt_writer.py \
   失败收据保证 AND join 不饿死（tickflow Failure 语义下的非交互补强）
 ```
 
-- [ ] **Step 3: 真实 LLM smoke（默认 skip）**
+- [x] **Step 3: 真实 LLM smoke（默认 skip）**
 
 ```python
 # example/test_ppt_master_smoke_llm.py
@@ -2290,7 +2290,7 @@ def test_two_page_real_llm(tmp_path, monkeypatch):
     assert by_node["Report"]["status"] == "ok"
 ```
 
-- [ ] **Step 4: 全量回归 + 提交**
+- [x] **Step 4: 全量回归 + 提交**
 
 ```bash
 python -m pytest module_harness/tests/ -q && python -m pytest example/ -q
