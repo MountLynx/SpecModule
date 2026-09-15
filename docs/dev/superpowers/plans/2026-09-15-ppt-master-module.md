@@ -816,7 +816,7 @@ git commit -m "feat(ppt_master): 参考素材落位 + 5 类 harness 配置与参
 - Create: `example/ppt_master/llm_nodes.py`
 - Test: `example/test_ppt_master_nodes.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 # example/test_ppt_master_nodes.py
@@ -918,12 +918,12 @@ def test_repair_node_round_limit(env):
     assert isinstance(out, Failure) and out.type == "infrastructure"
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest example/test_ppt_master_nodes.py -q`
 Expected: FAIL（ModuleNotFoundError: llm_nodes）
 
-- [ ] **Step 3: 实现 llm_nodes.py**
+- [x] **Step 3: 实现 llm_nodes.py**
 
 ```python
 # example/ppt_master/llm_nodes.py
@@ -1177,12 +1177,12 @@ def _write_text(path: str | Path, text: str) -> None:
 
 并把函数体内的 `workspace.Path` 全部改为直接用的 `Path`。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest example/test_ppt_master_nodes.py -q`
 Expected: PASS（4 项）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add example/ppt_master/llm_nodes.py example/test_ppt_master_nodes.py
