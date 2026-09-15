@@ -33,4 +33,14 @@ def test_two_page_real_llm(tmp_path, monkeypatch):
     }
     firings = asyncio.run(run_generate(spec, persist=False))
     by_node = {f.node: f.output for f in firings}
-    assert by_node["Report"]["status"] == "ok"
+    report = by_node.get("Report", {})
+    assert report.get("status") == "ok", (
+        f"Report 收据: {report}（fired: {sorted(by_node)}）")
+
+    # 真模型核心回归：导出 .pptx 存在且页数与 roster 一致（2 页）——
+    # 防守 roster 完整性缺口（早门 issues 分支批 2 页不生成）下 1 页册蒙混过关
+    from pptx import Presentation
+
+    pptx_files = list((tmp_path / "deck" / "exports").glob("*.pptx"))
+    assert pptx_files, f"exports/ 应有 pptx: {sorted(p.name for p in (tmp_path / 'deck').rglob('*'))}"
+    assert len(Presentation(str(pptx_files[0])).slides) == 2

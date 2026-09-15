@@ -266,7 +266,8 @@ harness 图像模式，2026-09-15）
 > **状态（2026-08-25）**：基础版已交付（`ppt-writer-module` 变更）——完整内容
 > spec → 归一化 → command 渲染 .pptx + 模板制作工作流（双模板）。下述"章节拆解
 > → 大纲生成 → 逐页内容生成"为 stage 2（材料→内容生成），后续扩展；store
-> 发布闭环（publish→install→run）为 M2 产物对接主线的待办验收。
+> 发布闭环（publish→install→run）为 M2 产物对接主线的待办验收。（已被
+> ppt_master 替代，见独立线 M2 条目）
 
 **目标**：从论文（长文）生成演示文稿（PPT），每页内容与布局由完整细致 spec 定义。
 
@@ -400,7 +401,7 @@ Loop1/Loop2 为 submodule 节点引用 fact_review_loop；`academic_writer_detai
 │ 收口：API 稳定化（冻结面含 store 枚举契约）       │
 ├───────────────────────────────────────────────┤
 │ 独立线（并行，接缝处对接主线）：                  │
-│   M2 ppt-writer ← 发布/安装闭环验收 store        │
+│   M2 ppt_master ← 发布/安装闭环验收 store       │
 │   嵌入式验证(demo)  ← 前置仅打包                 │
 │   stdlib 可视化开关 ← 完全独立                   │
 ├───────────────────────────────────────────────┤
@@ -417,4 +418,4 @@ Loop1/Loop2 为 submodule 节点引用 fact_review_loop；`academic_writer_detai
 依赖链：打包接线 → 主线 store（实施）→ API 稳定化（收口）→ 生态项目各自落地；独立线
 （M2 / 嵌入验证 / stdlib 开关）与主线并行，M2 发布环节对接主线做 store 验收。每 Phase
 独立 spec → plan → 实现。AGENT/Web 形态消费库沉淀的查询函数与 store 枚举契约。实践线
-M1 已交付（example/），转为 store 首个发布 fixture；M2 基础版已交付（ppt_writer 双模板，example/ 内），store 发布闭环待验收。
+M1 已交付（example/），转为 store 首个发布 fixture；M2 基础版已交付（ppt_writer 双模板，已归档，git 历史），store 发布闭环待验收。

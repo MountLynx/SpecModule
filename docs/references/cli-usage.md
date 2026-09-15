@@ -357,35 +357,34 @@ python -m module_harness.cli run --module academic_writer \
   --modules-dir example/modules --spec-file example/spec.academic_writer.json --mock
 ```
 
-### M2 实践线：ppt_writer（spec → .pptx，双模板）
+### M2 实践线：ppt_master（论文 → PPT）
 
-`ppt_writer` 把描述每页内容/布局的 spec 渲染成可机器校验的 .pptx（渲染零
-LLM，`--mock` 可跑），并提供模板制作工作流（审查 → 入库 `reference/` +
-manifest）。模板资产（`example/ppt_writer/reference/`：manifest.json +
-入库的 .pptx 模板）随模块目录走，渲染器按**模块文件相对路径**定位，不依赖
-启动目录。
+`ppt_master`（`example/modules/ppt_master.py` 入口 + `example/ppt_master/` 实现）
+从论文/主题生成演示文稿：spec 即确认（页册 roster 先行，非交互），LLM 逐页
+SVG → 早/终质量门（守卫修复环）→ vendor `svg_to_pptx` 确定性编译出 .pptx。
+spec 由 `example/ppt_master/spec_schema.py` 硬校验（`source` + `roster` 必备，
+错误携带字段路径）；样例 fixture 见 `example/ppt_master/fixtures/`；设计见
+`docs/dev/superpowers/specs/2026-09-15-ppt-master-module-design.md`。
 
 ```bash
-# 免 key 冒烟（默认 3 页 spec，产出 ppt_writer_output.pptx）
-python -m module_harness.cli run --module ppt_writer --mock \
-  --modules-dir example/modules
+# 免 key CLI 冒烟（--mock 走通模块发现/翻译/建图/运行，rc=0；但假客户端
+# 固定收据无 roster_ids/design_spec，PlanValidate 按契约报 infrastructure
+# Failure——无隐式兜底是设计行为。全链 mock 仿真见 example/test_ppt_master_e2e.py）
+python -m module_harness.cli run --module ppt_master --mock \
+  --modules-dir example/modules --run-id ppt_master_cli_smoke \
+  --spec '{"project":"deck","source":{"kind":"topic","topic":"…"},"roster":[{"id":"p01","title":"开场","role":"cover"}]}'
 
-# 指定 spec（output/theme/sections/pages；page > section 默认 > 模板兜底）
-python -m module_harness.cli run --module ppt_writer --mock \
-  --modules-dir example/modules --spec-file my_deck.json
+# 真实 LLM（spec 文件；导出目录 spec.output.dir，缺省 projects/<project>/）
+python -m module_harness.cli run --module ppt_master \
+  --modules-dir example/modules --spec-file my_deck.json --verbose 2
 
-# 模板制作工作流：草稿 → dump → 硬合规 → LLM 意见 → 合规入库
-#（--mock 下意见节点为占位文本不阻断；不合规输出逐项问题清单、零写入）
-python -m module_harness.cli run --module ppt_writer --template template_review \
-  --mock --modules-dir example/modules \
-  --spec '{"draft_pptx": "draft.pptx", "template_name": "content", "layout": 1, "kind": "content"}'
-
-# 审阅 / 查询
-python -m module_harness.cli review --run-id ppt_writer
-python -m module_harness.cli status --run-id ppt_writer --json
+# 审阅 / 查询（通用命令，用法同 M1 节）
+python -m module_harness.cli review --run-id ppt_master_cli_smoke
+python -m module_harness.cli status --run-id ppt_master_cli_smoke --json
 ```
 
-spec 契约与占位符命名约定见 `example/ppt_writer/README.md`。
+> 旧 `ppt_writer`（python-pptx 模板填充）已由 ppt_master 取代归档
+> （2026-09-15）；历史见 `openspec/changes/ppt-writer-module` 与 git 历史。
 
 ---
 
