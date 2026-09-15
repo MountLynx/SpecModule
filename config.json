@@ -7,6 +7,14 @@
       "api_key_env": "DEEPSEEK_API_KEY",
       "timeout": 120,
       "max_retries": 3
+    },
+    {
+      "name": "bianxie",
+      "sdktype": "openai",
+      "base_url": "https://api.bianxie.ai/v1",
+      "api_key_env": "BIANXIE_API_KEY",
+      "timeout": 120,
+      "max_retries": 3
     }
   ],
   "models": [
@@ -23,6 +31,12 @@
       "think": true,
       "multimodal": false,
       "max_tokens": 393216
+    },
+    {
+      "name": "gpt-image-1-mini",
+      "provider": "bianxie",
+      "image_gen": true,
+      "max_tokens": 4096
     }
   ]
 }
