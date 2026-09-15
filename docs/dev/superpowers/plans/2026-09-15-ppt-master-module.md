@@ -2084,7 +2084,7 @@ git commit -m "feat(ppt_master): registry 组装 + ModuleEntry + run_generate �
 - Test: `example/test_ppt_master_e2e.py`
 - Modify: `example/ppt_master/fixtures/`（按需补 fixture 页数副本）
 
-- [ ] **Step 1: 写 E2E 测试**
+- [x] **Step 1: 写 E2E 测试**
 
 ```python
 # example/test_ppt_master_e2e.py
@@ -2166,12 +2166,12 @@ def test_full_pipeline_mock(tmp_path, monkeypatch):
 - 页 SVG 落盘文件名须与 checker 期望一致（`svg_output/p01.svg` …）。Task 1 的 fixture 项目里 checker 认的页名规则以实测为准；若 checker 要求 `01_cover.svg` 式命名，改 `llm_nodes.make_page_node` 的落盘名与 `notes`/checker 对齐，并同步 `fixtures/` 文件名——**命名规则以 checker 实测为准，四件套（Task 1）先行锁定**。
 - checker 对 4 个相同 SVG 可能报重复类 warning（非 blocking 即可过）。
 
-- [ ] **Step 2: 跑测试**
+- [x] **Step 2: 跑测试**
 
 Run: `python -m pytest example/test_ppt_master_e2e.py -q`
 Expected: PASS（首次大概率 FAIL——按失败链逐环修：ingest 容错 → 页名 → 收据页册一致 → verdict 解析；每修一环重跑）
 
-- [ ] **Step 3: CLI 冒烟**
+- [x] **Step 3: CLI 冒烟**
 
 ```python
 # 追加到 example/test_ppt_master_e2e.py
@@ -2194,12 +2194,12 @@ def test_cli_mock_smoke(tmp_path, monkeypatch, capsys):
 Run: `python -m pytest example/test_ppt_master_e2e.py -q`
 Expected: PASS（2 项）
 
-- [ ] **Step 4: 全量回归**
+- [x] **Step 4: 全量回归**
 
 Run: `python -m pytest module_harness/tests/ -q && python -m pytest example/ -q`
 Expected: 全 PASS（框架测试不受影响；example 旧 ppt 测试在 Task 10 前仍在，应继续通过）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add example/test_ppt_master_e2e.py example/ppt_master/fixtures example/ppt_master/tools_nodes.py example/ppt_master/llm_nodes.py
