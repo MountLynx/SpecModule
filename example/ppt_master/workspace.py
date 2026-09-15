@@ -37,7 +37,10 @@ def write_envelope(data: dict[str, Any]) -> Path:
 
 
 def read_envelope() -> dict[str, Any]:
-    return json.loads(_envelope_path().read_text(encoding="utf-8"))
+    path = _envelope_path()
+    if not path.exists():
+        raise RuntimeError(f"缺少运行信封 {path.name}：翻译器未先执行？")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def init_workspace(output_dir: str | Path) -> Path:
@@ -57,5 +60,7 @@ def append_workflow_log(root: str | Path, detail: str) -> None:
 
 
 def gate_report_path(root: str | Path, stage: str) -> Path:
+    if stage not in ("early", "final"):
+        raise ValueError(f"未知 gate stage {stage!r}（仅接受 'early' / 'final'）")
     name = "svg_quality_early_report.json" if stage == "early" else "svg_quality_report.json"
     return Path(root) / "validation" / name

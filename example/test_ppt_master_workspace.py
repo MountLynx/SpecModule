@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+
+import pytest
+
 from example.ppt_master import workspace
 
 
@@ -17,13 +21,21 @@ def test_init_workspace_creates_contract(tmp_path):
 
 def test_envelope_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace, "_ENVELOPE_DIR", tmp_path)
+    # 信封缺失 → 显式报错（无静默回退）
+    with pytest.raises(RuntimeError):
+        workspace.read_envelope()
     workspace.write_envelope({"output_dir": str(tmp_path), "roster": []})
     assert workspace.read_envelope()["output_dir"] == str(tmp_path)
+    # 信封文件名带 pid 修饰（进程级隔离）
+    assert str(os.getpid()) in workspace.write_envelope({}).name
 
 
 def test_gate_report_path(tmp_path):
     assert workspace.gate_report_path(tmp_path, "early").name == "svg_quality_early_report.json"
     assert workspace.gate_report_path(tmp_path, "final").name == "svg_quality_report.json"
+    # 未知 stage → ValueError（无静默回退）
+    with pytest.raises(ValueError):
+        workspace.gate_report_path(tmp_path, "earyl")
 
 
 def test_append_workflow_log(tmp_path):
