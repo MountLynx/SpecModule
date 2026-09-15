@@ -23,7 +23,7 @@ from . import prompts_config as pc
 from . import workspace
 
 
-def _write_text(path: Any, text: str) -> None:
+def _write_text(path: Path | str, text: str) -> None:
     """落盘文本，父目录自动建立（sources/notes 等子目录可能尚未创建）。"""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -47,7 +47,7 @@ def _node_name(view: Any) -> str:
     return str(view.node).split(":")[-1]
 
 
-def make_plan_node(llm_client: Any, event_bus: Any = None):
+def make_plan_node(llm_client: Any, event_bus: Any = None) -> Any:
     """规划节点：契约+源事实 → design_spec.md + spec_lock.md + 收据。"""
 
     async def plan_node(view: Any) -> dict[str, Any]:
@@ -66,16 +66,16 @@ def make_plan_node(llm_client: Any, event_bus: Any = None):
             )
         except HarnessCallError as e:
             return {"status": "failed", "error": str(e)}
-        receipt = result.value if isinstance(result.value, dict) else json.loads(result.value)
-        root = env["output_dir"]
-        _write_text(f"{root}/design_spec.md", receipt.get("design_spec_md", ""))
-        _write_text(f"{root}/spec_lock.md", receipt.get("spec_lock_md", ""))
+        receipt = result.value  # json_object 配置经 OutputFormat.validate 已是解析后的 dict
+        root = Path(env["output_dir"])
+        _write_text(root / "design_spec.md", receipt.get("design_spec_md", ""))
+        _write_text(root / "spec_lock.md", receipt.get("spec_lock_md", ""))
         return receipt
 
     return plan_node
 
 
-def make_research_node(llm_client: Any, event_bus: Any = None):
+def make_research_node(llm_client: Any, event_bus: Any = None) -> Any:
     """研究节点（topic-only）：缺口研究 → sources/research.md + facts。"""
 
     async def research_node(view: Any) -> dict[str, Any]:
@@ -92,16 +92,16 @@ def make_research_node(llm_client: Any, event_bus: Any = None):
             )
         except HarnessCallError as e:
             return {"status": "failed", "error": str(e)}
-        val = result.value if isinstance(result.value, dict) else json.loads(result.value)
-        root = env["output_dir"]
-        _write_text(f"{root}/sources/research.md", val.get("research_md", ""))
-        _write_text(f"{root}/sources/facts.json", json.dumps(val.get("facts", []), ensure_ascii=False))
+        val = result.value  # json_object 配置经 OutputFormat.validate 已是解析后的 dict
+        root = Path(env["output_dir"])
+        _write_text(root / "sources" / "research.md", val.get("research_md", ""))
+        _write_text(root / "sources" / "facts.json", json.dumps(val.get("facts", []), ensure_ascii=False))
         return {"status": "ok", "digest": val.get("research_md", "")[:4000], "topic_researched": True}
 
     return research_node
 
 
-def make_page_node(llm_client: Any, event_bus: Any = None):
+def make_page_node(llm_client: Any, event_bus: Any = None) -> Any:
     """页节点：节点名即页 id（P01→p01），输出 SVG 落盘 svg_output/。"""
 
     async def page_node(view: Any) -> dict[str, Any]:
@@ -134,7 +134,7 @@ def make_page_node(llm_client: Any, event_bus: Any = None):
     return page_node
 
 
-def make_repair_node(llm_client: Any, event_bus: Any = None, max_rounds: int = 2):
+def make_repair_node(llm_client: Any, event_bus: Any = None, max_rounds: int = 2) -> Any:
     """修复节点（Early/Final 共用，按 view.node 区分 stage）。
 
     轮次上限：validation/repair_rounds.json 计数（{early: n, final: n}），
@@ -159,10 +159,13 @@ def make_repair_node(llm_client: Any, event_bus: Any = None, max_rounds: int = 2
             )
 
         verdict = view.field("verdict")
-        issues = [i for i in verdict.get("issues", []) if i.get("page")]
+        all_issues = verdict.get("issues", [])
+        # 全局性条目（无 page 归属）不静默丢弃——收进收据 skipped 供审计
+        skipped = [i for i in all_issues if not i.get("page")]
         by_page: dict[str, list] = {}
-        for i in issues:
-            by_page.setdefault(i["page"], []).append(i)
+        for i in all_issues:
+            if i.get("page"):
+                by_page.setdefault(i["page"], []).append(i)
         repaired, failed = [], []
         for page_id, page_issues in by_page.items():
             page = next((p for p in env["roster"] if p["id"] == page_id), None)
@@ -192,12 +195,12 @@ def make_repair_node(llm_client: Any, event_bus: Any = None, max_rounds: int = 2
             _write_text(_page_svg_path(root, page_id), svg)
             repaired.append(page_id)
         return {"status": "ok", "stage": stage, "round": rounds[stage],
-                "repaired": repaired, "failed": failed}
+                "repaired": repaired, "failed": failed, "skipped": skipped}
 
     return repair_node
 
 
-def make_notes_node(llm_client: Any, event_bus: Any = None):
+def make_notes_node(llm_client: Any, event_bus: Any = None) -> Any:
     """备注节点：最终页 SVG → notes/total.md。"""
 
     async def notes_node(view: Any) -> dict[str, Any]:
@@ -206,7 +209,11 @@ def make_notes_node(llm_client: Any, event_bus: Any = None):
         digest = []
         for p in env["roster"]:
             f = _page_svg_path(root, p["id"])
-            digest.append({"id": p["id"], "svg_head": f.read_text(encoding="utf-8")[:1200] if f.exists() else ""})
+            if f.exists():
+                digest.append({"id": p["id"], "svg_head": f.read_text(encoding="utf-8")[:1200]})
+            else:
+                # 缺页自描述——LLM 面前的摘要不能伪装成"空页"
+                digest.append({"id": p["id"], "missing": True})
         try:
             result = await call_harness(
                 pc.notes_config(),
@@ -226,7 +233,7 @@ def make_notes_node(llm_client: Any, event_bus: Any = None):
     return notes_node
 
 
-def make_image_node(llm_client: Any, event_bus: Any = None):
+def make_image_node(llm_client: Any, event_bus: Any = None) -> Any:
     """AI 图像行获取：§VIII 行 prompt → harness 图像模式 → images/。
 
     图像 harness 失败（infrastructure Failure）在 call_harness 侧抛
