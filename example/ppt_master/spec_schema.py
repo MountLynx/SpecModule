@@ -6,11 +6,13 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 _ROLES = {"cover", "content", "divider", "closing"}
 _READING_MODES = {"text", "balanced", "presentation"}
 _IMAGE_SOURCES = {"ai", "web", "user", "placeholder", "none"}
+_PID_PATTERN = r"[A-Za-z_][A-Za-z0-9_]*"  # 对齐 tickflow 节点名文法
 
 
 def _err(path: str, msg: str) -> ValueError:
@@ -22,6 +24,10 @@ def validate_ppt_spec(spec: dict[str, Any]) -> None:
         raise _err("spec", "应为 dict")
     if not spec.get("project") or not isinstance(spec["project"], str):
         raise _err("project", "缺少非空字符串")
+    if not spec["project"].strip():
+        raise _err("project", "不可全为空白")
+    if "/" in spec["project"] or "\\" in spec["project"]:
+        raise _err("project", "不可含路径分隔符")
 
     source = spec.get("source")
     if not isinstance(source, dict):
@@ -48,7 +54,7 @@ def validate_ppt_spec(spec: dict[str, Any]) -> None:
         pid = page.get("id")
         if not pid or not isinstance(pid, str):
             raise _err(f"{where}.id", "缺少非空字符串")
-        if not pid.replace("_", "").isalnum():
+        if re.fullmatch(_PID_PATTERN, pid) is None:
             raise _err(f"{where}.id", "仅限字母数字下划线（节点名约束）")
         if pid in seen:
             raise _err(f"{where}.id", f"重复页 id '{pid}'")
@@ -63,6 +69,11 @@ def validate_ppt_spec(spec: dict[str, Any]) -> None:
             not isinstance(points, list) or not all(isinstance(p, str) for p in points)
         ):
             raise _err(f"{where}.points", "应为字符串列表（可省略）")
+
+    # 显式 null 一律拒绝：可选节的缺省语义是"省略键"，不是 null
+    for key in ("contract", "images", "production", "template", "output"):
+        if key in spec and spec[key] is None:
+            raise _err(key, "不应为 null（省略该键即可）")
 
     contract = spec.get("contract")
     if contract is not None:
@@ -97,12 +108,16 @@ def validate_ppt_spec(spec: dict[str, Any]) -> None:
 
     template = spec.get("template")
     if template is not None:
-        if not isinstance(template, dict) or not isinstance(template.get("roots", []), list):
+        if not isinstance(template, dict):
             raise _err("template", "应为 dict {roots: list}（一期不实现，仅保留）")
+        if not isinstance(template.get("roots", []), list):
+            raise _err("template.roots", "应为列表")
 
     out = spec.get("output")
     if out is not None:
-        if not isinstance(out, dict) or not isinstance(out.get("dir", ""), str):
+        if not isinstance(out, dict):
+            raise _err("output", "应为 dict {dir}")
+        if not isinstance(out.get("dir", ""), str):
             raise _err("output.dir", "应为字符串路径")
 
     # ── 缺省回填（校验全过后）──

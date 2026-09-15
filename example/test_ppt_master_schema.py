@@ -73,3 +73,56 @@ def test_images_none_conflict_rejected():
     spec["images"] = {"sources": ["none", "ai"]}
     with pytest.raises(ValueError, match="none"):
         validate_ppt_spec(spec)
+
+
+def test_explicit_null_section_rejected():
+    spec = _base_spec()
+    spec["production"] = None
+    with pytest.raises(ValueError, match="production"):
+        validate_ppt_spec(spec)
+
+
+def test_page_id_must_match_node_name_grammar():
+    spec = _base_spec()
+    spec["roster"][1]["id"] = "封面"
+    with pytest.raises(ValueError, match="仅限字母数字下划线"):
+        validate_ppt_spec(spec)
+    spec = _base_spec()
+    spec["roster"][1]["id"] = "1p"
+    with pytest.raises(ValueError, match="仅限字母数字下划线"):
+        validate_ppt_spec(spec)
+
+
+def test_project_path_separator_rejected():
+    spec = _base_spec()
+    spec["project"] = "a/b"
+    with pytest.raises(ValueError, match="project"):
+        validate_ppt_spec(spec)
+
+
+def test_output_non_dict_reports_output_path():
+    spec = _base_spec()
+    spec["output"] = "somewhere"
+    with pytest.raises(ValueError, match="'output' 应为 dict"):
+        validate_ppt_spec(spec)
+
+
+def test_template_roots_wrong_type_reports_field_path():
+    spec = _base_spec()
+    spec["template"] = {"roots": "x"}
+    with pytest.raises(ValueError, match="template.roots"):
+        validate_ppt_spec(spec)
+
+
+def test_source_files_requires_paths():
+    spec = _base_spec()
+    spec["source"] = {"kind": "files"}
+    with pytest.raises(ValueError, match="source.paths"):
+        validate_ppt_spec(spec)
+
+
+def test_points_must_be_list():
+    spec = _base_spec()
+    spec["roster"][1]["points"] = "x"
+    with pytest.raises(ValueError, match="points"):
+        validate_ppt_spec(spec)
