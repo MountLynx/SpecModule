@@ -112,10 +112,14 @@ PlanValidate ──|ready|──> (IconSync) ──> (ImageAcquire) ──> [Cal
 Calibrate ──> P01..P05 (并行) ──> AND1 ──> [EarlyGate]
 EarlyGate ──|clean|──> P06..PN (并行) ─────────────┐
 EarlyGate ──|issues|──> [EarlyRepair]（批次1终态）──┤
-                                              AND2 ──> (NotesGen) ──> [FinalGate]
+                                              AND2 ──> [FinalGate]
 FinalGate ──|errors|──> [Repair] ──(守卫环)──> FinalGate
-FinalGate ──|clean|──> (ImageReadiness) ──> (SplitNotes) ──> [Finalize] ──> [Export] ──> [Report]
+FinalGate ──|clean|──> (ImageReadiness) ──> (NotesGen) ──> (SplitNotes)
+          ──> [Finalize] ──> [Export] ──> [Report]
 ```
+
+（修订 2026-09-15：NotesGen 移到终门之后——备注校验基于最终 SVG，与
+ppt-master 逻辑构造阶段同序；初稿误置于终门前。）
 
 - 页册 ≤6 页：翻译器省略 EarlyGate 段（复刻 ppt-master 同规则）
 - 条件节点（括号）：翻译器按 spec 声明生成或省略
