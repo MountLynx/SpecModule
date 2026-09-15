@@ -396,10 +396,10 @@ def _latest_tick_light(db_path: Path, module_id: str) -> int | None:
 
     list 场景的权衡：不对每个 run 全量解析 run.sqlite，tick 用一条 max 查询
     近似（监控列表足够；详情走 query_run_status）。连接用只读 URI 模式而非
-    ``SqliteBackend``：后者建连即 ``PRAGMA journal_mode=WAL`` + 建表检查（每次
-    打开都是写锁，历史一大列表端点就不可用）；路径经 ``as_uri`` 百分号编码
-    （中文/空格安全）。只读打开 WAL 库需 -shm 侧车在（活跃写入方必然已建），
-    残留 -wal 且无 -shm 的脏库打不开 → 按契约记 None。
+    ``SqliteBackend``：后者建连要做 mkdir + ``PRAGMA journal_mode=WAL`` +
+    建表检查 + 线程锁初始化，逐 run 逐次开销在大历史下列表不可承受；路径经
+    ``as_uri`` 百分号编码（中文/空格安全）。个别损坏/权限组合下打不开 →
+    按契约记 None。
     """
     try:
         import sqlite3
