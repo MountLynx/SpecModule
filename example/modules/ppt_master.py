@@ -23,8 +23,8 @@ entry = ModuleEntry(
     name="ppt_master",
     description=(
         "ppt-master Generate 主线复刻：spec(页册+契约) → 规划"
-        "(design_spec/spec_lock) → 并行逐页 SVG → 质量门修复环 → "
-        "svg_to_pptx 导出（spec 即确认，非交互）"
+        "(design_spec/spec_lock) → 图像/图标 → 并行逐页 SVG → 质量门修复环"
+        " → 讲者备注 → svg_to_pptx 导出（spec 即确认，非交互）"
     ),
     templates={"generate": GENERATE_TEMPLATE},
     build_registry=_registry_for,

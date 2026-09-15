@@ -31,10 +31,12 @@ from .translator import build_generate_tasklist, tl_generate
 _RUN_TOOL = workspace.MODULE_DIR / "tools" / "run_tool.py"
 
 
-def _run_tool_command(tool: str, *args: str, timeout: float = 300.0) -> CommandConfig:
+def _run_tool_command(tool: str, *args: str, timeout: float) -> CommandConfig:
     """vendor 工具 → CommandConfig（命令串静态嵌 pid 信封路径字面量）。
 
     形如 ``"{python}" "{run_tool.py}" --envelope "{信封}" --tool <tool>[ -- args]``。
+    timeout 位于 *args 之后即 keyword-only 且无缺省——调用方逐项声明
+    （与 docstring 命令表一一对应），无隐式缺省。
     """
     command = (
         f'"{sys.executable}" "{_RUN_TOOL}" '
@@ -82,13 +84,14 @@ def _build_registry(
     reg.script("final_verdict")(tools_nodes.make_gate_verdict("final"))
     reg.script("ppt_report")(tools_nodes.report)
 
-    # 命令节点（翻译器六个注册名 → vendor 工具，超时 ↔ docstring 命令表）
+    # 命令节点（翻译器六个注册名 → vendor 工具，超时 ↔ docstring 命令表；
+    # 旗标逐词分离传参——诚实变参，join 语义统一在 _run_tool_command）
     reg.command("ppt_early_gate", _run_tool_command(
-        "svg_quality_checker.py", "--stage early --canonical-authoring --json",
-        timeout=600.0))
+        "svg_quality_checker.py", "--stage", "early",
+        "--canonical-authoring", "--json", timeout=600.0))
     reg.command("ppt_final_gate", _run_tool_command(
-        "svg_quality_checker.py", "--stage final --canonical-authoring --json",
-        timeout=900.0))
+        "svg_quality_checker.py", "--stage", "final",
+        "--canonical-authoring", "--json", timeout=900.0))
     reg.command("ppt_split_notes", _run_tool_command(
         "total_md_split.py", timeout=120.0))
     reg.command("ppt_finalize", _run_tool_command(
@@ -141,7 +144,10 @@ def run_generate(
 
     llm_client 缺省从环境变量构建（LLMConfig.from_env）；传入 mock/脚本
     客户端即全链仿真（asyncio.run(run_generate(spec, llm_client=...))）。
-    persist=False（缺省）：NullBackend 快速模式，零落盘零残留。
+    persist=False（缺省）：persist/status_file/stream_log 三开关齐关的
+    NullBackend 快速模式，零落盘零残留。
+    max_ticks=400：固定门轮上限（≤2 轮）下 tick 需求 O(门轮数) 而非
+    O(页数)，实测峰值 ~33，400 为 ~12× 余量。
     """
     if llm_client is None:
         llm_client = create_llm_client(LLMConfig.from_env())
@@ -156,5 +162,6 @@ def run_generate(
         review_harness=None,   # 固定流程模板，发布前已验证
         persist=persist,
         status_file=persist,
+        stream_log=persist,    # 快速模式连 stream.log 也不落（零残留承诺）
     )
     return mod.run(max_ticks=max_ticks)

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from example.ppt_master import workspace
 from example.ppt_master.module import GENERATE_TEMPLATE, _build_registry
@@ -23,17 +24,39 @@ _COMMAND_NAMES = (
 )
 
 
+def _validated_tasklist(spec: dict[str, Any], reg: Any) -> list[str]:
+    """spec → 展开 → Tasklist → validator 错误列表（空 = 合法）。"""
+    tasks, flow = build_generate_tasklist(spec)
+    tasklist = Tasklist(
+        tasks={k: TaskDefinition.from_dict(v) for k, v in tasks.items()},
+        flow=flow,
+    )
+    return TasklistValidator.validate(tasklist, reg)
+
+
 def test_registry_covers_translator_tasks(tmp_path, monkeypatch):
     """sample_spec（10 页 + 图像 + notes，覆盖最多节点的形状）翻译出的每个
     script/command 引用必须已在 registry 注册——validator 与翻译校验同闸。"""
     monkeypatch.setattr(workspace, "_ENVELOPE_DIR", tmp_path)
     reg = _build_registry(llm_client=object())
-    tasks, flow = build_generate_tasklist(sample_spec())
-    tasklist = Tasklist(
-        tasks={k: TaskDefinition.from_dict(v) for k, v in tasks.items()},
-        flow=flow,
-    )
-    errors = TasklistValidator.validate(tasklist, reg)
+    errors = _validated_tasklist(sample_spec(), reg)
+    assert not errors, errors
+
+
+def test_registry_covers_topic_branch(tmp_path, monkeypatch):
+    """topic 源分支：Research/research_node 引用同样过 validator 闸。"""
+    monkeypatch.setattr(workspace, "_ENVELOPE_DIR", tmp_path)
+    reg = _build_registry(llm_client=object())
+    spec = {
+        "project": "support-topic",
+        "source": {"kind": "topic", "topic": "量子计算"},
+        "roster": [{"id": "p01", "title": "页1"}, {"id": "p02", "title": "页2"}],
+    }
+    assert "research_node" in {
+        t["script"] for t in build_generate_tasklist(spec)[0].values()
+        if t["type"] == "script"
+    }, "topic 源应引 research_node"
+    errors = _validated_tasklist(spec, reg)
     assert not errors, errors
 
 
