@@ -1198,7 +1198,7 @@ git commit -m "feat(ppt_master): LLM 节点工厂（失败收据 + 修复轮上�
 - Create: `example/ppt_master/tools/run_tool.py`
 - Test: `example/test_ppt_master_tools.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 # example/test_ppt_master_tools.py
@@ -1289,12 +1289,12 @@ def test_ingest_copies_md_and_digests(...):
     out = ingest(_View("Ingest", {}))   # sync 直呼
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest example/test_ppt_master_tools.py -q`
 Expected: FAIL
 
-- [ ] **Step 3: 实现 tools_nodes.py 与 tools/run_tool.py**
+- [x] **Step 3: 实现 tools_nodes.py 与 tools/run_tool.py**
 
 ```python
 # example/ppt_master/tools_nodes.py
@@ -1530,12 +1530,12 @@ if __name__ == "__main__":
 
 注意 `nargs="*"` 与位置参数混用时 `--` 分隔符的解析：argparse 里 `parser.add_argument("args", nargs="*")` 支持 `-- --stage final` 形式。若实测解析有误（argparse 版本差异），改为 `parser.parse_known_args()` 并把未知项拼进 args——两种写法选实测通过的，在测试中固定。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest example/test_ppt_master_tools.py -q`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add example/ppt_master/tools_nodes.py example/ppt_master/tools/run_tool.py example/test_ppt_master_tools.py
