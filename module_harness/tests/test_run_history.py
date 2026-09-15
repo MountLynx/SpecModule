@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from module_harness.infra.query import delete_run, list_runs
+from module_harness.infra.query import delete_run, list_runs, recent_runs
 from tickflow.persistence import SqliteBackend
 
 
@@ -126,6 +126,81 @@ class TestListRuns:
         (bad / "status.json").write_text("{{", encoding="utf-8")
         runs = list_runs(base_dir=tmp_path)
         assert [r["run_id"] for r in runs] == ["run_ok", "run_bad"]
+
+    def test_tick_key_in_status_takes_priority(self, tmp_path):
+        """status.json 携带 tick 键时优先（前瞻兼容），不查 sqlite。"""
+        run_dir = _write_status(tmp_path, "run_k", phase="running")
+        data = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+        data["tick"] = 7
+        (run_dir / "status.json").write_text(
+            json.dumps(data, ensure_ascii=False), encoding="utf-8"
+        )
+        backend = SqliteBackend(run_dir / "run.sqlite")
+        backend.save_snapshot("run_k", 3, {
+            "tick": 3, "marking": {}, "run_state": {"keep_records": True},
+            "status": "running", "fireable": [], "fired": [],
+        })
+        backend.close()
+        (row,) = list_runs(base_dir=tmp_path)
+        assert row["tick"] == 7   # status.json 键优先，sqlite 里的 3 不生效
+
+
+class TestRecentRuns:
+    def test_empty_when_no_runs_root(self, tmp_path):
+        assert recent_runs(base_dir=tmp_path) == {"runs": [], "total": 0}
+
+    def test_files_skipped(self, tmp_path):
+        root = tmp_path / ".specmodule" / "runs"
+        root.mkdir(parents=True)
+        (root / "stray.txt").write_text("x", encoding="utf-8")
+        assert recent_runs(base_dir=tmp_path) == {"runs": [], "total": 0}
+
+    def test_limit_and_total(self, tmp_path):
+        """尾部只计不展开；total = 全量 run 目录数。"""
+        for i in range(5):
+            _write_status(tmp_path, f"run_{i}", updated_at=100.0 + i)
+        out = recent_runs(base_dir=tmp_path, limit=2)
+        assert out["total"] == 5
+        assert [r["run_id"] for r in out["runs"]] == ["run_4", "run_3"]
+
+    def test_mtime_sort_desc_tie_by_name(self, tmp_path):
+        """按 status.json mtime 降序（与 updated_at 字段值无关）；同值按名降序。"""
+        import os
+        import time
+        _write_status(tmp_path, "run_a", updated_at=1.0)
+        _write_status(tmp_path, "run_b", updated_at=2.0)
+        _write_status(tmp_path, "run_c", updated_at=3.0)
+        now = time.time()
+        for run_id, age in (("run_a", 600), ("run_b", 60), ("run_c", 600)):
+            p = tmp_path / ".specmodule" / "runs" / run_id / "status.json"
+            os.utime(p, (now - age, now - age))
+        out = recent_runs(base_dir=tmp_path)
+        # run_b mtime 最新居首；run_a/run_c 同 mtime 按名降序 → run_c 先
+        assert [r["run_id"] for r in out["runs"]] == ["run_b", "run_c", "run_a"]
+
+    def test_tick_no_sqlite_fallback(self, tmp_path):
+        """recent_runs 不做 sqlite tick 近似：无 status.json tick 键 → None。"""
+        run_dir = _write_status(tmp_path, "run_t", phase="running")
+        backend = SqliteBackend(run_dir / "run.sqlite")
+        backend.save_snapshot("run_t", 3, {
+            "tick": 3, "marking": {}, "run_state": {"keep_records": True},
+            "status": "running", "fireable": [], "fired": [],
+        })
+        backend.close()
+        (row,) = recent_runs(base_dir=tmp_path)["runs"]
+        assert row["tick"] is None
+        # 全量语义不变：list_runs 仍近似出 3
+        assert list_runs(base_dir=tmp_path)[0]["tick"] == 3
+
+    def test_corrupt_status_in_top_n_included_as_unknown(self, tmp_path):
+        """status.json 损坏的 run 在前 N 条内 → phase=unknown 收入不跳过。"""
+        run_dir = tmp_path / ".specmodule" / "runs" / "bad_run"
+        run_dir.mkdir(parents=True)
+        (run_dir / "status.json").write_text("{{", encoding="utf-8")
+        out = recent_runs(base_dir=tmp_path)
+        assert out["total"] == 1
+        assert out["runs"][0]["run_id"] == "bad_run"
+        assert out["runs"][0]["phase"] == "unknown"
 
 
 class TestDeleteRun:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -459,6 +460,43 @@ def _run_row(run_dir: Path, *, tick_fallback: bool) -> dict[str, Any]:
         "updated_at": updated_at,
         "has_sqlite": has_sqlite,
     }
+
+
+def recent_runs(base_dir: Path | None = None, *, limit: int = 100) -> dict[str, Any]:
+    """最近运行快速列表（Web 列表共享层）：单次成本与历史规模解耦。
+
+    ``os.scandir`` 取目录名 + status.json mtime（每目录一次元数据 stat，不
+    打开文件内容；status.json 缺失/不可达的裸目录回落目录自身 mtime），
+    mtime 降序（同值按目录名降序）——运行中的 run 每 tick 重写 status.json
+    （就地改写不触碰父目录 mtime，故排序键必须锚定文件而非目录），mtime
+    必然新近、必然落在前 ``limit`` 条内。只对前 ``limit`` 条读 status.json
+    构建完整行（行形状同 :func:`list_runs`，经 ``_run_row``），且 tick **不
+    回落 sqlite 近似**（旧 run 无 status.json tick 键 → None）。尾部不展开，
+    以 ``total`` 透出全量目录数供消费端提示（更早历史走 CLI ``runs``）。
+    容错同 ``list_runs``：runs 根不存在 / 扫描失败 → ``{"runs": [], "total": 0}``；
+    limit ≤ 0 → 只计数不展开。
+    """
+    root = _runs_root(base_dir)
+    if not root.is_dir():
+        return {"runs": [], "total": 0}
+    try:
+        with os.scandir(root) as it:
+            entries: list[tuple[str, float]] = []
+            for e in it:
+                if not e.is_dir():
+                    continue
+                try:
+                    mtime = (root / e.name / "status.json").stat().st_mtime
+                except OSError:
+                    mtime = e.stat().st_mtime   # 裸目录 → 目录自身 mtime
+                entries.append((e.name, mtime))
+    except OSError:
+        log.exception("扫描 runs 目录失败（返回空列表）: %s", root)
+        return {"runs": [], "total": 0}
+    entries.sort(key=lambda t: (t[1], t[0]), reverse=True)
+    top = entries[:limit] if limit > 0 else []
+    rows = [_run_row(root / name, tick_fallback=False) for name, _ in top]
+    return {"runs": rows, "total": len(entries)}
 
 
 def list_runs(base_dir: Path | None = None) -> list[dict[str, Any]]:
