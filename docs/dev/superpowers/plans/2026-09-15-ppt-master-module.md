@@ -355,7 +355,7 @@ git commit -m "feat(ppt_master): workspace 目录契约 + 进程级信封"
 - Create: `example/ppt_master/spec_schema.py`
 - Test: `example/test_ppt_master_schema.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 # example/test_ppt_master_schema.py
@@ -436,12 +436,12 @@ def test_images_none_conflict_rejected():
         validate_ppt_spec(spec)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest example/test_ppt_master_schema.py -q`
 Expected: FAIL（ModuleNotFoundError）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```python
 # example/ppt_master/spec_schema.py
@@ -560,12 +560,12 @@ def validate_ppt_spec(spec: dict[str, Any]) -> None:
         page.setdefault("role", "content")
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest example/test_ppt_master_schema.py -q`
 Expected: PASS（8 项）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add example/ppt_master/spec_schema.py example/test_ppt_master_schema.py
