@@ -20,7 +20,7 @@ ENTRY_SCRIPTS = [
     "total_md_split.py",
 ]
 
-# 11 个入口脚本直接绝对导入的第三方顶层名（AST 审计所得，就这四个之外的
+# 11 个入口脚本直接绝对导入的第三方顶层名（AST 审计所得，就这两个之外的
 # 一律视为缺依赖）。不做 find_spec 兜底：site-packages 里恰好装了同名包
 # 会掩盖 vendor 缺文件。
 _THIRD_PARTY_ALLOWED = {"PIL", "requests"}
