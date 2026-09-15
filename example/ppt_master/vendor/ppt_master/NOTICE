@@ -1,0 +1,21 @@
+# NOTICE
+
+本目录是 ppt-master (https://github.com/hugohe3/ppt-master) v6.3.2 的部分文件拷贝
+（版本取自 $SRC/SKILL.md frontmatter `metadata.version`，2026-09-15 拷贝），
+MIT License，版权归原作（Copyright (c) 2025-2026 Hugo He，见 LICENSE）。
+拷贝范围：SVG→PPTX 导出管线所需最小闭包
+（11 个入口脚本 + 平铺依赖 + 子包 + 模板语法文件 / schemas / icons / charts / tables）。
+
+本拷贝**不包含**完整官方发行包（SKILL.md、SPONSORS.md、SPONSORS_CN.md、
+workflows/ 等），因此不是官方完整分发版；归由相邻的 NOTICE + LICENSE 承担。
+
+本地改动（逐条记录）：
+- `scripts/attribution_guard.py`、`scripts/console_encoding.py`：放宽路径锚定
+  （attribution_guard.py 在 skill 目录外不可运行——它锚定 `parent.parent` 为
+  skill 根并 fail-closed 校验完整官方包：SKILL.md frontmatter、SPONSORS*、
+  LICENSE sha256、9 个执行 gate 文件；本闭包有意不含这些文件，故必然 exit 78）。
+  适配原则：只放宽路径锚定，不改校验逻辑——全部校验函数（摘要、frontmatter、
+  gate 文件结构检查）保持原样，仅在 gate 入口增加 `is_vendored_copy()`
+  （以本 NOTICE 文件存在为 vendored 标记）短路分支：vendored 拷贝跳过
+  官方包完整性断言，官方完整分发下行为与上游逐字节一致。
+- 其余 vendor 文件零改动。

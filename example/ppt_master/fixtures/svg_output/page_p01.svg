@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" font-family="Arial, sans-serif" data-pptx-page-role="content">
+  <rect id="bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF"/>
+  <g id="title-block" data-pptx-bounds="80 60 1120 100">
+    <text x="80" y="120" font-size="44" font-weight="bold" fill="#0F172A">SpecModule vendor 闭包验证</text>
+  </g>
+  <g id="points" data-pptx-bounds="80 200 1120 180" fill="#475569" font-size="24">
+    <text x="80" y="240">· 闭包检查脚本通过，入口脚本可加载</text>
+    <text x="80" y="290">· checker、finalize、export 四件套真实跑通</text>
+    <text x="80" y="340">· MIT 授权与 NOTICE 归属如实记录</text>
+  </g>
+</svg>
