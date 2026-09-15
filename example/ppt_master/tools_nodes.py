@@ -30,8 +30,9 @@ def _normalize_issue(issue: dict) -> dict:
     """blocking issue 归一化：从 file 派生 page 键（repair 按页分组依赖）。
 
     真实形状（checker._provenance_categories）：{"file", "message"} 或
-    {"scope", "message"}——无 page。派生不出 page 的条目原样保留
-    （repair_node 会把它们收进收据 skipped，不静默丢弃）。
+    {"scope", "message"}——无 page。派生值统一小写（页 id 约定小写）；
+    派生不出 page 的条目原样保留（repair_node 会把它们收进收据 skipped，
+    不静默丢弃）。
     """
     out = dict(issue)
     if "page" not in out:
@@ -39,8 +40,21 @@ def _normalize_issue(issue: dict) -> dict:
         if f:
             m = _PAGE_FILE_RE.match(Path(str(f)).name)
             if m:
-                out["page"] = m.group(1)
+                out["page"] = m.group(1).lower()
     return out
+
+
+def _blocking_issues(root: str | Path, stage: str) -> list[dict] | None:
+    """读 gate 报告 categories.blocking.issues；报告缺失 → None。
+
+    None = 无证据（checker 未落盘），与"报告在盘但 blocking 为空"是两回事，
+    门路由据此区分。
+    """
+    report_file = workspace.gate_report_path(root, stage)
+    if not report_file.exists():
+        return None
+    data = json.loads(report_file.read_text(encoding="utf-8"))
+    return data.get("categories", {}).get("blocking", {}).get("issues", []) or []
 
 
 def ingest(view) -> dict[str, Any]:
@@ -88,25 +102,37 @@ def plan_validate(view) -> dict[str, Any]:
     """Gate 1/2 机械化：页册保真 + 每页 Audience move + 锁锚点。违反即停图。"""
     env = workspace.read_envelope()
     root = Path(env["output_dir"])
-    spec_md = (root / "design_spec.md").read_text(encoding="utf-8")
-    lock_md = (root / "spec_lock.md").read_text(encoding="utf-8")
-
-    errors: list[str] = []
     roster = env["roster"]
     plan = view.field("plan") or {}
-    if plan.get("roster_ids") != [p["id"] for p in roster]:
-        errors.append(f"收据页册 {plan.get('roster_ids')} != spec 页册")
 
-    for page in roster:
-        block = re.search(
-            rf"##\s+{re.escape(page['id'])}\b(.*?)(?=\n## |\Z)", spec_md, re.S)
-        if block is None:
-            errors.append(f"design_spec 缺页块 '{page['id']}'")
-        elif not _AUDIENCE_MOVE.search(block.group(1)):
-            errors.append(f"页 '{page['id']}' 缺 Audience move")
-    for anchor in ("palette", "typography"):
-        if anchor not in lock_md:
-            errors.append(f"spec_lock 缺锚点节 '{anchor}'")
+    errors: list[str] = []
+    if plan.get("roster_ids") != [p["id"] for p in roster]:
+        errors.append(
+            f"收据页册 {plan.get('roster_ids')} != spec 页册 {[p['id'] for p in roster]}")
+
+    spec_md: str | None = None
+    try:
+        spec_md = (root / "design_spec.md").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        errors.append("design_spec.md 缺失（规划节点未落盘？）")
+    lock_md: str | None = None
+    try:
+        lock_md = (root / "spec_lock.md").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        errors.append("spec_lock.md 缺失（规划节点未落盘？）")
+
+    if spec_md is not None:
+        for page in roster:
+            block = re.search(
+                rf"##\s+{re.escape(page['id'])}\b(.*?)(?=\n## |\Z)", spec_md, re.S)
+            if block is None:
+                errors.append(f"design_spec 缺页块 '{page['id']}'")
+            elif not _AUDIENCE_MOVE.search(block.group(1)):
+                errors.append(f"页 '{page['id']}' 缺 Audience move")
+    if lock_md is not None:
+        for anchor in ("palette", "typography"):
+            if anchor not in lock_md:
+                errors.append(f"spec_lock 缺锚点节 '{anchor}'")
 
     if errors:
         return Failure("规划校验失败（硬合规）:\n" + "\n".join(errors),
@@ -117,45 +143,47 @@ def plan_validate(view) -> dict[str, Any]:
 def make_gate_verdict(stage: str):
     """门裁决 script：读 validation 报告 → 结构化 verdict（guard 消费）。
 
-    issues 归一化出 page 键（repair 按页分组）；全局性条目无 page，
-    由 repair 收进 skipped。
+    ok = checker exit 0 **且** 无 blocking issues——rc≠0 时报告再干净也不
+    是 ok（checker 在落盘前可 sys.exit，收据必须如实记 rc）。issues 归一化
+    出 page 键（repair 按页分组）；全局性条目无 page，由 repair 收进 skipped。
     """
 
     def verdict(view) -> dict[str, Any]:
         env = workspace.read_envelope()
         gate = view.field("gate") or {}
-        report_file = workspace.gate_report_path(env["output_dir"], stage)
-        issues: list[dict] = []
-        if report_file.exists():
-            data = json.loads(report_file.read_text(encoding="utf-8"))
-            raw = data.get("categories", {}).get("blocking", {}).get("issues", []) or []
-            issues = [_normalize_issue(i) for i in raw if isinstance(i, dict)]
-        return {"stage": stage, "returncode": gate.get("returncode"),
-                "ok": not issues, "issues": issues}
+        raw = _blocking_issues(env["output_dir"], stage)
+        issues = [_normalize_issue(i) for i in (raw or []) if isinstance(i, dict)]
+        returncode = gate.get("returncode")
+        return {"stage": stage, "returncode": returncode,
+                "ok": returncode == 0 and not issues, "issues": issues}
 
     return verdict
 
 
 def make_guard(stage: str, want_clean: bool):
-    """守卫工厂：读源任务 inputs 键 'gate' 的输出并复检报告文件。
+    """守卫工厂：读源任务 inputs 键 'gate' 的输出（门 command 收据）并复检报告。
 
-    与 ppt_writer guard 同机制：guard 读守卫边源任务的 inputs 键
-    （此处 'gate' = 门 command 节点输出 {stdout,stderr,returncode}）。
-    只数 blocking bool，机械无隐式行为。
+    放行条件 = checker exit 0 且报告在盘且无 blocking——无证据 ≠ 干净
+    （checker 有落盘前的 sys.exit 路径，崩溃的门不得静默放行未验证的稿）。
+    循环安全：crash 路由进 Repair 消耗修复轮，轮上限触发 infrastructure
+    Failure 停图 → 崩溃必然 loud abort，不会静默循环。
     """
     def guard(view) -> bool:
         env = workspace.read_envelope()
-        report_file = workspace.gate_report_path(env["output_dir"], stage)
-        has_issues = False
-        if report_file.exists():
-            data = json.loads(report_file.read_text(encoding="utf-8"))
-            has_issues = bool(data.get("categories", {}).get("blocking", {}).get("issues"))
+        rc = (view.field("gate") or {}).get("returncode")
+        # 无证据 ≠ 干净：checker 崩溃（rc≠0 / 报告未落盘）不得放行
+        issues = _blocking_issues(env["output_dir"], stage)
+        has_issues = True if (rc != 0 or issues is None) else bool(issues)
         return (not has_issues) if want_clean else has_issues
     return guard
 
 
 def calibrate(view) -> dict[str, Any]:
-    """text_measure calibrate → validation/text_calibration.json（全体页节点共享）。"""
+    """text_measure calibrate → validation/text_calibration.json（全体页节点共享）。
+
+    软降级是有意的：产物缺失时收据记 empty、页节点拿 "{}"（vendor 估宽
+    自带保守默认），stderr 全文进收据供审计——降级可见，不静默。
+    """
     env = workspace.read_envelope()
     root = Path(env["output_dir"])
     r = subprocess.run(
@@ -166,6 +194,7 @@ def calibrate(view) -> dict[str, Any]:
     cal_file = root / "validation" / "text_calibration.json"
     return {"status": "ok" if cal_file.exists() else "empty",
             "returncode": r.returncode,
+            "stderr": r.stderr[-500:],
             "calibration": cal_file.read_text(encoding="utf-8") if cal_file.exists() else "{}"}
 
 
@@ -211,7 +240,7 @@ def report(view) -> dict[str, Any]:
     ok = export.get("returncode") == 0 and bool(pptx_files)
     return {"status": "ok" if ok else "error",
             "pptx": pptx_files, "export_returncode": export.get("returncode"),
-            "finalize_returncode": (finalize or {}).get("returncode"),
+            "finalize_returncode": finalize.get("returncode"),
             "message": "导出完成" if ok else "导出失败（见 exports/ 与 validation/）"}
 
 

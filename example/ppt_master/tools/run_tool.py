@@ -19,11 +19,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--envelope", required=True)
     parser.add_argument("--tool", required=True)
-    parser.add_argument("args", nargs="*", default=[])
+    parser.add_argument("args", nargs="*")
     ns = parser.parse_args(argv)
 
-    envelope = json.loads(Path(ns.envelope).read_text(encoding="utf-8"))
-    root = envelope["output_dir"]
+    try:
+        envelope = json.loads(Path(ns.envelope).read_text(encoding="utf-8"))
+        root = envelope["output_dir"]
+    except (OSError, json.JSONDecodeError, KeyError) as e:
+        parser.error(f"信封缺失或损坏: {ns.envelope}（{e}）")
+
     tool = Path(__file__).resolve().parent.parent / "vendor" / "ppt_master" / "scripts" / ns.tool
     cmd = [sys.executable, str(tool), root, *ns.args]
     result = subprocess.run(cmd, encoding="utf-8", errors="replace")
