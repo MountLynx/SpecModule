@@ -63,7 +63,7 @@ example/modules/ppt_writer.py 等     # Task 10 归档
 - Create: `example/ppt_master/fixtures/`（页 SVG + 最小 project 工件）
 - Create: `example/test_ppt_master_vendor.py`
 
-- [ ] **Step 1: 拷贝闭包**
+- [x] **Step 1: 拷贝闭包**
 
 源：`E:\Index\Programming\52a8bdf45d94\ppt-master\skills\ppt-master\`（下称 `$SRC`）。
 
@@ -93,7 +93,7 @@ cp -r "$SRC/templates/schemas" "$SRC/templates/icons" "$SRC/templates/charts" "$
 cp "$SRC/LICENSE" $V/LICENSE
 ```
 
-- [ ] **Step 2: 写 NOTICE**
+- [x] **Step 2: 写 NOTICE**
 
 `example/ppt_master/vendor/ppt_master/NOTICE`：
 
@@ -109,7 +109,7 @@ MIT License，版权归原作（见 LICENSE）。拷贝范围：SVG→PPTX 导�
   适配记录在此，适配原则：只放宽路径锚定，不改校验逻辑）
 ```
 
-- [ ] **Step 3: 写闭包检查脚本并跑通**
+- [x] **Step 3: 写闭包检查脚本并跑通**
 
 `example/test_ppt_master_vendor.py`：
 
@@ -180,7 +180,7 @@ def importlib_util_find_spec(name: str):
 Run: `python -m pytest example/test_ppt_master_vendor.py -q`
 Expected: PASS（缺文件/缺依赖会点名；按缺项回 Step 1 补拷对应文件/子包，循环直至 PASS）
 
-- [ ] **Step 4: 构造最小 fixture 项目并跑通 checker（early）**
+- [x] **Step 4: 构造最小 fixture 项目并跑通 checker（early）**
 
 fixture = 一个最小可过 checker 的单页项目，放 `example/ppt_master/fixtures/`：`page_p01.svg`（1280×720，标题 + 两要点 + `data-pptx-*` 语义元数据按 `vendor/.../scripts/docs/` 中 SVG 契约文档写）+ `design_spec.md` / `spec_lock.md` 最小件（语法按 `$SRC/templates/design_spec_reference.md`，§IX 一页含 `Audience move:` 行）。
 
@@ -196,7 +196,7 @@ python example/ppt_master/vendor/ppt_master/scripts/svg_quality_checker.py $F \
 
 若 3–5 轮后 checker 仍要求 fixture 无法满足的项目级工件（例如强制完整 §I–X、图标清单等）：**停下升级给用户**，带上来的是 checker 的具体 blocking 清单——不要为过门而削 gate 逻辑。
 
-- [ ] **Step 5: 跑通 finalize + export 四件套**
+- [x] **Step 5: 跑通 finalize + export 四件套**
 
 ```bash
 F=example/ppt_master/fixtures
@@ -209,7 +209,7 @@ ls $F/exports/   # 期望: *.pptx + validation/*report.json (passed)
 
 Expected: `exports/` 出现 .pptx；用 `python -c "from pptx import Presentation; print(len(Presentation(r'<pptx 路径>').slides))"` 断言 1 页。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add example/ppt_master/vendor example/ppt_master/fixtures example/test_ppt_master_vendor.py
@@ -224,7 +224,7 @@ git commit -m "feat(ppt_master): vendor ppt-master SVG→PPTX 最小闭包 + fix
 - Create: `example/ppt_master/workspace.py`
 - Test: `example/test_ppt_master_workspace.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 # example/test_ppt_master_workspace.py
@@ -263,12 +263,12 @@ def test_append_workflow_log(tmp_path):
     assert "手工恢复一次" in log
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest example/test_ppt_master_workspace.py -q`
 Expected: FAIL（`No module named 'example.ppt_master'`）——先 `touch example/ppt_master/__init__.py`（空文件）再跑仍是 FAIL（缺函数）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```python
 # example/ppt_master/workspace.py
@@ -335,12 +335,12 @@ def gate_report_path(root: str | Path, stage: str) -> Path:
     return Path(root) / "validation" / name
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest example/test_ppt_master_workspace.py -q`
 Expected: PASS（4 项）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add example/ppt_master/__init__.py example/ppt_master/workspace.py example/test_ppt_master_workspace.py
