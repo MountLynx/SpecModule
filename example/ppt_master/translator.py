@@ -53,10 +53,14 @@ def build_generate_tasklist(
     # roster——id 集合必须恰为 p01..pNN（schema 侧不知道 N，约束归翻译器）
     expected = {f"p{i:02d}" for i in range(1, n + 1)}
     actual = {p["id"] for p in roster}
-    if actual != expected:
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    if missing or extra:
         raise ValueError(
             f"非法 spec: 'roster' 页 id 集合必须恰为 "
-            f"['p01'..'p{n:02d}']（顺序不敏感），实际 {sorted(actual)}"
+            f"['p01'..'p{n:02d}']（顺序不敏感）"
+            + (f"，缺失 {missing}" if missing else "")
+            + (f"，多余 {extra}" if extra else "")
         )
     batch1 = min(5, n)
     notes_on = (spec.get("production") or {}).get("speaker_notes", True)
@@ -71,20 +75,17 @@ def build_generate_tasklist(
     flow: list[str] = []
 
     # ── 头段：源 → Init → Plan → PlanValidate ──
-    if topic:
-        tasks["Research"] = {"type": "script", "script": "research_node"}
-        tasks["Init"] = {"type": "script", "script": "init",
-                         "inputs": {"source": "Research"}}
-        flow.append("[Research] --> Init")
-        plan_src = "Research"
-    else:
-        tasks["Ingest"] = {"type": "script", "script": "ingest"}
-        tasks["Init"] = {"type": "script", "script": "init",
-                         "inputs": {"source": "Ingest"}}
-        flow.append("[Ingest] --> Init")
-        plan_src = "Ingest"
+    # 注册名核实：files 源 ingest / topic 源 research_node（tools_nodes 与
+    # llm_nodes 的注册名不对称，不可"补齐"命名）
+    src_task, src_script = (
+        ("Research", "research_node") if topic else ("Ingest", "ingest")
+    )
+    tasks[src_task] = {"type": "script", "script": src_script}
+    tasks["Init"] = {"type": "script", "script": "init",
+                     "inputs": {"source": src_task}}
+    flow.append(f"[{src_task}] --> Init")
     tasks["Plan"] = {"type": "script", "script": "plan_node",
-                     "inputs": {"source": plan_src}}
+                     "inputs": {"source": src_task}}
     tasks["PlanValidate"] = {"type": "script", "script": "plan_validate",
                              "inputs": {"plan": "Plan"}}
     flow.append("Init --> Plan")
@@ -103,10 +104,14 @@ def build_generate_tasklist(
     tasks["Calibrate"] = {"type": "script", "script": "calibrate"}
     flow.append(f"{prev} --> Calibrate")
 
+    def _page_task() -> dict:
+        """页任务 dict（批1/批2 两个循环共用，输入绑定一致）。"""
+        return {"type": "script", "script": "page_node",
+                "inputs": {"plan": "Plan", "calibration": "Calibrate"}}
+
     # ── 页段：批1（P01..P05）→ 门1；早门段守卫分流 ──
     for i in range(1, batch1 + 1):
-        tasks[f"P{i:02d}"] = {"type": "script", "script": "page_node",
-                              "inputs": {"plan": "Plan", "calibration": "Calibrate"}}
+        tasks[f"P{i:02d}"] = _page_task()
         flow.append(f"Calibrate --> P{i:02d}")
         flow.append(f"P{i:02d} --> {gate1}")
 
@@ -147,8 +152,7 @@ def build_generate_tasklist(
     # 批2 页（仅 n > 6）：EarlyDispatch 扇出后进 FinalGate
     if early:
         for i in range(batch1 + 1, n + 1):
-            tasks[f"P{i:02d}"] = {"type": "script", "script": "page_node",
-                                  "inputs": {"plan": "Plan", "calibration": "Calibrate"}}
+            tasks[f"P{i:02d}"] = _page_task()
             flow.append(f"{batch2_src} --> P{i:02d}")
             flow.append(f"P{i:02d} --> FinalGate")
 
@@ -181,10 +185,16 @@ def build_generate_tasklist(
     return tasks, "\n".join(flow)
 
 
-def tl_generate(view) -> dict[str, Any]:
-    """模板翻译入口：校验并回填 spec → 初始化 workspace + 信封 → tasklist。"""
+def tl_generate(view: Any) -> dict[str, Any]:
+    """模板翻译入口：校验回填 spec → 展开 tasklist（花名册差集校验在此，
+    schema 不知道 N）→ 初始化 workspace + 信封 → 返回。
+
+    先展开后落盘：展开期 ValueError（如花名册缺页 id）fail-fast 于任何
+    workspace 目录/信封写入之前，不残留空项目目录与陈旧 pid 信封。
+    """
     spec = view.field("spec")
     spec_schema.validate_ppt_spec(spec)   # 原地校验 + 缺省回填（一次）
+    tasks, flow = build_generate_tasklist(spec)
     root = workspace.init_workspace(spec["output"]["dir"])
     workspace.write_envelope({
         "output_dir": str(root),
@@ -192,5 +202,4 @@ def tl_generate(view) -> dict[str, Any]:
         "sources": spec["source"].get("paths") or [],
         "spec": spec,
     })
-    tasks, flow = build_generate_tasklist(spec)
     return {"Tasks": tasks, "Flow": flow}

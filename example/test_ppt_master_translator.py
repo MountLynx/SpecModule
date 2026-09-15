@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from example.ppt_master import workspace
@@ -47,6 +49,7 @@ def test_ten_pages_has_early_gate_and_batching():
     assert "EarlyRepair --> FinalGate" in flow
     assert "P10 --> FinalGate" in flow
     assert "EarlyDispatch --> P06" in flow
+    # 钉死单一干净路径形状（计划 Step 4 注：干净出边只有一条，无二段守卫）
     assert "early_clean2" not in flow
     assert "FinalGate.join: OR" in flow
 
@@ -82,6 +85,41 @@ def test_roster_ids_must_be_exactly_p01_to_pNN():
                                                  {"id": "p02", "title": "b"}]))
 
 
+def _command_table() -> dict[str, float]:
+    """解析 translator.py 模块 docstring 的命令表 → {命令名: 超时秒}。
+
+    表是注册方（module.py）构建 CommandConfig 的唯一契约文本；此解析器
+    让"任务引用 ↔ 表"漂移可测（Task 8 可同法扩展断言工具/参数列）。
+    """
+    from example.ppt_master import translator
+
+    table: dict[str, float] = {}
+    for line in (translator.__doc__ or "").splitlines():
+        m = re.fullmatch(r"\s+(ppt_\w+)\s+\S.*?\s+(\d+)s\s*", line)
+        if m:
+            table[m.group(1)] = float(m.group(2))
+    assert len(table) >= 6, f"docstring 命令表解析不足 6 行（表格式变了？）: {table}"
+    return table
+
+
+def test_command_tasks_match_docstring_table():
+    """生成任务的命令名/超时必须与 docstring 命令表逐项一致（防漂移）。"""
+    table = _command_table()
+    covered: set[str] = set()
+    for spec in (_spec(10),  # 早门 + 终门 + notes 全链
+                 _spec(3, production={"speaker_notes": False})):  # nonotes 分叉
+        tasks, _ = build_generate_tasklist(spec)
+        for task in tasks.values():
+            if task["type"] != "command":
+                continue
+            name = task["command"]
+            assert name in table, f"命令 '{name}' 不在 docstring 命令表"
+            assert task["timeout"] == table[name], \
+                f"命令 '{name}' 超时 {task['timeout']} != 表 {table[name]}"
+            covered.add(name)
+    assert covered == set(table), f"表中有未被任务覆盖的命令: {set(table) - covered}"
+
+
 def test_flow_parses_clean_without_deadlock():
     """flow 过 tickflow 解析、无未解死锁、无孤立节点（n=4 与 n=10 两种形状）。
 
@@ -100,7 +138,7 @@ def test_flow_parses_clean_without_deadlock():
         graph = parse(flow, registry=reg)
         assert check(graph) == []
         for key in tasks:
-            assert key in flow  # 无孤立节点
+            assert key in graph.nodes  # 无孤立节点（图节点级，非子串匹配）
 
 
 def _simulate(flow: str, page_keys: list[str], gate_errors: list[bool]) -> dict:
@@ -206,3 +244,18 @@ def test_tl_generate_writes_envelope_and_returns_tasks(tmp_path, monkeypatch):
     envelope = workspace.read_envelope()
     assert envelope["roster"][0]["id"] == "p01"
     assert (tmp_path / "projects" / "t").is_dir()
+
+
+def test_tl_generate_failfast_leaves_no_workspace(tmp_path, monkeypatch):
+    """先展开后落盘：花名册差集 ValueError（schema 抓不到、只在展开期抛）
+    必须发生在任何 workspace 目录 / pid 信封写入之前——失败零残留。"""
+    from example.ppt_master.translator import tl_generate
+    from module_harness.model.translator import _translator_view
+
+    monkeypatch.chdir(tmp_path)
+    spec = _spec(2, roster=[{"id": "p01", "title": "a"},
+                            {"id": "p03", "title": "b"}])
+    with pytest.raises(ValueError, match="roster"):
+        tl_generate(_translator_view({"spec": spec}, "__translator__"))
+    assert not (tmp_path / "projects").exists()
+    assert not list(tmp_path.glob("specmodule_ppt_master_generate_*.json"))
