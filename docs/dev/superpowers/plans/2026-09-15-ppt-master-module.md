@@ -581,7 +581,7 @@ git commit -m "feat(ppt_master): spec 契约校验（页册先行 + 缺省回填
 - Create: `example/ppt_master/prompts_config.py`
 - Test: `example/test_ppt_master_prompts.py`
 
-- [ ] **Step 1: 拷贝并改编参考素材**
+- [x] **Step 1: 拷贝并改编参考素材**
 
 源目录：`$SRC/references/`（ppt-master skill）。逐文件拷贝后**在文件头加同一段改编声明**，并把文中"向用户提问/等待确认"类交互条款按声明的替代理解（这些条款分布稀疏，改编只做标记不重写正文）：
 
@@ -615,7 +615,7 @@ cp "$SRC/templates/design_spec_reference.md" "$SRC/templates/spec_lock_reference
 除此声明外，v1 未改动任何正文。后续若裁剪正文，逐条记录：文件、位置、原因。
 ```
 
-- [ ] **Step 2: 写失败测试**
+- [x] **Step 2: 写失败测试**
 
 ```python
 # example/test_ppt_master_prompts.py
@@ -654,12 +654,12 @@ def test_configs_shape():
     assert img.mode == "image" and img.output_format is None
 ```
 
-- [ ] **Step 3: 跑测试确认失败**
+- [x] **Step 3: 跑测试确认失败**
 
 Run: `python -m pytest example/test_ppt_master_prompts.py -q`
 Expected: FAIL
 
-- [ ] **Step 4: 实现 prompts_config.py**
+- [x] **Step 4: 实现 prompts_config.py**
 
 ```python
 # example/ppt_master/prompts_config.py
@@ -794,12 +794,12 @@ def image_config(image_dir: str) -> HarnessConfig:
     )
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `python -m pytest example/test_ppt_master_prompts.py -q`
 Expected: PASS（4 项）
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add example/ppt_master/prompts example/ppt_master/prompts_config.py example/test_ppt_master_prompts.py
