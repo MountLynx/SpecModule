@@ -10,3 +10,6 @@ build/
 .omp/
 
 /openspec
+
+# ppt_master 缺省导出目录（projects/<project>/）
+/projects/

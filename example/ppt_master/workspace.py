@@ -2,6 +2,8 @@
 
 command 节点命令串是静态的（框架约束）——动态路径（output_dir 等）写入
 pid 修饰的临时信封 JSON，路径字面量嵌进命令串，工具入口 run_tool.py 读信封。
+信封按 pid 隔离：同进程顺序多次运行安全；**同进程并发多个 generate** 会
+共用一路径互相覆写——并发隔离属 ecosystem 形态（独立进程）的职责。
 """
 
 from __future__ import annotations

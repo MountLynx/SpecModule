@@ -14,8 +14,8 @@ anthropic
 # provider=openai / openai-compatible 时所需
 openai
 
-# ── example/ppt_writer 使用 ─────────────────────────────────────────
-# spec → .pptx 渲染（渲染器零 LLM；缺失时渲染/模板工作流报含安装指引的清晰错误）
+# ── ppt_master vendor 闭包（svg_to_pptx 导出管线）使用 ───────────────
+# SVG → .pptx 确定性编译（原 ppt_writer 渲染亦用；缺失时报含安装指引的清晰错误）
 python-pptx>=1.0
 
 # ── 输出校验（推荐）─────────────────────────────────────────────────

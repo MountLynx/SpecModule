@@ -91,7 +91,7 @@ Literal/Semantic 要求（Plan 无权改），空缺字段是 Plan 裁量域。
   "style":   { "mode": "...", "visual_style": "...", "palette": {...},
                "typography": {...}, "icons": {"library": "tabler-outline",
                "stroke_width": 2} },
-  "images":  { "sources": ["ai|web|user|none"], "notes": "策略说明" },
+  "images":  { "sources": ["ai|web|user|placeholder|none"], "notes": "策略说明" },  // 实现含 placeholder（spec_schema._IMAGE_SOURCES）
   "production": { "speaker_notes": true },
   "template": { "roots": [] },      // 一期不实现（见 §10），字段保留
   "output":  { "dir": "projects/my_paper_ppt" }
@@ -133,7 +133,7 @@ ppt-master 逻辑构造阶段同序；初稿误置于终门前。）
 | Research | harness（条件：topic-only 或事实缺口） | 研究对落盘（facts + research.md） |
 | Init | script | 项目目录契约 + workflow.log |
 | Plan | harness（Strategist 角色，3 层 prompt） | spec 契约 + 源事实 → design_spec.md + spec_lock.md（方向构造、§IX 细化、§VIII 资源行、锁锚点；无权改页册） |
-| PlanValidate | script | 页册保真（数量/顺序/标题不变）、每页 Audience move 存在、§VIII 行与 spec 图像声明一致、锁锚点齐全；违反即 fail-fast |
+| PlanValidate | script | 页册保真（数量/顺序/标题不变）、每页 Audience move 存在、§VIII 行与 spec 图像声明一致、锁锚点齐全；违反即 fail-fast （实现注：机械化子集——页 id 集合+顺序、每页 Audience move、palette/typography 锚点；标题保真与 §VIII 行一致性留待真实 LLM 调优轮，见实施计划 Task 6） |
 | IconSync | command（`icon_sync.py`，条件） | 图标池物化到 `icons/` |
 | ImageAcquire | harness 图像模式 + command（`image_gen` / `image_search` / `slice_images` / `analyze_images`，条件） | §VIII 行全部终态化 |
 | Calibrate | command（`text_measure.py calibrate`） | 角色字宽校准表 → 全体页节点共享输入 |
