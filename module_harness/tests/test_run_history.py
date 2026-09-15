@@ -144,6 +144,16 @@ class TestListRuns:
         (row,) = list_runs(base_dir=tmp_path)
         assert row["tick"] == 7   # status.json 键优先，sqlite 里的 3 不生效
 
+    def test_latest_tick_corrupt_db_is_none(self, tmp_path):
+        """_latest_tick_light 容错：坏 db → tick=None，列表照常返回该 run。"""
+        run_dir = tmp_path / ".specmodule" / "runs" / "run_bad"
+        run_dir.mkdir(parents=True)
+        (run_dir / "run.sqlite").write_text("not a db{{", encoding="utf-8")
+        _write_status(tmp_path, "run_bad", updated_at=1.0)
+        (row,) = list_runs(base_dir=tmp_path)
+        assert row["run_id"] == "run_bad"
+        assert row["tick"] is None
+
 
 class TestRecentRuns:
     def test_empty_when_no_runs_root(self, tmp_path):

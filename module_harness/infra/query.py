@@ -392,19 +392,27 @@ def _runs_root(base_dir: Path | None) -> Path:
 
 
 def _latest_tick_light(db_path: Path, module_id: str) -> int | None:
-    """轻量读最新 tick（仅 latest_tick 单条查询，不解析快照）；失败 → None。
+    """轻量读最新 tick（只读连接单条 max 查询，不解析快照）；失败 → None。
 
-    list 场景的权衡：不对每个 run 全量解析 run.sqlite 快照，tick 用一条
-    max 查询近似（监控列表足够；详情走 query_run_status）。
+    list 场景的权衡：不对每个 run 全量解析 run.sqlite，tick 用一条 max 查询
+    近似（监控列表足够；详情走 query_run_status）。连接用只读 URI 模式而非
+    ``SqliteBackend``：后者建连即 ``PRAGMA journal_mode=WAL`` + 建表检查（每次
+    打开都是写锁，历史一大列表端点就不可用）；路径经 ``as_uri`` 百分号编码
+    （中文/空格安全）。只读打开 WAL 库需 -shm 侧车在（活跃写入方必然已建），
+    残留 -wal 且无 -shm 的脏库打不开 → 按契约记 None。
     """
     try:
-        from tickflow.persistence import SqliteBackend
+        import sqlite3
 
-        backend = SqliteBackend(db_path)
+        con = sqlite3.connect(f"{db_path.as_uri()}?mode=ro", uri=True)
         try:
-            return backend.latest_tick(module_id)
+            row = con.execute(
+                "SELECT MAX(tick) FROM snapshots WHERE session_id = ?",
+                (module_id,),
+            ).fetchone()
         finally:
-            backend.close()
+            con.close()
+        return row[0] if row and row[0] is not None else None
     except Exception:
         log.exception("读取最新 tick 失败（记 None）: %s", db_path)
         return None
