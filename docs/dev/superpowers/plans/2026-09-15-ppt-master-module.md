@@ -1846,7 +1846,7 @@ git commit -m "feat(ppt_master): generate 翻译器（页册静态展开 + 批�
 - Create: `example/modules/ppt_master.py`
 - Test: `example/test_ppt_master_module.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 # example/test_ppt_master_module.py
@@ -1882,12 +1882,12 @@ def test_template_declares_script_translation():
 
 注意：`_build_registry(llm_client=object())` 第二参缺省（event_bus=None → EventBus.null()，签名按此实现）。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest example/test_ppt_master_module.py -q`
 Expected: FAIL
 
-- [ ] **Step 3: 实现 module.py + modules/ppt_master.py + test_support**
+- [x] **Step 3: 实现 module.py + modules/ppt_master.py + test_support**
 
 ```python
 # example/ppt_master/module.py
@@ -2062,12 +2062,12 @@ def sample_spec() -> dict:
     }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest example/test_ppt_master_module.py -q`
 Expected: PASS。若 validator 报"孤立节点/未注册"，按报错补注册或改流——**以 validator 为准**，它是翻译校验的同一道闸。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add example/ppt_master/module.py example/ppt_master/test_support.py example/modules/ppt_master.py example/test_ppt_master_module.py
