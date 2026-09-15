@@ -32,6 +32,8 @@ def test_four_pages_no_early_gate():
     assert "NotesGen" in tasks  # notes 缺省开
     assert "SplitNotes" in tasks and "Export" in tasks
     assert "ImageAcquire" not in tasks  # 无 images 声明
+    # notes 缺省开 → export 引带备注的注册名
+    assert tasks["Export"]["command"] == "ppt_export"
     # 修复回边入 AND 门永不点火（Repair 槽位永不齐整）→ FinalGate 必须 OR-join
     assert "FinalGate.join: OR" in flow
 
@@ -61,8 +63,8 @@ def test_images_branch_and_notes_off():
     assert "ImageAcquire" in tasks and "IconSync" in tasks
     assert "ImageReadiness" in tasks
     assert "NotesGen" not in tasks and "SplitNotes" not in tasks
-    # notes 关 → export 命令带 --no-notes
-    assert "--no-notes" in tasks["Export"]["command"]
+    # notes 关 → export 引无备注的注册名
+    assert tasks["Export"]["command"] == "ppt_export_nonotes"
 
 
 def test_topic_source_uses_research_node():
@@ -99,6 +101,96 @@ def test_flow_parses_clean_without_deadlock():
         assert check(graph) == []
         for key in tasks:
             assert key in flow  # 无孤立节点
+
+
+def _simulate(flow: str, page_keys: list[str], gate_errors: list[bool]) -> dict:
+    """假 body 引擎仿真：真实 flow 原样过 tickflow Runner，钉死门"波"语义。
+
+    页 body 把自身节点名记入"已落盘"集合；门 body 记录每次点火时在盘的页
+    集合；gate_errors 队列控制逐轮终检裁决（True=有错→Repair 回边；耗尽
+    后全程干净）。返回点火统计（gate_seen / fired / repair）。
+    """
+    from tickflow import Registry, Runner, parse
+
+    state: dict = {"pages_done": set(), "gate_seen": [], "repair": 0,
+                   "verdicts": list(gate_errors), "last": False}
+    reg = Registry()
+    reg.guard("early_issues", lambda view: state["last"])
+    reg.guard("early_clean", lambda view: not state["last"])
+    reg.guard("final_errors", lambda view: state["last"])
+    reg.guard("final_clean", lambda view: not state["last"])
+
+    def body_page(view):
+        state["pages_done"].add(view.node)  # 页 SVG 视为已落盘
+        return {}
+
+    def body_gate(view):
+        state["gate_seen"].append(sorted(state["pages_done"]))
+        return {}
+
+    def body_verdict(view):
+        state["last"] = bool(state["verdicts"].pop(0)) if state["verdicts"] else False
+        return {}
+
+    def body_repair(view):
+        state["repair"] += 1
+        return {}
+
+    def body_noop(view):
+        return {}
+
+    reg.body("sim_page", body_page)
+    reg.body("sim_gate", body_gate)
+    reg.body("sim_verdict", body_verdict)
+    reg.body("sim_repair", body_repair)
+    reg.body("sim_noop", body_noop)
+
+    graph = parse(flow, registry=reg)
+    for key, node in graph.nodes.items():
+        if key in page_keys:
+            node.body = "sim_page"
+        elif key == "FinalGate":
+            node.body = "sim_gate"
+        elif key == "FinalVerdict":
+            node.body = "sim_verdict"
+        elif key == "Repair":
+            node.body = "sim_repair"
+        else:
+            node.body = "sim_noop"
+
+    runner = Runner(graph, registry=reg)
+    seen = runner.run_until_idle(max_ticks=30)
+    state["fired"] = [f.node for f in seen]
+    return state
+
+
+def test_or_join_gate_fires_once_with_full_deck():
+    """OR 门"波"语义钉死（勿改回 AND）：n=3 干净路径下扇出页同 tick 齐发
+    （同步 tick 屏障），FinalGate 恰 1 次点火且见全册；Report 到达、Repair
+    未点火。对照：去 OR 改回 AND → 门 0 次点火、图停滞（条件 producer
+    Repair 槽位永不齐整）。"""
+    _, flow = build_generate_tasklist(_spec(3))
+    page_keys = ["P01", "P02", "P03"]
+
+    sim = _simulate(flow, page_keys, gate_errors=[])
+    assert sim["gate_seen"] == [["P01", "P02", "P03"]]
+    assert "Repair" not in sim["fired"]
+    assert sim["fired"][-1] == "Report"
+
+    sim_and = _simulate(flow.replace("FinalGate.join: OR\n", ""), page_keys, [])
+    assert sim_and["gate_seen"] == []            # AND 门一次都点不了火
+    assert "Report" not in sim_and["fired"]      # 图在页段后停滞
+
+
+def test_or_join_repair_loop_fires_gate_once_per_wave():
+    """修复回边单独成波：一轮有错 → FinalGate 恰 2 次点火（初检 + 复检，
+    非逐页多发）、Repair 1 次、Report 恰 1 次，复检仍见全册。"""
+    _, flow = build_generate_tasklist(_spec(3))
+    sim = _simulate(flow, ["P01", "P02", "P03"], gate_errors=[True])
+    assert len(sim["gate_seen"]) == 2
+    assert sim["gate_seen"][1] == ["P01", "P02", "P03"]
+    assert sim["fired"].count("Repair") == 1
+    assert sim["fired"].count("Report") == 1
 
 
 def test_tl_generate_writes_envelope_and_returns_tasks(tmp_path, monkeypatch):

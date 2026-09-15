@@ -2,35 +2,41 @@
 
 页册先行：roster 静态展开为 N 个页节点（P01..P{nn}，运行时按 P01→p01
 反查 roster id）；批1 = min(5, N) 过 EarlyGate（N ≤ 6 无早门，批2 页从
-EarlyDispatch 扇出）；条件段按 spec 声明生成/省略。命令串静态，动态路径
-经信封（workspace._envelope_path() 字面量嵌入）。守卫环：
-FinalVerdict --|final_errors|--> Repair --> FinalGate（环上含守卫边，
-满足 tickflow 环约束）。
+EarlyDispatch 扇出）；条件段按 spec 声明生成/省略。命令任务按框架约定
+引**注册名**（字面串归注册方 module.py 的 CommandConfig：
+run_tool.py --envelope <workspace._envelope_path()> --tool <tool> [-- args]；
+同进程注册 → 同 pid → 信封路径一致）。命令名 → vendor 工具 + 参数 +
+超时（module.py 据此构建 CommandConfig，六个名字缺一不可；注册缺失会在
+TasklistValidator / 构图时点名 fail-fast）::
+
+    ppt_early_gate      svg_quality_checker.py --stage early --canonical-authoring --json   600s
+    ppt_final_gate      svg_quality_checker.py --stage final --canonical-authoring --json   900s
+    ppt_split_notes     total_md_split.py                                                   120s
+    ppt_finalize        finalize_svg.py                                                     600s
+    ppt_export          svg_to_pptx.py                                                     1200s
+    ppt_export_nonotes  svg_to_pptx.py --no-notes                                          1200s
+
+守卫环：FinalVerdict --|final_errors|--> Repair --> FinalGate（环上含
+守卫边，满足 tickflow 环约束）。
 
 FinalGate 必须声明 OR-join（flow 中 ``FinalGate.join: OR`` 行）：Repair
-是门的**条件** producer，AND-join 要求全部 producer 槽位齐整——修复回边
-只有在出错波次才产槽位，干净波次永不齐 → 门一次都点不了火（n > 6 时还
-会被 tickflow checker 判 XOR-splitter 死锁，Runner 构造即抛
-DeadlockError）。OR-join 在同步 tick 屏障下每"波"输入恰好点一次火：
-同波页节点齐发共占一个 tick，修复回边单独成波——正是门语义。
+是门的**条件** producer，AND-join 要求全部 producer 槽位齐整——干净路径
+Repair 永不产槽位，门一次都点不了火（n > 6 时还会被 tickflow checker 判
+XOR-splitter 死锁，Runner 构造即抛 DeadlockError）。OR-join 的"波"语义
+（勿"修"回 AND——饿死；也非"每页到齐各发一次"）：同步 tick 屏障下同波
+producer 齐发共占一个 tick，扇出的页节点天然同波，故门**单次点火即见全
+册**；修复回边单独成波，每波恰点一次火。该语义由
+test_or_join_gate_fires_once_with_full_deck（干净路径恰 1 次点火见全册，
+及去 OR 改回 AND 后 0 次点火饿死的对照）与
+test_or_join_repair_loop_fires_gate_once_per_wave（有错一轮：门 2 次、
+Repair 1 次、Report 1 次）以假 body 引擎仿真动态钉死。
 """
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Any
 
 from . import spec_schema, workspace
-
-_RUN_TOOL = Path(__file__).resolve().parent / "tools" / "run_tool.py"
-
-
-def _cmd(tool: str, *tool_args: str) -> str:
-    args = " ".join(tool_args)
-    suffix = f" -- {args}" if args else ""
-    return (f'"{sys.executable}" "{_RUN_TOOL}" '
-            f'--envelope "{workspace._envelope_path()}" --tool {tool}{suffix}')
 
 
 def build_generate_tasklist(
@@ -105,9 +111,7 @@ def build_generate_tasklist(
         flow.append(f"P{i:02d} --> {gate1}")
 
     if early:
-        tasks["EarlyGate"] = {"type": "command",
-                              "command": _cmd("svg_quality_checker.py",
-                                              "--stage early --canonical-authoring --json"),
+        tasks["EarlyGate"] = {"type": "command", "command": "ppt_early_gate",
                               "timeout": 600.0}
         tasks["EarlyVerdict"] = {"type": "script", "script": "early_verdict",
                                  "inputs": {"gate": "EarlyGate"}}
@@ -125,9 +129,7 @@ def build_generate_tasklist(
         batch2_src = None  # n ≤ 6：无批2
 
     # ── 终门 + 修复守卫环 + 汇出 ──
-    tasks["FinalGate"] = {"type": "command",
-                          "command": _cmd("svg_quality_checker.py",
-                                          "--stage final --canonical-authoring --json"),
+    tasks["FinalGate"] = {"type": "command", "command": "ppt_final_gate",
                           "timeout": 900.0}
     tasks["FinalVerdict"] = {"type": "script", "script": "final_verdict",
                              "inputs": {"gate": "FinalGate"}}
@@ -161,17 +163,15 @@ def build_generate_tasklist(
         tasks["NotesGen"] = {"type": "script", "script": "notes_node"}
         flow.append(f"{prev} --> NotesGen")
         prev = "NotesGen"
-        tasks["SplitNotes"] = {"type": "command",
-                               "command": _cmd("total_md_split.py"),
+        tasks["SplitNotes"] = {"type": "command", "command": "ppt_split_notes",
                                "timeout": 120.0}
         flow.append(f"{prev} --> SplitNotes")
         prev = "SplitNotes"
-    tasks["Finalize"] = {"type": "command", "command": _cmd("finalize_svg.py"),
+    tasks["Finalize"] = {"type": "command", "command": "ppt_finalize",
                          "timeout": 600.0}
     flow.append(f"{prev} --> Finalize")
-    export_args = [] if notes_on else ["--no-notes"]
     tasks["Export"] = {"type": "command",
-                       "command": _cmd("svg_to_pptx.py", *export_args),
+                       "command": "ppt_export" if notes_on else "ppt_export_nonotes",
                        "timeout": 1200.0}
     flow.append("Finalize --> Export")
     tasks["Report"] = {"type": "script", "script": "ppt_report",
