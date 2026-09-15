@@ -45,8 +45,11 @@ _SVG = _FIXTURE_SVG.read_text(encoding="utf-8")
 # 的 palette 锚点词（Task 6）；节/行结构与实测通过的 fixture 完全一致
 _LOCK = _FIXTURE_LOCK.read_text(encoding="utf-8").replace(
     "# Execution Lock",
-    "# Execution Lock (palette + typography anchored)",
+    "# Execution Lock (palette anchored)",
 )
+assert "palette" in _LOCK   # 绊线：fixture 标题若变，此处即失败（非远处 plan_validate）
+# `#### Slide NN` 块喂 checker communication_trace（design_spec.md 在盘时的
+# 门要求）；`## pNN` 块喂 plan_validate——Audience move 双写是两校验器重叠要求。
 _SPEC_MD = (
     "# spec\n"
     "## IX. Content Outline\n\n"
@@ -115,7 +118,9 @@ def test_full_pipeline_mock(tmp_path, monkeypatch):
         _spec(out_dir), llm_client=ScriptedMock(), persist=False))
     by_node = {f.node: f.output for f in firings}
 
-    assert by_node["Report"]["status"] == "ok", by_node.get("Report")
+    report = by_node.get("Report", {})
+    assert report.get("status") == "ok", (
+        f"Report 收据: {report}（fired 节点: {sorted(by_node)}）")
     # 门一次过（fixture SVG 已验过 final 门）：verdict 干净、零修复轮
     assert by_node["FinalVerdict"]["ok"] is True, by_node.get("FinalVerdict")
     assert "Repair" not in by_node, by_node.get("Repair")
@@ -144,6 +149,7 @@ def test_cli_mock_smoke(tmp_path, monkeypatch, capsys):
     import module_harness.cli.cli as cli_mod
 
     monkeypatch.setattr(cli_mod, "MockLLMClient", ScriptedMock)
+    monkeypatch.setattr(workspace, "_ENVELOPE_DIR", tmp_path)  # 信封不落共享 %TEMP%
     monkeypatch.chdir(tmp_path)
     from module_harness.cli import main
     spec = _spec(tmp_path / "cli_deck")
@@ -154,4 +160,7 @@ def test_cli_mock_smoke(tmp_path, monkeypatch, capsys):
         "--spec", json.dumps(spec, ensure_ascii=False),
     ])
     assert rc == 0, capsys.readouterr().err
-    assert list((tmp_path / "cli_deck" / "exports").glob("*.pptx"))
+    pptx = list((tmp_path / "cli_deck" / "exports").glob("*.pptx"))
+    assert pptx, "exports/ 应有 pptx"
+    from pptx import Presentation
+    assert len(Presentation(str(pptx[0])).slides) == 4
