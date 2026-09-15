@@ -205,13 +205,17 @@ harness 图像模式，2026-09-15）
   保留为代码密集通道（`publish` 单文件转化按 D9 诚实报错）→ 任务 5.x
 
 **独立线（机制上不依赖主线，可与主线并行；接缝处标注）**
-- [x] **M2 论文→PPT 实践线（基础版已完成，ppt-writer-module 变更，2026-08-25）**：
-  框架能力验收——完整 spec 驱动（page > section > 模板归一化）、双模板
-  （`ppt_render` 渲染 + `template_review` 制作工作流）、command 节点确定性渲染
-  （python-pptx 子进程，零 LLM，mock 冒烟可用）、硬合规 fail-fast + 模板资产
-  （reference/ + manifest）。待办：**发布→install→run 环节对接 store**（M2 产物
-  走 publish→install→run 闭环，主线首个真实验收用例）；stage 2（材料→内容生成）
-  为后续扩展
+- [x] **M2 论文→PPT 实践线（ppt-master 化重构，2026-09-15 设计）**：
+  ppt_writer 基础版（python-pptx 模板填充）已由 `ppt_master` 模块替代归档。
+  新模块完全复刻 ppt-master Generate 主线工程范式：LLM 逐页 SVG → 早/终
+  质量门（守卫修复环）→ svg_to_pptx 确定性编译（vendor MIT 最小闭包）；
+  spec 即确认（页册先行，非交互）；设计见
+  `docs/dev/superpowers/specs/2026-09-15-ppt-master-module-design.md`。
+  待办：store 发布闭环（publish→install→run，Mock 全链零 LLM 路径作首个
+  验收 fixture）；真实 LLM 端到端调优（prompt 素材质量）。遗留缺口简记：
+  早门 issues 分支时批 2 页不生成（EarlyDispatch 只挂 early_clean）且
+  vendor checker 不查页册完整性——后续可在 checker 或 PlanValidate 侧补
+  页册完整性证据
 - [x] **嵌入式验证（已完成）**：最小 demo 项目 `pip install specmodule` 后 `import Module / HarnessRegistry`
   跑通一个 workflow——证明库面干净、可嵌入（`examples/embed_minimal/`；暴露并修复
   `register_builtin_harnesses` 未从包顶层导出的库面缺口）
@@ -277,6 +281,8 @@ harness 图像模式，2026-09-15）
 - submodule 打包发布（发布为可复用 submodule + spec schema 契约）
 - **store 对接（新增，2026-08-22）**：发布产物走 `publish` → `install` → `run` 闭环，作为
   module-user-store 主线的**首个真实验收用例**（不另建 store 测试模块，直接吃 M2 产物）
+- **守卫修复环 + 失败收据（新增）**：门失败定向修复（上限 2 轮）、页节点
+  失败收据保证 AND join 不饿死（tickflow Failure 语义下的非交互补强）
 
 ---
 
