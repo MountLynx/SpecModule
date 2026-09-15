@@ -17,7 +17,9 @@ PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 REQUIRED_ASSETS = (
     "strategist.md", "plan-core.md", "executor-base.md",
     "shared-standards-core.md", "semantic-svg.md",
-    "preset-shape-vocabulary.md", "executor-notes.md", "image-base.md",
+    "preset-shape-vocabulary.md", "executor-notes.md",
+    # image-base：图像风格参考，v1 不入包（图像节点直用行 prompt）
+    "image-base.md",
     "design_spec_reference.md", "spec_lock_reference.md",
 )
 
@@ -54,6 +56,7 @@ _PLAN_CORE = (
     "并以 JSON 收据返回。硬规则：页册神圣——不得增删页、改序、改标题；"
     "spec 已确认字段为 Literal/Semantic 要求逐字保留；空缺字段你裁量并在"
     "收据 provenance 标 planner-decided。\n"
+    # 收据括号串为 schema 提示；PromptRenderer 仅替换 \w+ 键，逗号组原样透传
     "收据 JSON：{status, roster_ids, design_spec_md, spec_lock_md, "
     "image_rows, icon_pool, notes_enabled}\n"
     "占位符 —— 契约：{contract}；页册：{roster}；源摘要：{source_digest}"

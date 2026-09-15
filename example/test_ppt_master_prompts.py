@@ -23,11 +23,14 @@ def test_page_pack_contains_vocab():
 
 
 def test_configs_shape():
+    expected = {"ppt_plan": "json_object", "ppt_research": "json_object",
+                "ppt_page": "text", "ppt_repair": "text", "ppt_notes": "text"}
     for cfg in (pc.plan_config(), pc.page_config(), pc.repair_config(),
                 pc.notes_config(), pc.research_config()):
         assert cfg.prompt_core
         assert cfg.mode == "text"
         assert cfg.prompt_modes == {}  # v1 层 2 预留
+        assert cfg.output_format.type == expected[cfg.name]
     # 图像配置：image 模式互斥断言
     img = pc.image_config(image_dir="x")
     assert img.mode == "image" and img.output_format is None
