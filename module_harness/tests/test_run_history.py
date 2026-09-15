@@ -202,6 +202,21 @@ class TestRecentRuns:
         assert out["runs"][0]["run_id"] == "bad_run"
         assert out["runs"][0]["phase"] == "unknown"
 
+    def test_missing_status_falls_back_to_dir_mtime(self, tmp_path):
+        """空 run 目录（无 status.json）→ 计入 total、phase=unknown、按目录自身 mtime 排序。"""
+        import os
+        import time
+        run_dir = _write_status(tmp_path, "run_ok")
+        bare = tmp_path / ".specmodule" / "runs" / "run_bare"
+        bare.mkdir(parents=True)
+        now = time.time()
+        os.utime(run_dir / "status.json", (now - 600, now - 600))
+        out = recent_runs(base_dir=tmp_path)
+        # run_ok 锚定 status.json mtime（now-600）；bare 无 status.json → 目录 mtime（刚创建，更新近）
+        assert out["total"] == 2
+        assert [r["run_id"] for r in out["runs"]] == ["run_bare", "run_ok"]
+        assert out["runs"][0]["phase"] == "unknown"
+
 
 class TestDeleteRun:
     def test_deletes_whole_tree(self, tmp_path):

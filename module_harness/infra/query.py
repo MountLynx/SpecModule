@@ -386,7 +386,7 @@ def read_module_inputs(
 
 
 def _runs_root(base_dir: Path | None) -> Path:
-    """``<base>/.specmodule/runs``（list_runs/delete_run 共用路径规则）。"""
+    """``<base>/.specmodule/runs``（list_runs/recent_runs/delete_run 共用路径规则）。"""
     base = base_dir if base_dir is not None else Path.cwd()
     return base / ".specmodule" / "runs"
 
@@ -466,15 +466,23 @@ def recent_runs(base_dir: Path | None = None, *, limit: int = 100) -> dict[str, 
     """最近运行快速列表（Web 列表共享层）：单次成本与历史规模解耦。
 
     ``os.scandir`` 取目录名 + status.json mtime（每目录一次元数据 stat，不
-    打开文件内容；status.json 缺失/不可达的裸目录回落目录自身 mtime），
-    mtime 降序（同值按目录名降序）——运行中的 run 每 tick 重写 status.json
-    （就地改写不触碰父目录 mtime，故排序键必须锚定文件而非目录），mtime
-    必然新近、必然落在前 ``limit`` 条内。只对前 ``limit`` 条读 status.json
-    构建完整行（行形状同 :func:`list_runs`，经 ``_run_row``），且 tick **不
-    回落 sqlite 近似**（旧 run 无 status.json tick 键 → None）。尾部不展开，
-    以 ``total`` 透出全量目录数供消费端提示（更早历史走 CLI ``runs``）。
-    容错同 ``list_runs``：runs 根不存在 / 扫描失败 → ``{"runs": [], "total": 0}``；
-    limit ≤ 0 → 只计数不展开。
+    打开文件内容），mtime 降序（同值按目录名降序）。排序键锚定 status.json
+    **文件**而非目录：目录 mtime 被同目录 sqlite WAL 侧车（-wal/-shm）随
+    读写增删污染、且不区分是哪个子项变化，文件 mtime 才精确刻画状态写入
+    时刻。status.json 仅在 phase 迁移时原子重写（tmp + os.replace；排序
+    粒度与 :func:`list_runs` 的 updated_at 一致）——非终态 run 每次迁移
+    刷新 mtime、新发起的 run 必然靠前；**长跑 run（长时间无 phase 迁移）
+    可能滑出前 ``limit`` 条**，尾部只计不展开，由 ``total`` 全量计数提示
+    （更早历史走 CLI ``runs``）。
+
+    只对前 ``limit`` 条读 status.json 构建完整行（行形状同
+    :func:`list_runs`，经 ``_run_row``），且 tick **不回落 sqlite 近似**
+    （旧 run 无 status.json tick 键 → None）；status.json 缺失/不可达的
+    裸目录以目录自身 mtime 参与排序、行按 ``phase="unknown"`` 收入。
+
+    容错（查询永不抛错）：runs 根不存在 / 扫描失败 → ``{"runs": [], "total": 0}``；
+    单条目录 stat 竞态失败（正被删除）→ 跳过该条不清空列表；limit ≤ 0 →
+    只计数不展开。
     """
     root = _runs_root(base_dir)
     if not root.is_dir():
@@ -488,7 +496,10 @@ def recent_runs(base_dir: Path | None = None, *, limit: int = 100) -> dict[str, 
                 try:
                     mtime = (root / e.name / "status.json").stat().st_mtime
                 except OSError:
-                    mtime = e.stat().st_mtime   # 裸目录 → 目录自身 mtime
+                    try:
+                        mtime = e.stat().st_mtime   # 裸目录 → 目录自身 mtime
+                    except OSError:
+                        continue   # 单条竞态（目录正被删除）→ 跳过，不清空列表
                 entries.append((e.name, mtime))
     except OSError:
         log.exception("扫描 runs 目录失败（返回空列表）: %s", root)
