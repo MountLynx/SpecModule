@@ -409,6 +409,58 @@ def _latest_tick_light(db_path: Path, module_id: str) -> int | None:
         return None
 
 
+def _run_row(run_dir: Path, *, tick_fallback: bool) -> dict[str, Any]:
+    """单 run 行构建（list_runs / recent_runs 共用）：读 status.json + sqlite 存在性。
+
+    tick 语义：status.json 的 ``tick`` 键优先（前瞻兼容）；无键且
+    ``tick_fallback`` 且有 sqlite 时回落 :func:`_latest_tick_light` 近似；
+    否则 None。容错：status.json 缺失/损坏 → phase="unknown" 收入不跳过
+    （删除入口要对坏目录可用），updated_at 记 0.0、module 记 None。
+    """
+    run_id = run_dir.name
+    has_sqlite = (run_dir / "run.sqlite").exists()
+    data: dict[str, Any] | None = None
+    try:
+        loaded = json.loads(
+            (run_dir / "status.json").read_text(encoding="utf-8")
+        )
+        if isinstance(loaded, dict):
+            data = loaded
+    except (OSError, ValueError):
+        data = None          # 缺失/损坏 → unknown（不跳过，删除入口可用）
+    module: str | None = None
+    error: str | None = None
+    phase = "unknown"
+    updated_at = 0.0
+    if data is not None:
+        if isinstance(data.get("module"), str):
+            module = data["module"]
+        raw_err = data.get("error")
+        if raw_err is not None:
+            error = str(raw_err)
+        if data.get("phase"):
+            phase = str(data["phase"])
+        try:
+            updated_at = float(data.get("updated_at", 0.0))
+        except (TypeError, ValueError):
+            updated_at = 0.0
+    tick: int | None = None
+    if data is not None and isinstance(data.get("tick"), int) \
+            and not isinstance(data.get("tick"), bool):
+        tick = data["tick"]
+    elif tick_fallback and has_sqlite:
+        tick = _latest_tick_light(run_dir / "run.sqlite", run_id)
+    return {
+        "run_id": run_id,
+        "module": module,
+        "phase": phase,
+        "tick": tick,
+        "error": error,
+        "updated_at": updated_at,
+        "has_sqlite": has_sqlite,
+    }
+
+
 def list_runs(base_dir: Path | None = None) -> list[dict[str, Any]]:
     """枚举全部运行（run 历史列表共享层：CLI ``runs`` / Web 共用）。
 
@@ -434,50 +486,7 @@ def list_runs(base_dir: Path | None = None) -> list[dict[str, Any]]:
     except OSError:
         log.exception("扫描 runs 目录失败（返回空列表）: %s", root)
         return []
-    out: list[dict[str, Any]] = []
-    for run_dir in run_dirs:
-        run_id = run_dir.name
-        has_sqlite = (run_dir / "run.sqlite").exists()
-        data: dict[str, Any] | None = None
-        try:
-            loaded = json.loads(
-                (run_dir / "status.json").read_text(encoding="utf-8")
-            )
-            if isinstance(loaded, dict):
-                data = loaded
-        except (OSError, ValueError):
-            data = None          # 缺失/损坏 → unknown（不跳过，删除入口可用）
-        module: str | None = None
-        error: str | None = None
-        phase = "unknown"
-        updated_at = 0.0
-        if data is not None:
-            if isinstance(data.get("module"), str):
-                module = data["module"]
-            raw_err = data.get("error")
-            if raw_err is not None:
-                error = str(raw_err)
-            if data.get("phase"):
-                phase = str(data["phase"])
-            try:
-                updated_at = float(data.get("updated_at", 0.0))
-            except (TypeError, ValueError):
-                updated_at = 0.0
-        tick: int | None = None
-        if data is not None and isinstance(data.get("tick"), int) \
-                and not isinstance(data.get("tick"), bool):
-            tick = data["tick"]
-        elif has_sqlite:
-            tick = _latest_tick_light(run_dir / "run.sqlite", run_id)
-        out.append({
-            "run_id": run_id,
-            "module": module,
-            "phase": phase,
-            "tick": tick,
-            "error": error,
-            "updated_at": updated_at,
-            "has_sqlite": has_sqlite,
-        })
+    out = [_run_row(d, tick_fallback=True) for d in run_dirs]
     out.sort(key=lambda r: (r["updated_at"], r["run_id"]), reverse=True)
     return out
 
