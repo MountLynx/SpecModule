@@ -166,12 +166,17 @@ _TYPE_CHECKS = {
 }
 
 
-def _check_spec_schema(entry: Any, spec: dict[str, Any]) -> None:
-    """可选的 spec_schema 校验：{字段: 类型名}，失败列出全部错误。"""
-    if not entry.spec_schema:
+def _check_spec_schema(res: Any, spec: dict[str, Any], template_name: str | None) -> None:
+    """可选的 spec_schema 校验：{字段: 类型名}，失败列出全部错误。
+
+    schema 按本次选中模板经 spec_for 解析（per-template 覆盖 > 模块级
+    回落；packed 形态无 per-template 概念，透传模块级）。
+    """
+    schema = res.spec_for(template_name)[0]
+    if not schema:
         return
     errors: list[str] = []
-    for field, type_name in entry.spec_schema.items():
+    for field, type_name in schema.items():
         if field not in spec:
             errors.append(f"缺少字段 '{field}'（期望 {type_name}）")
             continue
@@ -295,9 +300,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
     mod = None
     try:
         spec = _resolve_spec(res, args)
-        _check_spec_schema(res, spec)
-        llm_client = _build_llm_client(args.mock)
+        # 先定模板名再校验：schema 按本次选中模板解析（per-template 覆盖生效的前提）
         template_name = args.template or res.default_template
+        _check_spec_schema(res, spec, template_name)
+        llm_client = _build_llm_client(args.mock)
         if args.tasklist:
             # tasklist 路径：跳过翻译，template_name 置 None（与 Module
             # "template/tasklist 二选一"不变量对齐）
@@ -373,9 +379,10 @@ def _run_resume_cmd(args: argparse.Namespace, *, require_target: bool) -> int:
     display = None
     try:
         spec = _resolve_spec(res, args)
-        _check_spec_schema(res, spec)
-        llm_client = _build_llm_client(args.mock)
+        # 先定模板名再校验：schema 按本次选中模板解析（per-template 覆盖生效的前提）
         template_name = args.template or res.default_template
+        _check_spec_schema(res, spec, template_name)
+        llm_client = _build_llm_client(args.mock)
         tasklist = _load_tasklist(args.tasklist) if args.tasklist else None
         if args.tasklist:
             # tasklist 路径：跳过翻译，template_name 置 None（与 Module

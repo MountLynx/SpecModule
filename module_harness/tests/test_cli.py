@@ -161,6 +161,56 @@ entry = ModuleEntry(
 )
 '''
 
+SCHEMAD_PY = '''\
+"""schemad 测试模块：两模板同流程、不同 spec_schema（per-template 校验测试）。"""
+from __future__ import annotations
+
+from module_harness.cli.entry import ModuleEntry, TemplateSpec
+from module_harness.infra.events import EventBus
+from module_harness.core.registry import HarnessRegistry
+
+
+def _registry_for(llm_client, template_name, event_bus):
+    reg = HarnessRegistry(llm_client=llm_client, event_bus=event_bus or EventBus.null())
+
+    @reg.script("Greet")
+    def greet(view):
+        return {"greeting": "hello world"}
+
+    @reg.script("tl")
+    def tl(view):
+        return {
+            "Tasks": {"Greet": {"type": "script", "script": "Greet"}},
+            "Flow": "[Greet]",
+        }
+
+    return reg
+
+
+_TPL = {
+    "translation": {"type": "script", "script": "tl"},
+    "tasklist": {
+        "Tasks": {"Greet": {"type": "script", "script": "Greet"}},
+        "Flow": "[Greet]",
+    },
+}
+
+entry = ModuleEntry(
+    name="schemad",
+    description="schemad 测试模块",
+    templates={
+        "quick": {"name": "quick", "description": "简版", **_TPL},
+        "detailed": {"name": "detailed", "description": "详版", **_TPL},
+    },
+    build_registry=_registry_for,
+    default_template="quick",
+    default_spec={"name": "world"},
+    spec_schema={"name": "str"},
+    template_specs={"detailed": TemplateSpec(spec_schema={"count": "int"})},
+    review_harness=None,
+)
+'''
+
 
 @pytest.fixture
 def modules_dir(tmp_path):
@@ -262,6 +312,35 @@ class TestRun:
         )
         assert _run(cwd, "--module", "hello", "--mock", "--tasklist", str(tl)) == 0
         assert "运行完成" in capsys.readouterr().out
+
+    def test_template_default_falls_back(self, cwd, modules_dir, capsys):
+        # 缺省模板（无覆盖声明）：entry 级 schema 照常生效（回落路径 = 现状）
+        (modules_dir / "schemad.py").write_text(SCHEMAD_PY, encoding="utf-8")
+        assert _run(cwd, "--module", "schemad", "--mock") == 0
+        assert "运行完成" in capsys.readouterr().out
+
+    def test_template_override_schema_rejected(self, cwd, modules_dir, capsys):
+        # detailed 覆盖 schema {count: int}：default_spec {name} 缺 count → 拒绝
+        (modules_dir / "schemad.py").write_text(SCHEMAD_PY, encoding="utf-8")
+        assert _run(cwd, "--module", "schemad", "--mock", "--template", "detailed") == 1
+        assert "缺少字段 'count'" in capsys.readouterr().err
+
+    def test_template_override_schema_accepted(self, cwd, modules_dir, capsys):
+        # spec 满足覆盖 schema → 通过（entry 级 schema 不参与该模板校验）
+        (modules_dir / "schemad.py").write_text(SCHEMAD_PY, encoding="utf-8")
+        assert _run(
+            cwd, "--module", "schemad", "--mock",
+            "--template", "detailed", "--spec", '{"count": 3}',
+        ) == 0
+        assert "运行完成" in capsys.readouterr().out
+
+    def test_resume_uses_selected_template_schema(self, cwd, modules_dir, capsys):
+        # resume/rollback 语义：按本次选择的模板解析校验（选中覆盖模板 → 覆盖 schema）
+        (modules_dir / "schemad.py").write_text(SCHEMAD_PY, encoding="utf-8")
+        assert _run(cwd, "--module", "schemad", "--mock") == 0
+        capsys.readouterr()
+        assert _resume(cwd, "--module", "schemad", "--mock", "--template", "detailed") == 1
+        assert "缺少字段 'count'" in capsys.readouterr().err
 
 
 class TestStatus:

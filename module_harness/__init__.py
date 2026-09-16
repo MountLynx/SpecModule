@@ -104,7 +104,7 @@ from .infra.store import (
 )
 # cli 层（CLI 实现，非库面）
 from .cli.command import Command, CommandConfig
-from .cli.entry import ModuleEntry, discover_modules
+from .cli.entry import ModuleEntry, TemplateSpec, discover_modules
 from .cli.loader import ModuleLoader, ModuleManifestError, ModuleRequirementError
 
 # 模块对象绑定（`from module_harness import store / submodule / query` 可用；
@@ -198,6 +198,7 @@ __all__ = [
     "check_resume_compat_from_run",
     # 模块入口（roadmap Phase 0：CLI 使用）
     "ModuleEntry",
+    "TemplateSpec",
     "discover_modules",
     # 共享查询层（roadmap Phase 0：CLI/MCP/Web 复用）
     "ReviewEntry",

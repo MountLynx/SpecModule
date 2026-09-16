@@ -180,10 +180,11 @@ entry = ModuleEntry(
 
 
 def _detail_entry_py(d: Path, name: str = "hello") -> None:
-    """造全字段 entry 模块文件（详情归一测试用：模板/默认 spec/schema/子模块）。"""
+    """造全字段 entry 模块文件（详情归一测试用：模板/默认 spec/schema/
+    子模块/per-template 覆盖声明——t2 只覆盖 default_spec，schema 回落）。"""
     (d / f"{name}.py").write_text(f"""\
 from __future__ import annotations
-from module_harness.cli.entry import ModuleEntry
+from module_harness.cli.entry import ModuleEntry, TemplateSpec
 from module_harness.infra.events import EventBus
 from module_harness.core.registry import HarnessRegistry
 from module_harness.model.submodule import SubModule
@@ -202,13 +203,15 @@ entry = ModuleEntry(
     description="hello entry",
     templates={{
         "t2": {{"name": "t2", "tasklist": {{"Tasks": {{}}, "Flow": "[]"}}}},
-        "t1": {{"name": "t1", "tasklist": {{"Tasks": {{}}, "Flow": "[]"}}}},
+        "t1": {{"name": "t1", "description": "模板一",
+                "tasklist": {{"Tasks": {{}}, "Flow": "[]"}}}},
     }},
     build_registry=_registry_for,
     default_template="t1",
     default_spec={{"name": "world"}},
     spec_schema={{"name": "str"}},
     submodules={{"Helper": Helper}},
+    template_specs={{"t2": TemplateSpec(default_spec={{"name": "override"}})}},
     review_harness=None,
 )
 """, encoding="utf-8")
@@ -328,6 +331,30 @@ class TestResolveModuleFull:
         assert res.templates == {}
         assert res.submodules == {}
 
+    def test_entry_spec_for_delegates(self, fake_home, tmp_path, monkeypatch):
+        """ResolvedModule.spec_for → entry.spec_for（回落逻辑唯一驻点）。"""
+        monkeypatch.chdir(tmp_path)
+        mods = tmp_path / "modules"
+        mods.mkdir()
+        _detail_entry_py(mods)
+        res = store.resolve_module_full("hello")
+        assert res is not None
+        # 覆盖模板：default_spec 取覆盖，schema 回落；其余模板/None 全回落
+        assert res.spec_for("t2") == ({"name": "str"}, {"name": "override"})
+        assert res.spec_for("t1") == ({"name": "str"}, {"name": "world"})
+        assert res.spec_for(None) == ({"name": "str"}, {"name": "world"})
+        with pytest.raises(ValueError, match="未注册"):
+            res.spec_for("ghost")
+
+    def test_packed_spec_for_passthrough(self, fake_home, tmp_path):
+        """packed 无 per-template 概念：透传模块级 schema，default_spec 恒 None。"""
+        packs = tmp_path / "packs"
+        _PackedMod.make().pack(packs / "packed_mod")
+        res = store.resolve_module_full("packed_mod", search=[packs])
+        assert res is not None
+        assert res.spec_for(None) == ({"name": "str"}, None)
+        assert res.spec_for("anything") == ({"name": "str"}, None)
+
     def test_not_found_returns_none(self, fake_home, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("SPECMODULE_PATH", raising=False)
@@ -366,7 +393,14 @@ class TestDetailToDict:
             "version": "",
             "description": "hello entry",
             "default_template": "t1",
-            "templates": ["t1", "t2"],     # 出名列表，排序稳定
+            # 解析后对象列表（排序稳定）：description 取模板 JSON（缺省 ""），
+            # spec 两键 = spec_for 解析结果（t2 只覆盖 default_spec，schema 回落）
+            "templates": [
+                {"name": "t1", "description": "模板一",
+                 "spec_schema": {"name": "str"}, "default_spec": {"name": "world"}},
+                {"name": "t2", "description": "",
+                 "spec_schema": {"name": "str"}, "default_spec": {"name": "override"}},
+            ],
             "default_spec": {"name": "world"},
             "spec_schema": {"name": "str"},
             "submodules": ["Helper"],

@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from module_harness.cli.entry import ModuleEntry, discover_modules
+from module_harness.cli.entry import ModuleEntry, TemplateSpec, discover_modules
 from module_harness.model.module import Module
 from module_harness.model.spec import TaskDefinition, Tasklist
 
@@ -97,6 +97,64 @@ class TestModuleEntry:
             name="x", description="x", templates={"t": {}}, default_template="t"
         )
         assert e.default_template == "t"
+
+    def test_template_specs_unknown_template_raises(self):
+        with pytest.raises(ValueError, match="未注册模板.*'ghost'"):
+            ModuleEntry(
+                name="x", description="x", templates={"t": {}},
+                template_specs={"ghost": TemplateSpec(spec_schema={"k": "str"})},
+            )
+
+    def test_template_specs_empty_ok(self):
+        e = ModuleEntry(
+            name="x", description="x", templates={"t": {}}, template_specs={}
+        )
+        assert e.template_specs == {}
+
+
+class TestSpecFor:
+    """spec_for 矩阵：覆盖 > entry 级回落，两键独立回落互不联动。"""
+
+    def _entry(self, **kwargs) -> ModuleEntry:
+        kw = dict(
+            name="x", description="x", templates={"a": {}, "b": {}},
+            default_spec={"n": 1}, spec_schema={"n": "int"},
+        )
+        kw.update(kwargs)
+        return ModuleEntry(**kw)
+
+    def test_no_override_falls_back(self):
+        e = self._entry()
+        assert e.spec_for("a") == ({"n": "int"}, {"n": 1})
+
+    def test_none_falls_back(self):
+        # template_name=None（tasklist 直通通道）→ 全回落 entry 级
+        e = self._entry(template_specs={"a": TemplateSpec(spec_schema={"k": "str"})})
+        assert e.spec_for(None) == ({"n": "int"}, {"n": 1})
+
+    def test_schema_only_override(self):
+        e = self._entry(template_specs={"a": TemplateSpec(spec_schema={"k": "str"})})
+        assert e.spec_for("a") == ({"k": "str"}, {"n": 1})
+
+    def test_default_only_override(self):
+        # 只覆盖 default_spec：schema 仍回落模块级（契约稳定、样例值可换）
+        e = self._entry(template_specs={"a": TemplateSpec(default_spec={"m": 2})})
+        assert e.spec_for("a") == ({"n": "int"}, {"m": 2})
+
+    def test_full_override(self):
+        e = self._entry(template_specs={"a": TemplateSpec(
+            spec_schema={"k": "str"}, default_spec={"m": 2},
+        )})
+        assert e.spec_for("a") == ({"k": "str"}, {"m": 2})
+
+    def test_other_template_unaffected(self):
+        e = self._entry(template_specs={"a": TemplateSpec(spec_schema={"k": "str"})})
+        assert e.spec_for("b") == ({"n": "int"}, {"n": 1})
+
+    def test_unregistered_template_raises(self):
+        e = self._entry()
+        with pytest.raises(ValueError, match="未注册"):
+            e.spec_for("ghost")
 
 
 _TL = {

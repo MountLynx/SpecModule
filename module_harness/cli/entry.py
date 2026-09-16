@@ -24,6 +24,14 @@ log = logging.getLogger(__name__)
 
 
 @dataclass
+class TemplateSpec:
+    """单模板的 spec 覆盖声明：未声明字段逐项回落 entry 级。"""
+
+    spec_schema: dict[str, str] | None = None
+    default_spec: dict[str, Any] | None = None
+
+
+@dataclass
 class ModuleEntry:
     """模块入口声明：模板 + submodule + registry 构建 + 默认 spec/schema。"""
 
@@ -36,10 +44,41 @@ class ModuleEntry:
     default_template: str | None = None
     spec_schema: dict[str, str] | None = None                    # {字段: 类型名}
     review_harness: str | None = "spec_tasklist_review"
+    template_specs: dict[str, TemplateSpec] = field(default_factory=dict)  # {模板名: 覆盖声明}
 
     def __post_init__(self) -> None:
         if self.default_template is not None and self.default_template not in self.templates:
             raise ValueError(f"default_template '{self.default_template}' 不在 templates 中")
+        unknown = set(self.template_specs) - set(self.templates)
+        if unknown:
+            raise ValueError(
+                f"template_specs 含未注册模板 {sorted(unknown)}"
+                f"——可用: {', '.join(sorted(self.templates))}"
+            )
+
+    def spec_for(
+        self, template_name: str | None
+    ) -> tuple[dict[str, str] | None, dict[str, Any] | None]:
+        """按模板解析 (spec_schema, default_spec)：覆盖 > entry 级回落。
+
+        唯一解析入口（CLI 校验 / detail 载荷 / 消费端全经它，不允许第二份
+        回落逻辑）：template_name None（tasklist 直通通道）或该模板未列
+        覆盖 → 全回落 entry 级；覆盖对象内两键独立回落（只覆盖 default_spec
+        时 schema 仍回落模块级——契约稳定、样例值可换）；未注册模板 →
+        ValueError（与 build_module 同文案风格）。
+        """
+        if template_name is None:
+            return self.spec_schema, self.default_spec
+        if template_name not in self.templates:
+            raise ValueError(
+                f"模板 '{template_name}' 未注册——可用: {', '.join(sorted(self.templates))}"
+            )
+        override = self.template_specs.get(template_name)
+        if override is None:
+            return self.spec_schema, self.default_spec
+        schema = self.spec_schema if override.spec_schema is None else override.spec_schema
+        default = self.default_spec if override.default_spec is None else override.default_spec
+        return schema, default
 
     def build_module(
         self,

@@ -302,6 +302,19 @@ class ResolvedModule:
             self.entry.templates if self.entry is not None else {}
         )
 
+    def spec_for(
+        self, template_name: str | None
+    ) -> tuple[dict[str, str] | None, dict[str, Any] | None]:
+        """按模板归一解析 (spec_schema, default_spec)。
+
+        entry 形态委托 :meth:`ModuleEntry.spec_for`（回落逻辑唯一驻点，
+        此处零复制）；packed/pip 无 per-template 概念，透传模块级
+        schema（default_spec 恒 None）。
+        """
+        if self.entry is not None:
+            return self.entry.spec_for(template_name)
+        return self.spec_schema, None
+
 
 def resolve_module_full(
     name: str,
@@ -340,10 +353,22 @@ def resolve_module_full(
 def detail_to_dict(resolved: ResolvedModule) -> dict[str, Any]:
     """ResolvedModule → JSON 出口（模块详情面：CLI/Web/TUI 共用）。
 
-    ``templates``/``submodules`` 只出名列表（排序保证输出稳定）；``path``
-    为字符串化来源路径；``default_spec``/``spec_schema`` 原样透传（前端
-    填表/校验用）。
+    ``templates`` 为解析后对象列表（name/description/spec_schema/
+    default_spec，排序保稳定；spec 两键经 ``spec_for`` 解析——per-template
+    覆盖 > 模块级回落，回落逻辑在库内，消费端零解析）；``submodules``
+    只出名列表；``path`` 为字符串化来源路径；模块级 ``default_spec``/
+    ``spec_schema`` 仍原样透传（可独立消费）。
     """
+    templates: list[dict[str, Any]] = []
+    for name in sorted(resolved.templates):
+        schema, default_spec = resolved.spec_for(name)
+        data = resolved.templates.get(name) or {}
+        templates.append({
+            "name": name,
+            "description": data.get("description", ""),
+            "spec_schema": schema,
+            "default_spec": default_spec,
+        })
     return {
         "name": resolved.name,
         "kind": resolved.kind,
@@ -351,7 +376,7 @@ def detail_to_dict(resolved: ResolvedModule) -> dict[str, Any]:
         "version": resolved.source.version,
         "description": resolved.description,
         "default_template": resolved.default_template,
-        "templates": sorted(resolved.templates),
+        "templates": templates,
         "default_spec": resolved.default_spec,
         "spec_schema": resolved.spec_schema,
         "submodules": sorted(resolved.submodules),
