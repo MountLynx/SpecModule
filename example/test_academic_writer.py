@@ -25,6 +25,13 @@ def test_discover_academic_writer():
     assert entry.default_template == "academic_writer"
     assert "academic_writer" in entry.templates
     assert "academic_writer_detailed" in entry.templates
+    assert entry.spec_schema == {"raw_text": "str"}
+    assert entry.default_spec == {
+        "raw_text": (
+            "灵感草稿：用大模型做代码评审——LLM 分析 diff，生成按 severity 分类的"
+            " comments；在 200 个 PR 上 accuracy 85%，比规则 baseline 高 15 个百分点。"
+        )
+    }
     assert set(entry.submodules) == {"fact_review_loop"}
     assert entry.review_harness is None
 

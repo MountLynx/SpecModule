@@ -41,5 +41,12 @@ entry = ModuleEntry(
     submodules={"fact_review_loop": FactReviewLoop},
     build_registry=_registry_for,
     default_template="academic_writer",
+    default_spec={
+        "raw_text": (
+            "灵感草稿：用大模型做代码评审——LLM 分析 diff，生成按 severity 分类的"
+            " comments；在 200 个 PR 上 accuracy 85%，比规则 baseline 高 15 个百分点。"
+        )
+    },
+    spec_schema={"raw_text": "str"},
     review_harness=None,  # 固定流程模板，发布前已验证
 )
