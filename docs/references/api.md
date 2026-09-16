@@ -90,7 +90,7 @@ status.json 的反向通道：status.json 把运行状态带出运行进程，co
 | `list_modules` | `(search: list[Path] \| None = None, include_pip: bool = True) -> dict[str, list[ModuleSource]]` | 枚举全部可用模块：entry 单文件 / packed 目录（`module.json`）/ pip entry points 三类来源合并；同名多来源**全量展示**（列表按 priority 升序，首项即解析命中项）；`search=None` 用 `search_paths()` |
 | `resolve_module` | `(name: str, search: list[Path] \| None = None) -> ModuleSource \| None` | 按名解析：搜索序第一个命中（PATH 惯例，不静默改名）；未命中 → `None` |
 | `resolve_module_full` | `(name: str, search: list[Path] \| None = None) -> ResolvedModule \| None` | 按名解析**并加载**模块详情（详情面/运行解析共享归一层）：解析同 `resolve_module`，命中后按形态加载——entry → `discover_modules` 取 ModuleEntry，packed/pip → ModuleLoader 轻量加载为 SubModule（不实例化 LLM client）；未找到 → `None`（调用方映射 404）；packed 加载失败/entry 入口解析失败 → `ValueError`（消息可直接面向用户，调用方映射 400） |
-| `detail_to_dict` | `(resolved: ResolvedModule) -> dict` | 模块详情 JSON 出口：`{name, kind, path, version, description, default_template, templates: [名...], default_spec, spec_schema, submodules: [名...]}`（templates/submodules 排序出名，输出稳定；path 字符串化；default_spec/spec_schema 原样透传供前端填表/校验） |
+| `detail_to_dict` | `(resolved: ResolvedModule) -> dict` | 模块详情 JSON 出口：`{name, kind, path, version, description, default_template, templates: [{name, description, spec_schema, default_spec}...], default_spec, spec_schema, submodules: [名...]}`（templates 为**解析后对象列表**——description 取模板 JSON 的 `description` 字段缺省 `""`，spec 两键 = `spec_for(name)` 解析结果、回落逻辑在库内消费端零解析；**形状变更（breaking）**：原 `templates: [名...]` 名字列表；排序稳定输出不变；packed 模块 `templates: []` 不受影响；模块级 `default_spec`/`spec_schema` 仍原样透传可独立消费） |
 | `search_paths` | `(base_dir: Path \| None = None) -> list[Path]` | 搜索链 `[base_dir or cwd]/modules + $SPECMODULE_PATH（os.pathsep 分隔）+ <store>/modules`，只含存在的目录；`base_dir` = 发现锚定根——服务器进程 cwd ≠ 运行根，跨进程消费显式传（效果：server 模块视图 ≡ spawn 子进程 CLI 视图），None = cwd 向后兼容；优先序不变 |
 | `store_home` | `() -> Path` | `SPECMODULE_HOME` 环境变量或 `~/.specmodule`（惰性创建，幂等） |
 
@@ -100,7 +100,9 @@ status.json 的反向通道：status.json 把运行状态带出运行进程，co
 `ResolvedModule` 字段：`name`、`source`（ModuleSource）；`entry`（entry 形态时的 ModuleEntry）与
 `submodule`（packed/pip 形态时加载后的 SubModule）按形态二选一；归一属性 `kind` / `description` /
 `default_template` / `default_spec` / `spec_schema`（packed 归一为 `spec_schema.input`）/ `templates` /
-`submodules` 屏蔽两形态差异，消费端不感知来源。
+`submodules` 屏蔽两形态差异，消费端不感知来源。归一方法 `spec_for(template_name)`：entry 形态委托
+`ModuleEntry.spec_for`（回落逻辑唯一驻点），packed/pip 无 per-template 概念、透传模块级 schema
+（default_spec 恒 None）。
 
 entry 发现失败（缺 `entry` 变量 / 导入异常）逐文件跳过并 log，不阻断整体；pip 枚举失败整源跳过。
 
@@ -110,12 +112,15 @@ entry 发现失败（缺 `entry` 变量 / 导入异常）逐文件跳过并 log�
 |------|------|------|
 | `discover_modules` | `(modules_dir: Path \| str) -> dict[str, ModuleEntry]` | 扫描 `*.py`（`_` 前缀跳过），收集模块级 `entry = ModuleEntry(...)` 变量；**键 = `entry.name`**（非文件名）；目录不存在 → 空 dict |
 | `ModuleEntry` | dataclass | 见下 |
+| `TemplateSpec` | dataclass | 单模板的 spec 覆盖声明：`spec_schema` / `default_spec` 两键均可选（None = 该键回落 entry 级）；只声明有差异的模板 |
+| `ModuleEntry.spec_for` | 方法 | `(template_name: str \| None) -> (spec_schema, default_spec)`：按模板解析，**唯一解析入口**（CLI 校验 / detail 载荷 / 消费端全经它，不允许第二份回落逻辑）——覆盖 > entry 级回落，覆盖对象内两键独立回落互不联动；`template_name=None`（tasklist 直通通道）或该模板未列覆盖 → 全回落 entry 级；未注册模板 → `ValueError` 带排序可用清单 |
 | `ModuleEntry.build_module` | 方法 | 统一接线 `(spec, *, template_name, tasklist, llm_client, module_id, base_dir, event_bus, hooks, review=True) -> Module`：loader 注册 + registry 构建 + Module 构造一步到位（CLI/MCP 共用，消除接线重复）；tasklist 优先——给出时 template 置 None；template_name 缺省回落 `default_template`；未注册模板 → `ValueError` 带**排序**可用清单；`review=False` → `review_harness=None`（存档续跑免重审） |
 
 `ModuleEntry` 字段：`name`、`description`、`templates`（`{模板名: TasklistTemplate JSON}`）、
 `submodules`（`{tasklist 名: SubModule 类}`）、`build_registry`（registry 构建器，可选）、
 `default_spec`、`default_template`、`spec_schema`（`{字段: 类型名}`，可选校验）、
-`review_harness`（默认 `"spec_tasklist_review"`）。
+`review_harness`（默认 `"spec_tasklist_review"`）、`template_specs`（`{模板名: TemplateSpec}`
+per-template 覆盖声明，缺省空 dict；键 ⊆ `templates`，未知模板名 → `ValueError` 带差集与可用清单）。
 
 ## Module 运行（module_harness.Module）
 
