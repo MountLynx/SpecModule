@@ -408,7 +408,7 @@ python -m module_harness.cli resume [<rollback>] --module <名> [选项]
 | `--modules-dir <dir>` | — | `modules/` | 模块目录 |
 | `--spec '<JSON>'` | 见下 | — | 内联 JSON spec（重建未执行部分） |
 | `--spec-file <path>` | 见下 | — | spec JSON 文件路径 |
-| `--template <名>` | — | `entry.default_template` | 模板名 |
+| `--template <名>` | — | 存档模板 > `entry.default_template` | 模板名（缺省沿用原 run 模板，见「续跑语义」） |
 | `--tasklist <path>` | — | — | tasklist JSON 文件（跳过翻译，与 `--template` 互斥） |
 | `--run-id <id>` | — | 模块名 | 运行目录名（须与先前 run 一致） |
 | `--max-ticks <n>` | — | `100` | tick 上限；续跑后从回退 tick 起计的**绝对**上限 |
@@ -433,11 +433,13 @@ spec 解析优先级与 `run` 一致（`--spec` > `--spec-file` > `entry.default
   模板/tasklist 改动必须与已执行部分兼容——`check_resume_compat` 硬错误
   （如 inputs 引用图中不存在的节点）直接拒绝（退出码 1），**既有快照不被触碰**；
   非阻断的结构改动以警告提示（已执行节点修改不生效）。
-- **流程来源兜底**：未显式给 `--template`/`--tasklist` 且模块无
-  `default_template` 时，沿用 `module_inputs` 归档 tasklist 续跑（提示
-  "流程来源：沿用 module_inputs 归档 tasklist"）——tasklist 通道启动的 run
-  无需再显式传 `--tasklist`；三者皆缺仍报 `template_name 与 tasklist
-  必须且只能传一个`。
+- **流程来源优先序**：显式 `--template` > 存档模板（`module_inputs.template`，
+  本次 run 实际使用的模板，提示"流程来源：沿用存档模板 <名>"——非默认模板
+  发起的 run 不再被静默按默认模板重译）> `entry.default_template`（旧存档
+  无模板记录时）> 归档 tasklist（提示"流程来源：沿用 module_inputs 归档
+  tasklist"——tasklist 通道启动的 run 无需再显式传 `--tasklist`）；三者皆缺
+  仍报 `template_name 与 tasklist 必须且只能传一个`。存档模板在当前模块已
+  注销 → 报错（模块与存档漂移，不静默回落）。
 - 续跑记录写入**同一** run.sqlite：`status` / `review` 可查询中断前后完整历史。
 
 ### 示例

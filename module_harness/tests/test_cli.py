@@ -140,6 +140,19 @@ def _registry_for(llm_client, template_name, event_bus):
         def extra(view):
             return {"note": "detailed only"}
 
+        # detailed 专属翻译：三节点流程（Extra 仅注册于本模板——按默认模板
+        # 重译/重建即缺件，resume 存档模板回落用）
+        @reg.script("tl_detailed")
+        def tl_detailed(view):
+            return {
+                "Tasks": {
+                    "A": {"type": "script", "script": "A"},
+                    "B": {"type": "script", "script": "B", "inputs": {"value": "A"}},
+                    "Extra": {"type": "script", "script": "Extra"},
+                },
+                "Flow": "[A] --> B\\nB --> Extra",
+            }
+
     return reg
 
 
@@ -162,7 +175,7 @@ entry = ModuleEntry(
         "resume_hello_detailed": {
             "name": "resume_hello_detailed",
             "description": "resume_hello detailed 模板",
-            "translation": {"type": "script", "script": "tl"},
+            "translation": {"type": "script", "script": "tl_detailed"},
             "tasklist": {
                 "Tasks": {
                     "A": {"type": "script", "script": "A"},
@@ -449,6 +462,58 @@ class TestResume:
         assert _resume(cwd, "--module", "tasklist_only", "--mock") == 0
         captured = capsys.readouterr()
         assert "沿用 module_inputs 归档 tasklist" in captured.err
+        assert "续跑完成" in captured.out
+
+    def test_resume_uses_archived_template(self, cwd, modules_dir, capsys):
+        """非默认模板发起的 run，resume 不带 --template 时沿用存档模板——
+        防静默按默认模板重译（模板专属元件按默认模板注册即缺件）。"""
+        assert (
+            _run(cwd, "--module", "resume_hello", "--mock", "--template",
+                 "resume_hello_detailed", "--max-ticks", "1")
+            == 0
+        )
+        capsys.readouterr()
+        # 无 --template：按存档模板 resume_hello_detailed 续跑
+        # （Extra 仅该模板注册——按默认模板重译则图里根本没有 Extra）
+        assert _resume(cwd, "--module", "resume_hello", "--mock") == 0
+        captured = capsys.readouterr()
+        assert "沿用存档模板 resume_hello_detailed" in captured.err
+        assert "续跑完成" in captured.out
+        assert "detailed only" in captured.out  # Extra 节点产出（存档模板生效）
+
+    def test_resume_explicit_template_overrides_archive(self, cwd, modules_dir, capsys):
+        # 存档 detailed 后显式 --template 切回默认：按默认流程补齐（无 Extra）
+        assert (
+            _run(cwd, "--module", "resume_hello", "--mock", "--template",
+                 "resume_hello_detailed", "--max-ticks", "1")
+            == 0
+        )
+        capsys.readouterr()
+        assert (
+            _resume(cwd, "--module", "resume_hello", "--mock",
+                    "--template", "resume_hello")
+            == 0
+        )
+        captured = capsys.readouterr()
+        assert "续跑完成" in captured.out
+        assert "detailed only" not in captured.out
+
+    def test_resume_legacy_archive_without_template(self, cwd, modules_dir, capsys):
+        # 旧存档（template 列 NULL，迁移前）→ 回落 entry.default_template（现状不变）
+        assert _run(cwd, "--module", "resume_hello", "--mock", "--max-ticks", "1") == 0
+        import sqlite3
+
+        db = cwd / ".specmodule" / "runs" / "resume_hello" / "run.sqlite"
+        conn = sqlite3.connect(db)
+        try:
+            conn.execute("UPDATE module_inputs SET template = NULL")
+            conn.commit()
+        finally:
+            conn.close()
+        capsys.readouterr()
+        assert _resume(cwd, "--module", "resume_hello", "--mock") == 0
+        captured = capsys.readouterr()
+        assert "沿用存档模板" not in captured.err
         assert "续跑完成" in captured.out
 
     def test_resume_explicit_tick(self, cwd, modules_dir, capsys):

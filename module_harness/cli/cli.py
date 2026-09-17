@@ -379,8 +379,23 @@ def _run_resume_cmd(args: argparse.Namespace, *, require_target: bool) -> int:
     display = None
     try:
         spec = _resolve_spec(res, args)
-        # 先定模板名再校验：schema 按本次选中模板解析（per-template 覆盖生效的前提）
-        template_name = args.template or res.default_template
+        # 先定模板名再校验：schema 按本次选中模板解析（per-template 覆盖生效的前提）。
+        # 流程来源优先序：显式 --template > module_inputs.template 存档溯源 >
+        # entry.default_template > 归档 tasklist（下方兜底）——续跑默认沿用原
+        # run 模板，防非默认模板发起的 run 被静默按默认模板重译（模板专属元件
+        # 按错误模板注册即缺件，与 build_run_graph 的存档模板回落同源）。
+        archived = None
+        if args.template is None and not args.tasklist:
+            from ..infra.query import read_module_inputs
+
+            archived = read_module_inputs(module_id)
+        template_name = (
+            args.template
+            or (archived or {}).get("template")
+            or res.default_template
+        )
+        if (archived or {}).get("template"):
+            print(f"流程来源：沿用存档模板 {template_name}", file=sys.stderr)
         _check_spec_schema(res, spec, template_name)
         llm_client = _build_llm_client(args.mock)
         tasklist = _load_tasklist(args.tasklist) if args.tasklist else None
@@ -389,12 +404,8 @@ def _run_resume_cmd(args: argparse.Namespace, *, require_target: bool) -> int:
             # "template/tasklist 二选一"不变量对齐）
             template_name = None
         elif template_name is None and tasklist is None:
-            # 流程来源兜底：显式参数 > entry.default_template > module_inputs
-            # 归档 tasklist（续跑语义本该默认沿用原任务书——tasklist 通道
-            # 启动的 run 无模板可回落，此前只能靠显式 --tasklist 续跑）
-            from ..infra.query import read_module_inputs
-
-            archived = read_module_inputs(module_id)
+            # 流程来源兜底（终局）：存档无模板溯源（旧存档/tasklist 通道 run）
+            # → 沿用归档 tasklist
             if archived and archived.get("tasklist"):
                 tasklist = Tasklist.from_json(archived["tasklist"])
                 print("流程来源：沿用 module_inputs 归档 tasklist", file=sys.stderr)
