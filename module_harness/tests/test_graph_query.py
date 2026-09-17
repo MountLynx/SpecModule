@@ -73,13 +73,19 @@ def _registry_for(llm_client, template_name, event_bus):
     def pick_c(view):
         return True
 
+    if template_name == "graph_mini_detailed":
+        # detailed 专属元件（模拟 seed_draft 类按模板注册的 harness）
+        @reg.script("D")
+        def d(view):
+            return {"extra": "detailed"}
+
     return reg
 
 
 entry = ModuleEntry(
     name="graph_mini",
     description="graph_query 测试模块",
-    templates={},
+    templates={"graph_mini_detailed": {}},
     build_registry=_registry_for,
 )
 '''
@@ -91,6 +97,14 @@ MINI_TASKLIST_JSON = {
         "C": {"type": "script", "script": "C"},
     },
     "Flow": "[A] --> B\nA --|pick_c|--> C",
+}
+
+DETAILED_TASKLIST_JSON = {
+    "Tasks": {
+        **MINI_TASKLIST_JSON["Tasks"],
+        "D": {"type": "script", "script": "D"},
+    },
+    "Flow": MINI_TASKLIST_JSON["Flow"] + "\nB --> D",
 }
 
 
@@ -110,11 +124,13 @@ def mini_env(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _seed_archive(base, run_id, spec=None, tasklist=None):
+def _seed_archive(base, run_id, spec=None, tasklist=None, template=None):
     from module_harness.infra.checkpoint import ModuleInputStore
 
     st = ModuleInputStore(run_id, base)
-    st.save_module_inputs(spec or {}, tasklist or MINI_TASKLIST_JSON)
+    st.save_module_inputs(
+        spec or {}, tasklist or MINI_TASKLIST_JSON, template_name=template
+    )
     st.close()
 
 
@@ -138,6 +154,36 @@ class TestBuildRunGraph:
 
     def test_no_archive_returns_none(self, mini_env):
         assert build_run_graph("graph_mini", "graph_mini", base_dir=mini_env) is None
+
+    def test_rebuild_uses_archived_template(self, mini_env):
+        # 非 default 模板发起的 run：存档记录模板 → 重建按存档模板建
+        # registry（否则 detailed 专属元件解析失败——seed_draft 类回归）
+        _seed_archive(
+            mini_env, "graph_mini",
+            tasklist=DETAILED_TASKLIST_JSON, template="graph_mini_detailed",
+        )
+        res = build_run_graph("graph_mini", "graph_mini", base_dir=mini_env)
+        assert res is not None
+        graph, _ = res
+        assert "D" in graph.nodes
+
+    def test_explicit_template_beats_archive(self, mini_env):
+        # 显式 template 参数 > 存档模板：按显式模板建 registry（缺件即报错）
+        _seed_archive(
+            mini_env, "graph_mini",
+            tasklist=DETAILED_TASKLIST_JSON, template="graph_mini_detailed",
+        )
+        with pytest.raises(ValueError, match="'D' not found"):
+            build_run_graph(
+                "graph_mini", "graph_mini", base_dir=mini_env,
+                template="graph_mini",
+            )
+
+    def test_archived_template_unregistered_raises(self, mini_env):
+        # 模块漂移：存档模板已不在 entry.templates → 显式报错，不静默回落
+        _seed_archive(mini_env, "graph_mini", template="ghost_tpl")
+        with pytest.raises(ValueError, match="ghost_tpl"):
+            build_run_graph("graph_mini", "graph_mini", base_dir=mini_env)
 
     def test_module_not_found_raises(self, mini_env):
         with pytest.raises(ValueError, match="未找到"):

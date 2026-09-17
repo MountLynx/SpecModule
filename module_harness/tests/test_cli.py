@@ -134,6 +134,12 @@ def _registry_for(llm_client, template_name, event_bus):
             "Flow": "[A] --> B",
         }
 
+    if template_name == "resume_hello_detailed":
+        # detailed 专属元件（模拟按模板注册的 harness；默认模板不注册）
+        @reg.script("Extra")
+        def extra(view):
+            return {"note": "detailed only"}
+
     return reg
 
 
@@ -151,6 +157,19 @@ entry = ModuleEntry(
                     "B": {"type": "script", "script": "B", "inputs": {"value": "A"}},
                 },
                 "Flow": "[A] --> B",
+            },
+        },
+        "resume_hello_detailed": {
+            "name": "resume_hello_detailed",
+            "description": "resume_hello detailed 模板",
+            "translation": {"type": "script", "script": "tl"},
+            "tasklist": {
+                "Tasks": {
+                    "A": {"type": "script", "script": "A"},
+                    "B": {"type": "script", "script": "B", "inputs": {"value": "A"}},
+                    "Extra": {"type": "script", "script": "Extra"},
+                },
+                "Flow": "[A] --> B\\nB --> Extra",
             },
         },
     },
@@ -717,6 +736,43 @@ class TestVisualize:
         # 无运行记录且无 --tasklist → 缺省最近运行失败
         assert _visualize(cwd, "--module", "resume_hello") == 1
         assert "无运行记录" in capsys.readouterr().err
+
+    def test_template_flag_reaches_registry(self, cwd, modules_dir, capsys):
+        # 坑3：--template 须透传 build_run_graph——存档 tasklist 引用
+        # detailed 专属元件时，默认模板 registry 缺件失败，--template 可渲染
+        from module_harness.infra.checkpoint import ModuleInputStore
+
+        store = ModuleInputStore("resume_hello")
+        store.save_module_inputs(
+            {"spec": {}},
+            {
+                "Tasks": {"Extra": {"type": "script", "script": "Extra"}},
+                "Flow": "[Extra]",
+            },
+        )
+        store.close()
+        assert _visualize(cwd, "--module", "resume_hello") == 1
+        capsys.readouterr()
+        assert (
+            _visualize(
+                cwd, "--module", "resume_hello",
+                "--template", "resume_hello_detailed",
+            )
+            == 0
+        )
+        assert "Extra" in capsys.readouterr().out
+
+    def test_archive_records_template(self, cwd, modules_dir, capsys):
+        # 模板通道 run 归档 template_name——重建/resume 可按存档自服
+        from module_harness.infra.checkpoint import ModuleInputStore
+
+        assert _run(cwd, "--module", "resume_hello", "--mock") == 0
+        capsys.readouterr()
+        store = ModuleInputStore("resume_hello")
+        inputs = store.load_module_inputs()
+        store.close()
+        assert inputs is not None
+        assert inputs["template"] == "resume_hello"
 
 class TestFeed:
     """stdlib 可视化开关：零依赖 http.server 运行 feed（roadmap 独立线）。"""

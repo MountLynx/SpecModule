@@ -48,13 +48,19 @@ def _registry_for(llm_client, template_name, event_bus):
     def pick_c(view):
         return True
 
+    if template_name == "preflight_mini_detailed":
+        # detailed 专属元件（模拟按模板注册的 harness）
+        @reg.script("D")
+        def d(view):
+            return {"extra": "detailed"}
+
     return reg
 
 
 entry = ModuleEntry(
     name="preflight_mini",
     description="resume_preflight 测试模块",
-    templates={},
+    templates={"preflight_mini_detailed": {}},
     build_registry=_registry_for,
 )
 '''
@@ -74,7 +80,7 @@ def mini_env(tmp_path, monkeypatch):
 
 
 def _seed_run(base, run_id="preflight_mini", *, tasklist=None, firings=None,
-              snapshots=None, inputs=True):
+              snapshots=None, inputs=True, template=None):
     """run.sqlite（firings/snapshots/checkpoints）+ module_inputs 存档。"""
     from module_harness.infra.checkpoint import ModuleInputStore
     from tickflow.persistence import SqliteBackend
@@ -93,7 +99,10 @@ def _seed_run(base, run_id="preflight_mini", *, tasklist=None, firings=None,
     backend.close()
     if inputs:
         st = ModuleInputStore(run_id, base)
-        st.save_module_inputs({"topic": "demo"}, tasklist or MINI_TASKLIST_JSON)
+        st.save_module_inputs(
+            {"topic": "demo"}, tasklist or MINI_TASKLIST_JSON,
+            template_name=template,
+        )
         st.close()
 
 
@@ -158,6 +167,22 @@ class TestCheckResumeCompatFromRun:
         assert d is not None
         assert d["hard_errors"] == []
         assert any("被修改" in w for w in d["warnings"])
+
+    def test_new_tasklist_uses_archived_template(self, mini_env):
+        """存档模板透传建图：新 tasklist 引用模板专属元件不再误报 not found。"""
+        detailed = {
+            "Tasks": {
+                "A": {"type": "script", "script": "A"},
+                "B": {"type": "script", "script": "B", "inputs": {"value": "A"}},
+                "D": {"type": "script", "script": "D"},
+            },
+            "Flow": "[A] --> B\nB --> D",
+        }
+        _seed_run(mini_env, tasklist=detailed, template="preflight_mini_detailed")
+        d = check_resume_compat_from_run("preflight_mini", "preflight_mini",
+                                         new_tasklist=detailed, base_dir=mini_env)
+        assert d is not None
+        assert d["hard_errors"] == []
 
     def test_no_db_returns_none(self, mini_env):
         assert check_resume_compat_from_run(

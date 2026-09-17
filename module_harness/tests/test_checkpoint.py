@@ -35,14 +35,65 @@ class TestModuleInputStore:
         assert store.load_module_inputs() == {
             "spec": {"alpha": 1},
             "tasklist": {"Tasks": {"A": {"type": "harness"}}, "Flow": "A"},
+            "template": None,
         }
+
+    def test_module_inputs_template_roundtrip(self, store):
+        store.save_module_inputs(
+            {"alpha": 1}, {"Tasks": {}, "Flow": ""}, template_name="tpl_x"
+        )
+        assert store.load_module_inputs() == {
+            "spec": {"alpha": 1},
+            "tasklist": {"Tasks": {}, "Flow": ""},
+            "template": "tpl_x",
+        }
+
+    def test_module_inputs_old_schema_migrated(self, tmp_path):
+        # 旧库（无 template 列）打开即迁移：读回 template=None，写入可用
+        import sqlite3
+
+        from module_harness.infra.query import run_db_path
+
+        db = run_db_path("mod_old", tmp_path)
+        db.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(db))
+        conn.executescript(
+            """
+            CREATE TABLE module_inputs (
+                id        INTEGER PRIMARY KEY CHECK (id = 1),
+                spec      TEXT NOT NULL,
+                tasklist  TEXT NOT NULL,
+                saved_at  REAL NOT NULL
+            );
+            INSERT INTO module_inputs VALUES (1, '{}', '{"Tasks": {}, "Flow": ""}', 0);
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        store = ModuleInputStore("mod_old", base_dir=tmp_path)
+        try:
+            assert store.load_module_inputs() == {
+                "spec": {},
+                "tasklist": {"Tasks": {}, "Flow": ""},
+                "template": None,
+            }
+            store.save_module_inputs(
+                {"v": 1}, {"Tasks": {}, "Flow": ""}, template_name="t"
+            )
+            assert store.load_module_inputs()["template"] == "t"
+        finally:
+            store.close()
 
     def test_module_inputs_overwrite(self, store):
         store.save_module_inputs({"v": 1}, {"Tasks": {}, "Flow": ""})
-        store.save_module_inputs({"v": 2}, {"Tasks": {}, "Flow": "B"})
+        store.save_module_inputs(
+            {"v": 2}, {"Tasks": {}, "Flow": "B"}, template_name="t2"
+        )
         assert store.load_module_inputs() == {
             "spec": {"v": 2},
             "tasklist": {"Tasks": {}, "Flow": "B"},
+            "template": "t2",
         }
 
     def test_module_inputs_missing_returns_none(self, store):

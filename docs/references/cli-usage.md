@@ -622,13 +622,15 @@ python -m module_harness.cli visualize --module <名> [--tasklist <file> | --run
   不是"全局最近运行"——显式 `--run-id` 可指向其他运行（如自定义 run-id）。
 - **registry**：由模块入口 `build_registry` 构建（graph 解析需校验已注册的
   guard/body）；llm_client 用 Mock 占位——**渲染不调用 LLM，免 key 可用**。
-- `--out FILE` 写文件（缺省 stdout）；`--template` 决定 registry 构建
-  （默认 `entry.default_template`）。
-- **⚠️ `--template` 必须与 tasklist 匹配**：渲染的图来自存档/文件的
-  tasklist，`--template` 只决定注册哪些 harness/script/guard。两者不一致时
-  （如存档来自 detailed 模板、registry 按默认模板构建）会报"未注册元件"
-  错误——此时错误信息会列出该模块全部可用模板，换对应 `--template` 即可；
-  已注册元件恰为超集时可能静默渲染出与预期不符的图，请核对模板与存档来源。
+- `--out FILE` 写文件（缺省 stdout）；`--template` 决定 registry 构建，
+  缺省优先级：显式 `--template` > 存档记录的模板（module_inputs.template，
+  本次 run 实际使用的模板）> `entry.default_template`。
+- **⚠️ registry 模板必须与 tasklist 匹配**：渲染的图来自存档/文件的
+  tasklist，模板只决定注册哪些 harness/script/guard。不一致时（如存档来自
+  detailed 模板、registry 按默认模板构建）会报"未注册元件"错误——此时错误
+  信息会列出该模块全部可用模板，换对应 `--template` 即可；已注册元件恰为
+  超集时可能静默渲染出与预期不符的图，请核对模板与存档来源。旧存档（无
+  模板记录）或 `--tasklist` 文件渲染仍按 default 模板建 registry。
 
 输出示例（start 节点为 stadium 形状，guard 边标注）：
 

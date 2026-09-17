@@ -773,6 +773,7 @@ def _cmd_visualize(args: argparse.Namespace) -> int:
 
         res = build_run_graph(
             args.module, run_id, tasklist=tasklist, src=src,
+            template=args.template,
         )
     except ValueError as e:
         print(f"错误: {e}", file=sys.stderr)

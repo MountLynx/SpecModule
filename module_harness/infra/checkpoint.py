@@ -48,8 +48,9 @@ class ModuleInputStore:
     """run.sqlite 内运行输入存档（module_inputs 表）。
 
     ``module_inputs(id INT PK CHECK(id=1), spec TEXT, tasklist TEXT,
-    saved_at REAL)``——单行，覆盖式，供兼容性校验（警告 1）与跨进程查询
-    "这次 run 用了什么输入"。
+    template TEXT, saved_at REAL)``——单行，覆盖式，供兼容性校验（警告 1）
+    与跨进程查询"这次 run 用了什么输入"（template 供运行图重建按原模板
+    注册 harness）。
 
     连接策略：构造时打开独立连接（WAL 模式，与 SqliteBackend 并存安全）；
     写失败仅 log 不阻断（对齐 status.json 容错哲学）。
@@ -70,10 +71,18 @@ class ModuleInputStore:
                 id        INTEGER PRIMARY KEY CHECK (id = 1),
                 spec      TEXT NOT NULL,
                 tasklist  TEXT NOT NULL,
+                template  TEXT,
                 saved_at  REAL NOT NULL
             );
             """
         )
+        # 旧库迁移：建库早于 template 列（运行图重建需按存档模板注册 harness）
+        cols = {
+            row[1] for row in self._conn.execute("PRAGMA table_info(module_inputs)")
+        }
+        if "template" not in cols:
+            self._conn.execute("ALTER TABLE module_inputs ADD COLUMN template TEXT")
+            self._conn.commit()
 
     def close(self) -> None:
         """关闭连接。Module 生命周期结束或临时 store 用完后调用。"""
@@ -82,14 +91,24 @@ class ModuleInputStore:
         except sqlite3.Error:
             pass
 
-    def save_module_inputs(self, spec: dict[str, Any], tasklist: dict[str, Any]) -> None:
-        """覆盖式存档本次运行的 spec/tasklist（JSON 深拷贝语义）。"""
+    def save_module_inputs(
+        self,
+        spec: dict[str, Any],
+        tasklist: dict[str, Any],
+        template_name: str | None = None,
+    ) -> None:
+        """覆盖式存档本次运行的 spec/tasklist/模板名（JSON 深拷贝语义）。
+
+        ``template_name``：模板通道 run 记录所选模板（运行图重建按它注册
+        harness）；tasklist 通道 run 为 None。
+        """
         try:
             self._conn.execute(
-                "INSERT OR REPLACE INTO module_inputs(id, spec, tasklist, saved_at) "
-                "VALUES (1, ?, ?, ?)",
+                "INSERT OR REPLACE INTO module_inputs(id, spec, tasklist, template, saved_at) "
+                "VALUES (1, ?, ?, ?, ?)",
                 (json.dumps(spec, ensure_ascii=False),
                  json.dumps(tasklist, ensure_ascii=False),
+                 template_name,
                  time.time()),
             )
             self._conn.commit()
@@ -97,10 +116,14 @@ class ModuleInputStore:
             log.exception("module_inputs 存档失败（不阻断）: %s", self.db_path)
 
     def load_module_inputs(self) -> dict[str, Any] | None:
-        """读回存档；无存档或损坏返回 None。返回 ``{"spec": dict, "tasklist": dict}``。"""
+        """读回存档；无存档或损坏返回 None。
+
+        返回 ``{"spec": dict, "tasklist": dict, "template": str | None}``
+        （template 为 None：tasklist 通道 run 或迁移前的旧存档）。
+        """
         try:
             row = self._conn.execute(
-                "SELECT spec, tasklist FROM module_inputs WHERE id = 1"
+                "SELECT spec, tasklist, template FROM module_inputs WHERE id = 1"
             ).fetchone()
         except sqlite3.Error:
             log.exception("module_inputs 读取失败: %s", self.db_path)
@@ -108,7 +131,11 @@ class ModuleInputStore:
         if row is None:
             return None
         try:
-            return {"spec": json.loads(row[0]), "tasklist": json.loads(row[1])}
+            return {
+                "spec": json.loads(row[0]),
+                "tasklist": json.loads(row[1]),
+                "template": row[2],
+            }
         except json.JSONDecodeError:
             log.warning("module_inputs 存档损坏，忽略")
             return None

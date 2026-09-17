@@ -679,12 +679,16 @@ def check_resume_compat_from_run(
 
     old_tl = None
     old_inputs = read_module_inputs(run_id, base_dir=base_dir)
+    archived_template = None
     if old_inputs is not None:
         old_tl = tasklist_from_dict(old_inputs["tasklist"])
+        archived_template = old_inputs.get("template")
 
     try:
+        # 建图 registry 按存档模板（非默认模板 run 的新 tasklist 引用
+        # 模板专属元件时，按默认模板建 registry 会误报 not found）
         built = build_run_graph(module_name, run_id, base_dir=base_dir,
-                                tasklist=new_tasklist)
+                                tasklist=new_tasklist, template=archived_template)
     except ValueError:
         raise
     except Exception as e:
@@ -844,6 +848,10 @@ def build_run_graph(
       （直渲染通道）。
     - ``src``：预解析 ModuleSource（CLI 显式 --modules-dir 分支直通）；缺省
       ``store.resolve_module`` 统一搜索路径解析。
+    - ``template``：显式模板名（CLI --template，仅影响 registry 构建）；缺省
+      时按存档记录的模板（module_inputs.template）回落 entry.default_template
+      ——非默认模板发起的 run（存档 tasklist 引用模板专属 harness）若按默认
+      模板建 registry，重建即报 harness not found。
     - 返回 ``(Graph, Tasklist)``；无存档且未传 tasklist → None；模块未找到/
       加载失败/tasklist 构建失败 → ValueError（消息可直接面向用户）。
     """
@@ -865,6 +873,7 @@ def build_run_graph(
 
     tl: Tasklist | None = None
     spec_data: dict | None = None
+    archived_template: str | None = None
     if isinstance(tasklist, Tasklist):
         tl = tasklist
     elif isinstance(tasklist, dict):
@@ -878,6 +887,7 @@ def build_run_graph(
         if inputs is not None:
             tl = Tasklist.from_json(inputs["tasklist"])
             spec_data = inputs["spec"]
+            archived_template = inputs.get("template")
     else:
         raise TypeError(f"tasklist 类型不支持: {type(tasklist)!r}")
 
@@ -902,7 +912,17 @@ def build_run_graph(
         entry = discover_modules(src.path.parent).get(module_name)
         if entry is None:
             raise ValueError(f"模块 '{module_name}' 入口解析失败")
-        template_name = template or entry.default_template
+        if (
+            template is None and archived_template is not None
+            and entry.templates and archived_template not in entry.templates
+        ):
+            # 模块代码与存档漂移：显式报错，不静默回落默认模板（对齐
+            # ModuleEntry.spec_for 未注册模板即 ValueError 的契约）
+            raise ValueError(
+                f"存档模板 '{archived_template}' 未在当前模块注册——"
+                f"可用: {', '.join(sorted(entry.templates))}"
+            )
+        template_name = template or archived_template or entry.default_template
         if entry.build_registry is not None:
             registry = entry.build_registry(
                 MockLLMClient(), template_name, event_bus

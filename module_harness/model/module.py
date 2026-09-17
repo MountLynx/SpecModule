@@ -449,10 +449,12 @@ class Module:
                      "reason": event.reason, "failure_type": event.failure_type})
 
     def _archive_module_inputs(self) -> None:
-        """归档本次运行的 spec/tasklist 到 module_inputs 表（警告 1 对比源）。
+        """归档本次运行的 spec/tasklist/模板名到 module_inputs 表（警告 1 对比源）。
 
         run()/resume() 共用（_run_with_phases 开头调用）；resume 中位于
         兼容性校验与 restore 之后——先读旧存档再覆盖，顺序正确。
+        template_name 记录所选模板（tasklist 通道为 None）——运行图重建
+        （query.build_run_graph）按它注册对应模板的 harness。
         """
         if not self.persist:
             return
@@ -460,7 +462,8 @@ class Module:
             self._input_store = ModuleInputStore(self.module_id, self._base_dir)
         assert self._last_tasklist is not None
         self._input_store.save_module_inputs(
-            self.spec.to_dict(), self._last_tasklist.to_dict()
+            self.spec.to_dict(), self._last_tasklist.to_dict(),
+            template_name=self.template_name,
         )
 
     def _finalize_phase(self, runner: AsyncRunner, max_ticks: int) -> None:
