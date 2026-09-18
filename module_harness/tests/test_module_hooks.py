@@ -37,6 +37,7 @@ def _module(**kw) -> Module:
         registry=_registry(llm),
         persist=False,
         status_file=False,
+        stream_log=False,   # 第三个默认落盘通道（stream.log）一并关闭，零残留
         review_harness=None,
         **kw,
     )

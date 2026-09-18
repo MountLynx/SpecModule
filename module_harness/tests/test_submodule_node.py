@@ -17,6 +17,13 @@ def mock_llm():
     return client
 
 
+@pytest.fixture(autouse=True)
+def _chdir_tmp(tmp_path, monkeypatch):
+    """类式 SubModule 默认 mode="persist"——run 工件（status.json/run.sqlite/
+    stream.log）落 `cwd/.specmodule/runs/`，锚定 tmp_path 防泄漏进执行目录。"""
+    monkeypatch.chdir(tmp_path)
+
+
 class TestTaskDefinition:
     def test_submodule_tasklist_roundtrip(self):
         tl = Tasklist(

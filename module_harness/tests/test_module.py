@@ -21,6 +21,13 @@ def mock_llm():
     return client
 
 
+@pytest.fixture(autouse=True)
+def _chdir_tmp(tmp_path, monkeypatch):
+    """run 工件锚定 tmp_path：Module 缺省 base_dir=cwd（status.json/stream.log
+    均落 `.specmodule/runs/`，构造即写 idle 阶段），不锚定即泄漏进执行目录。"""
+    monkeypatch.chdir(tmp_path)
+
+
 @pytest.fixture
 def setup_registry(mock_llm):
     """注册最小 harness/script 集合 + 模板。"""
