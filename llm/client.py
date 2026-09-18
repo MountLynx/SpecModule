@@ -595,8 +595,9 @@ class OpenAIClient:
           dict 可指定 ``effort``；非 reasoning 模型忽略）
         - ``api_params``：透传给 SDK 的额外参数（已知字段入 kwargs，未知入 extra_body）
         - ``on_thinking``：思考/推理增量回调（reasoning_content/reasoning 方言 +
-          content 内联 <think> 剥离；Anthropic thinking_delta）；仅传 on_token 时
-          思考增量静默丢弃（向后兼容）
+          content 内联 <think> 剥离；Anthropic thinking_delta）；流式/非流式路径均
+          无条件剥离内联 <think> 标签，返回 content 不含思考文本（含仅传 on_token
+          的存量调用）；仅传 on_token 时思考增量静默丢弃；回调异常不破主流程
         """
         self._require_ready()
         model = model or self.config.model
@@ -650,6 +651,11 @@ class OpenAIClient:
         response = await self._client.chat.completions.create(**kwargs)
         choice = response.choices[0]
         content = choice.message.content or ""
+        # 内联 <think> 剥离与流式路径对齐：完整文本过一遍剥离器，返回 content 不含思考文本
+        stripper = _ThinkTagStripper()
+        c_text, _ = stripper.feed(content)
+        tail_c, _ = stripper.flush()
+        content = c_text + tail_c
         tool_calls: list[dict[str, Any]] = []
         if choice.message.tool_calls:
             for tc in choice.message.tool_calls:

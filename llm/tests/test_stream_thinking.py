@@ -63,6 +63,52 @@ class _StubOpenAISDK:
         self.chat = type("Chat", (), {"completions": _StubCompletions(chunks)})()
 
 
+# ── 非流式桩 ──────────────────────────────────────────────────
+
+class _StubMessage:
+    def __init__(self, content, tool_calls=None):
+        self.content = content
+        self.tool_calls = tool_calls      # None → _nonstream 跳过 tool_calls 分支
+
+
+class _StubNonStreamChoice:
+    def __init__(self, message, finish_reason="stop"):
+        self.message = message
+        self.finish_reason = finish_reason
+
+
+class _StubNonStreamResponse:
+    """_nonstream 读 response.choices[0].message/.finish_reason 与 response.usage。"""
+
+    def __init__(self, content, finish_reason="stop"):
+        self.choices = [_StubNonStreamChoice(_StubMessage(content), finish_reason)]
+        self.usage = None                 # → usage 计为 0/0
+
+
+class _StubNonStreamCompletions:
+    def __init__(self, response):
+        self._response = response
+
+    async def create(self, **kwargs):
+        return self._response             # 非流式：返回完整 response，不迭代
+
+
+class _StubNonStreamSDK:
+    def __init__(self, response):
+        self.chat = type("Chat", (), {"completions": _StubNonStreamCompletions(response)})()
+
+
+def _openai_client_nonstream(monkeypatch, content) -> OpenAIClient:
+    """非流式客户端桩：complete 不传任何回调 → 走 _nonstream 路径。"""
+    from conftest import _install_fake_sdk
+
+    cap: dict = {}
+    _install_fake_sdk(monkeypatch, "openai", "AsyncOpenAI", cap)
+    c = OpenAIClient(LLMConfig(provider="openai", api_key="k", model="m"))
+    c._client = _StubNonStreamSDK(_StubNonStreamResponse(content))
+    return c
+
+
 def _openai_client(monkeypatch, chunks) -> OpenAIClient:
     """真构造（config 完整，_stream/complete 读 config.base_url）+ 流桩换 _client。"""
     from conftest import _install_fake_sdk
@@ -137,6 +183,14 @@ async def test_on_thinking_alone_triggers_stream(monkeypatch):
     assert c._client.chat.completions.last_kwargs is not None
     assert c._client.chat.completions.last_kwargs.get("stream") is True
     assert think == ["想"]
+
+
+@pytest.mark.asyncio
+async def test_nonstream_strips_inline_think(monkeypatch):
+    """非流式路径与流式剥离对称：complete 不传回调，返回 content 不含思考文本。"""
+    c = _openai_client_nonstream(monkeypatch, "答案<think>内幕</think>收尾")
+    resp = await c.complete("p", model="m")
+    assert resp.content == "答案收尾"
 
 
 def test_stripper_literal_bracket_not_tag():
