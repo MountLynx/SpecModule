@@ -136,6 +136,76 @@ def _safe_on_token(on_token: Callable[[str], None] | None, chunk: str) -> None:
         log.exception("on_token 回调异常；已忽略")
 
 
+def _safe_on_thinking(on_thinking: Callable[[str], None] | None, chunk: str) -> None:
+    """调用 on_thinking，回调异常不得影响主流程（同 _safe_on_token）。"""
+    if on_thinking is None or not chunk:
+        return
+    try:
+        on_thinking(chunk)
+    except Exception:
+        log.exception("on_thinking 回调异常；已忽略")
+
+
+class _ThinkTagStripper:
+    """跨 chunk 安全的内联 ``<think>…</think>`` 剥离器。
+
+    部分兼容网关不单设 reasoning 通道，思考文本带标签内联在 content 里。
+    feed() 逐 chunk 喂入，返回 (content_delta, thinking_delta)：标签外增量
+    归 content、标签内增量归 thinking；hold-back 缓冲处理标签自身被 chunk
+    劈开的情况；flush() 在流结束吐出残留（未闭合标签按思考处理）。
+    """
+
+    _OPEN = "<think>"
+    _CLOSE = "</think>"
+
+    def __init__(self) -> None:
+        self._inside = False
+        self._buf = ""      # hold-back：可能是未判定标签前缀的尾部
+
+    def feed(self, chunk: str) -> tuple[str, str]:
+        self._buf += chunk
+        content_parts: list[str] = []
+        thinking_parts: list[str] = []
+        while self._buf:
+            if self._inside:
+                end = self._buf.find(self._CLOSE)
+                if end >= 0:
+                    thinking_parts.append(self._buf[:end])
+                    self._buf = self._buf[end + len(self._CLOSE):]
+                    self._inside = False
+                    continue
+                keep = self._holdback(self._CLOSE)
+            else:
+                start = self._buf.find(self._OPEN)
+                if start >= 0:
+                    content_parts.append(self._buf[:start])
+                    self._buf = self._buf[start + len(self._OPEN):]
+                    self._inside = True
+                    continue
+                keep = self._holdback(self._OPEN)
+            emit = len(self._buf) - keep
+            if emit:
+                (thinking_parts if self._inside else content_parts).append(self._buf[:emit])
+                self._buf = self._buf[emit:]
+            break
+        return "".join(content_parts), "".join(thinking_parts)
+
+    def flush(self) -> tuple[str, str]:
+        """流结束：按当前内/外状态吐出残留 hold-back。"""
+        if not self._buf:
+            return "", ""
+        out = self._buf
+        self._buf = ""
+        return ("", out) if self._inside else (out, "")
+
+    def _holdback(self, tag: str) -> int:
+        """缓冲尾部可能是 tag 真前缀的最大长度（ TagLen-1 向下探）。"""
+        for n in range(min(len(self._buf), len(tag) - 1), 0, -1):
+            if tag.startswith(self._buf[-n:]):
+                return n
+        return 0
+
+
 # ---------------------------------------------------------------------------
 # Anthropic 客户端
 # ---------------------------------------------------------------------------
@@ -514,6 +584,7 @@ class OpenAIClient:
         output_format: dict[str, Any] | None = None,
         notdo: list[str] | None = None,
         on_token: Callable[[str], None] | None = None,
+        on_thinking: Callable[[str], None] | None = None,
         api_params: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """单轮调用入口（harness body 用）。
@@ -523,6 +594,9 @@ class OpenAIClient:
         - ``think``：reasoning 模型映射为 ``reasoning_effort``（"low"/"medium"/"high"，
           dict 可指定 ``effort``；非 reasoning 模型忽略）
         - ``api_params``：透传给 SDK 的额外参数（已知字段入 kwargs，未知入 extra_body）
+        - ``on_thinking``：思考/推理增量回调（reasoning_content/reasoning 方言 +
+          content 内联 <think> 剥离；Anthropic thinking_delta）；仅传 on_token 时
+          思考增量静默丢弃（向后兼容）
         """
         self._require_ready()
         model = model or self.config.model
@@ -562,8 +636,8 @@ class OpenAIClient:
         _apply_api_params(kwargs, api_params, _KNOWN_OPENAI_PARAMS)
 
         try:
-            if on_token:
-                content, tool_calls, usage, finish = await self._stream(kwargs, on_token)
+            if on_token or on_thinking:
+                content, tool_calls, usage, finish = await self._stream(kwargs, on_token, on_thinking)
             else:
                 content, tool_calls, usage, finish = await self._nonstream(kwargs)
         except LLMError:
@@ -590,7 +664,7 @@ class OpenAIClient:
         }
         return content, tool_calls, usage, choice.finish_reason
 
-    async def _stream(self, kwargs: dict, on_token) -> tuple:
+    async def _stream(self, kwargs: dict, on_token, on_thinking) -> tuple:
         kwargs["stream"] = True
         # stream_options 仅官方 OpenAI 必然支持；兼容接口（base_url 非空）省略以免被拒
         if not self.config.base_url:
@@ -599,6 +673,7 @@ class OpenAIClient:
         tool_calls: list[dict[str, Any]] = []
         usage: dict[str, int] = {}
         finish: str | None = None
+        stripper = _ThinkTagStripper()
         stream = await self._client.chat.completions.create(**kwargs)
         async for chunk in stream:
             if chunk.usage:
@@ -609,11 +684,26 @@ class OpenAIClient:
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
+            # 思考增量：DeepSeek/Kimi 的 reasoning_content，部分网关用 reasoning；
+            # 无原生通道时由 <think> 剥离器从 content 转移（见下）
+            reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+            if reasoning:
+                _safe_on_thinking(on_thinking, reasoning)
             if delta.content:
-                content += delta.content
-                _safe_on_token(on_token, delta.content)
+                c_delta, t_delta = stripper.feed(delta.content)
+                content += c_delta        # 返回值用剥离后文本（思考不泄入 JSON 输出）
+                if c_delta:
+                    _safe_on_token(on_token, c_delta)
+                if t_delta:
+                    _safe_on_thinking(on_thinking, t_delta)
             if chunk.choices[0].finish_reason:
                 finish = chunk.choices[0].finish_reason
+        tail_c, tail_t = stripper.flush()
+        if tail_c:
+            content += tail_c
+            _safe_on_token(on_token, tail_c)
+        if tail_t:
+            _safe_on_thinking(on_thinking, tail_t)
         return content, tool_calls, usage, finish
 
     # --- 多轮底层接口 -------------------------------------------------------
