@@ -157,7 +157,7 @@ firings 列表。协程跑完整 run；**进程内取消 = 取消该 asyncio tas
 跨进程可查（status.json 含 `"module"` 键 = 源模块名，供 run 历史按模块归档；旧 run 无此键）。
 单写者约束：同一 `run_id` 并发写需调用方串行化。
 LLM 流式输出经 EventBus 订阅落盘 `stream.log`（JSONL，append-only：`run_start` 为每次执行
-边界，后接 `call_start`/`token`/`call_end`/`call_error`；`ts` 为 wall-clock；
+边界，后接 `call_start`/`token`/`thinking`/`call_end`/`call_error`；`ts` 为 wall-clock；
 `EventBus.null()` 场景仅 `run_start`）；增量读走 `query.read_stream`。
 
 续跑：`await module.resume(rollback_to=None, max_ticks=100)` —— `rollback_to` 为 tick 号 /
@@ -174,3 +174,12 @@ LLM 流式输出经 EventBus 订阅落盘 `stream.log`（JSONL，append-only：`
 | `MockLLMClient` | 类（`await complete(**kw) -> LLMResponse`） | 免 key 冒烟：`json_object` 输出返回宽松合法 JSON，text 输出为占位文本 |
 
 客户端创建一次复用（per-connection / per-process），不要 per-call 创建。
+
+流式调用：`complete(..., on_token=None, on_thinking=None)`——提供任一回调即走流式接口。
+`on_token` 收正文增量（原行为不变）；`on_thinking` 收思考/推理增量（OpenAI 兼容
+`reasoning_content`/`reasoning` 方言 + content 内联 `<think>` 标签剥离——返回的
+`LLMResponse.content` 不含思考文本；Anthropic `thinking_delta`——原生通道思考按
+block 分离，content 不做内联标签剥离）。流式与非流式路径均无条件剥离内联
+`<think>` 标签（含仅传 `on_token` 的存量调用）；仅传 `on_token` 时思考增量静默
+丢弃（回调通道向后兼容）。回调异常不破主流程。对应 harness 事件 `LlmThinking`
+（stream.log 记录 `{"type": "thinking", "ts", "node", "chunk"}`）。
