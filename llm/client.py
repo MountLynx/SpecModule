@@ -305,6 +305,7 @@ class AnthropicClient:
         output_format: dict[str, Any] | None = None,
         notdo: list[str] | None = None,
         on_token: Callable[[str], None] | None = None,
+        on_thinking: Callable[[str], None] | None = None,
         api_params: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """单轮调用入口（harness body 用）。
@@ -312,7 +313,8 @@ class AnthropicClient:
         - ``prompt``：三层渲染后的用户提示词
         - ``model``/``temperature``/``think``：按调用覆盖，缺省回落 config
         - ``output_format``：原生结构化输出（强制 tool-use）
-        - ``on_token``：流式 token 回调（提供时走流式接口）
+        - ``on_token``/``on_thinking``：流式 token/思考增量回调（任一提供即走流式接口；
+          thinking_delta → on_thinking，text_delta → on_token；回调异常不破主流程）
         - ``api_params``：透传给 SDK 的额外参数（已知字段入 kwargs，未知入 extra_body）
         """
         self._require_ready()
@@ -352,8 +354,8 @@ class AnthropicClient:
         _apply_api_params(kwargs, api_params, _KNOWN_ANTHROPIC_PARAMS)
 
         try:
-            if on_token:
-                content, tool_calls, usage, finish = await self._stream(kwargs, forced_tool, on_token)
+            if on_token or on_thinking:
+                content, tool_calls, usage, finish = await self._stream(kwargs, forced_tool, on_token, on_thinking)
             else:
                 content, tool_calls, usage, finish = await self._nonstream(kwargs, forced_tool)
         except LLMError:
@@ -379,13 +381,22 @@ class AnthropicClient:
         }
         return content, tool_calls, usage, response.stop_reason
 
-    async def _stream(self, kwargs: dict, forced_tool: str | None, on_token) -> tuple:
+    async def _stream(self, kwargs: dict, forced_tool: str | None, on_token, on_thinking) -> tuple:
         content = ""
         tool_calls: list[dict[str, Any]] = []
         async with self._client.messages.stream(**kwargs) as stream:
-            async for text in stream.text_stream:
-                content += text
-                _safe_on_token(on_token, text)
+            async for event in stream:
+                delta = getattr(event, "delta", None)
+                dtype = getattr(delta, "type", None)
+                if dtype == "thinking_delta":
+                    piece = getattr(delta, "thinking", None) or ""
+                    if piece:
+                        _safe_on_thinking(on_thinking, piece)
+                elif dtype == "text_delta":
+                    text = getattr(delta, "text", "") or ""
+                    if text:
+                        content += text
+                        _safe_on_token(on_token, text)
             final = await stream.get_final_message()
         for block in final.content:
             if block.type == "tool_use":
@@ -860,6 +871,7 @@ class RoutingClient:
         output_format: dict[str, Any] | None = None,
         notdo: list[str] | None = None,
         on_token: Callable[[str], None] | None = None,
+        on_thinking: Callable[[str], None] | None = None,
         api_params: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """单轮调用(harness body 入口),按调用模型路由。"""
@@ -872,6 +884,7 @@ class RoutingClient:
             output_format=output_format,
             notdo=notdo,
             on_token=on_token,
+            on_thinking=on_thinking,
             api_params=api_params,
         )
 

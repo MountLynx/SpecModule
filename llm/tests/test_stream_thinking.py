@@ -200,3 +200,89 @@ def test_stripper_literal_bracket_not_tag():
     c2, t2 = s.flush()
     assert (c1 + c2) == "1 < 2 且 <b>加粗</b>"
     assert (t1 + t2) == ""
+
+
+# ── Anthropic 桩 ────────────────────────────────────────────────
+
+class _ADelta:
+    def __init__(self, dtype, **fields):
+        self.type = dtype
+        self.__dict__.update(fields)
+
+
+class _AEvent:
+    def __init__(self, delta):
+        self.delta = delta
+
+
+class _StubAnthropicStream:
+    def __init__(self, events, final):
+        self._events, self._final = events, final
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def __aiter__(self):
+        return self._gen()
+
+    async def _gen(self):
+        for e in self._events:
+            yield e
+
+    async def get_final_message(self):
+        return self._final
+
+
+class _AFinal:
+    def __init__(self):
+        self.content = []
+        self.usage = type("U", (), {"input_tokens": 1, "output_tokens": 2})()
+        self.stop_reason = "end_turn"
+
+
+class _StubAnthropicSDK:
+    def __init__(self, stream):
+        self.messages = type("M", (), {"stream": lambda self_, **kw: stream})()
+
+
+def _anthropic_client(events) -> AnthropicClient:
+    """_stream 只触 self._client——__new__ 跳过构造（无需 anthropic 包与 config）。"""
+    c = AnthropicClient.__new__(AnthropicClient)
+    c._client = _StubAnthropicSDK(_StubAnthropicStream(events, _AFinal()))
+    return c
+
+
+@pytest.mark.asyncio
+async def test_anthropic_thinking_delta_passthrough():
+    """thinking_delta → on_thinking；text_delta → on_token；content 聚合正确。"""
+    c = _anthropic_client([
+        _AEvent(_ADelta("thinking_delta", thinking="推理")),
+        _AEvent(_ADelta("text_delta", text="结论")),
+        _AEvent(_ADelta("text_delta", text="如下")),
+    ])
+    think, toks = [], []
+    content, tool_calls, usage, finish = await c._stream({}, None, toks.append, think.append)
+    assert "".join(think) == "推理"
+    assert "".join(toks) == "结论如下"
+    assert content == "结论如下" and usage == {"input_tokens": 1, "output_tokens": 2}
+    assert finish == "end_turn" and tool_calls == []
+
+
+@pytest.mark.asyncio
+async def test_routing_passes_on_thinking_through():
+    """RoutingClient.complete 透传 on_thinking 到被路由客户端（镜像 test_routing 桩法）。"""
+    from unittest.mock import AsyncMock
+
+    from llm.client import LLMResponse
+
+    client = RoutingClient(LLMConfig(provider="openai", api_key="k", model="m"))
+    mock = AsyncMock()
+    mock.complete.return_value = LLMResponse(content="y")
+    client._clients[None] = mock   # 预置槽位 → _client_for 直接命中，不建真客户端
+    think = []
+    await client.complete("p", on_thinking=think.append)
+    kw = mock.complete.call_args.kwargs
+    assert callable(kw["on_thinking"])
