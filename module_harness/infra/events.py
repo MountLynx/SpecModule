@@ -37,6 +37,12 @@ class LlmToken(HarnessEvent):
 
 
 @dataclass
+class LlmThinking(HarnessEvent):
+    """LLM 思考/推理增量（reasoning 通道；正文走 LlmToken）。"""
+    chunk: str
+
+
+@dataclass
 class LlmCallCompleted(HarnessEvent):
     """LLM 调用完成。图像模式：content_chars = 产物字节数，finish_reason=None。"""
     content_chars: int

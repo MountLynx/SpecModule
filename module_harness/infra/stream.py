@@ -7,11 +7,13 @@ Harness 每个LLM chunk 经 EventBus 发 ``LlmToken``，但 EventBus 是进程�
 跨进程可读。写失败仅 log 不抛（观测不阻断运行，同 _write_phase 哲学）。
 
 记录格式（``ts`` 由写入方统一打 wall-clock——harness 事件的 timestamp 是
-``time.monotonic()``，进程本地时钟，不落盘、不跨进程比较）::
+``time.monotonic()``，进程本地时钟，不落盘、不跨进程比较；``thinking`` 为
+推理通道增量（``LlmThinking`` 事件；旧客户端无此通道时不产生））::
 
     {"type": "run_start",  "ts", "pid", "max_ticks"}
     {"type": "call_start", "ts", "node", "model", "prompt_chars"}
     {"type": "token",      "ts", "node", "chunk"}
+    {"type": "thinking",   "ts", "node", "chunk"}
     {"type": "call_end",   "ts", "node", "content_chars", "finish_reason"}
     {"type": "image_saved", "ts", "node", "path", "bytes_len"}
     {"type": "call_error", "ts", "node", "reason", "failure_type"}

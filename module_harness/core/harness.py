@@ -18,6 +18,7 @@ from ..infra.events import (
     PromptRendered,
     LlmCallStarted,
     LlmToken,
+    LlmThinking,
     LlmCallCompleted,
     OutputValidated,
     ImageSaved,
@@ -166,6 +167,12 @@ class Harness:
                     chunk=chunk,
                 ))
 
+            def on_thinking(chunk: str) -> None:
+                bus.emit(LlmThinking(
+                    timestamp=time.monotonic(), node=node, tick=0,
+                    chunk=chunk,
+                ))
+
             try:
                 from llm.client import LLMError
 
@@ -178,6 +185,7 @@ class Harness:
                     output_format=dataclasses.asdict(config.output_format) if config.output_format else None,
                     notdo=config.notdo if config.notdo else None,
                     on_token=on_token,
+                    on_thinking=on_thinking,
                     api_params=config.api_params if config.api_params else None,
                 )
             except LLMError as e:

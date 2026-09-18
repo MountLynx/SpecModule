@@ -79,10 +79,23 @@ class _ImageLLM:
                            usage={"input_tokens": 3, "output_tokens": 100})
 
 
+class _ThinkingLLM:
+    """思考通道 fake：先经 on_thinking 发思考块再走 on_token 正文。"""
+
+    async def complete(self, *, prompt, on_token=None, on_thinking=None, **kw):
+        if on_thinking:
+            on_thinking("推演")
+            on_thinking("片刻")
+        for c in ("你", "好"):
+            if on_token:
+                on_token(c)
+        return LLMResponse(content='{"ok": true}')
+
+
 def _harness_module(llm, tmp_path, monkeypatch, module_id="mod_stream",
-                    harness_config=None, **kw):
+                    harness_config=None, registry=None, **kw):
     monkeypatch.chdir(tmp_path)
-    reg = HarnessRegistry(llm_client=llm, event_bus=EventBus())
+    reg = registry or HarnessRegistry(llm_client=llm, event_bus=EventBus())
     reg.harness("probe", harness_config or HarnessConfig(prompt_core="x={spec}"))
     return Module(
         spec={"x": 1},
@@ -232,3 +245,37 @@ class TestReadStream:
         self._write_log(tmp_path, [json.dumps({"type": "run_start"}) + "\n"])
         r = read_stream("r1", offset=10_000, base_dir=tmp_path)
         assert [x["type"] for x in r["records"]] == ["run_start"]
+
+
+class TestThinkingChannel:
+    @pytest.mark.asyncio
+    async def test_thinking_records_in_stream_log(self, tmp_path, monkeypatch):
+        mod = _harness_module(_ThinkingLLM(), tmp_path, monkeypatch)
+        await mod.run()
+        recs = _read_records(stream_log_path("mod_stream", tmp_path))
+        th = [r for r in recs if r["type"] == "thinking"]
+        assert [r["node"] for r in th] == ["A", "A"]
+        assert "".join(r["chunk"] for r in th) == "推演片刻"
+        # 顺序约束：thinking 先于正文 token（call_start < thinking < token < call_end）
+        kinds = [r["type"] for r in recs]
+        assert kinds.index("call_start") < kinds.index("thinking") < kinds.index("token")
+
+    @pytest.mark.asyncio
+    async def test_thinking_bus_event(self, tmp_path, monkeypatch):
+        from module_harness import LlmThinking
+
+        reg = HarnessRegistry(llm_client=_ThinkingLLM(), event_bus=EventBus())
+        seen: list = []
+        reg._event_bus.subscribe(LlmThinking, seen.append)
+        mod = _harness_module(_ThinkingLLM(), tmp_path, monkeypatch, registry=reg)
+        await mod.run()
+        assert [e.chunk for e in seen] == ["推演", "片刻"]
+        assert all(e.node == "A" and e.tick == 0 for e in seen)
+
+    @pytest.mark.asyncio
+    async def test_no_thinking_records_without_callback(self, tmp_path, monkeypatch):
+        # 旧式 fake（complete 签名不收 on_thinking）→ 无 thinking 记录，其余行为不变
+        mod = _harness_module(_StreamingLLM(["x"]), tmp_path, monkeypatch)
+        await mod.run()
+        recs = _read_records(stream_log_path("mod_stream", tmp_path))
+        assert not [r for r in recs if r["type"] == "thinking"]

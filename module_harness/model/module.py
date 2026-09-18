@@ -28,6 +28,7 @@ from ..infra.events import (
     LlmCallCompleted,
     LlmCallStarted,
     LlmToken,
+    LlmThinking,
 )
 from ..infra.checkpoint import (
     ModuleInputStore,
@@ -412,8 +413,8 @@ class Module:
             return None
         if not self._stream_subscribed:
             bus = self._reg._event_bus
-            for evt in (LlmCallStarted, LlmToken, LlmCallCompleted, ImageSaved,
-                        HarnessFailed):
+            for evt in (LlmCallStarted, LlmToken, LlmThinking, LlmCallCompleted,
+                        ImageSaved, HarnessFailed):
                 bus.subscribe(evt, self._on_stream_event)
             self._stream_subscribed = True
         writer = StreamLogWriter(stream_log_path(self.module_id, self._base_dir))
@@ -437,6 +438,8 @@ class Module:
                      "model": event.model, "prompt_chars": event.prompt_chars})
         elif isinstance(event, LlmToken):
             w.write({"type": "token", "node": event.node, "chunk": event.chunk})
+        elif isinstance(event, LlmThinking):
+            w.write({"type": "thinking", "node": event.node, "chunk": event.chunk})
         elif isinstance(event, LlmCallCompleted):
             w.write({"type": "call_end", "node": event.node,
                      "content_chars": event.content_chars,
