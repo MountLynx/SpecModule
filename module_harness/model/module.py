@@ -429,7 +429,7 @@ class Module:
             writer.close()
 
     def _on_stream_event(self, event: Any) -> None:
-        """EventBus → stream.log 记录（五类事件 → 五种记录，见 stream.py）。"""
+        """EventBus → stream.log 记录（六类事件 → 六种记录，见 stream.py）。"""
         w = self._stream_writer
         if w is None:
             return

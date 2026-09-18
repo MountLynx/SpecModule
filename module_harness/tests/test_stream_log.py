@@ -274,7 +274,8 @@ class TestThinkingChannel:
 
     @pytest.mark.asyncio
     async def test_no_thinking_records_without_callback(self, tmp_path, monkeypatch):
-        # 旧式 fake（complete 签名不收 on_thinking）→ 无 thinking 记录，其余行为不变
+        # 旧式 fake（complete 签名不收 on_thinking，经 **kw 吸收并忽略）
+        # → 无 thinking 记录，其余行为不变
         mod = _harness_module(_StreamingLLM(["x"]), tmp_path, monkeypatch)
         await mod.run()
         recs = _read_records(stream_log_path("mod_stream", tmp_path))

@@ -8,7 +8,7 @@ Harness 每个LLM chunk 经 EventBus 发 ``LlmToken``，但 EventBus 是进程�
 
 记录格式（``ts`` 由写入方统一打 wall-clock——harness 事件的 timestamp 是
 ``time.monotonic()``，进程本地时钟，不落盘、不跨进程比较；``thinking`` 为
-推理通道增量（``LlmThinking`` 事件；旧客户端无此通道时不产生））::
+推理通道增量——``LlmThinking`` 事件，旧客户端无此通道时不产生）::
 
     {"type": "run_start",  "ts", "pid", "max_ticks"}
     {"type": "call_start", "ts", "node", "model", "prompt_chars"}
