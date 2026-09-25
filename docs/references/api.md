@@ -94,6 +94,7 @@ status.json 的反向通道：status.json 把运行状态带出运行进程，co
 | `search_paths` | `(base_dir: Path \| None = None) -> list[Path]` | 搜索链 `[base_dir or cwd]/modules + $SPECMODULE_PATH（os.pathsep 分隔）+ <store>/modules`，只含存在的目录；`base_dir` = 发现锚定根——服务器进程 cwd ≠ 运行根，跨进程消费显式传（效果：server 模块视图 ≡ spawn 子进程 CLI 视图），None = cwd 向后兼容；优先序不变 |
 | `store_home` | `() -> Path` | `SPECMODULE_HOME` 环境变量或 `~/.specmodule`（惰性创建，幂等） |
 | `validate_pack_dir` | `(path: Path) -> dict` | 校验 pack 目录（manifest 解析 + 引用完整性，经 `ModuleLoader().load(path, lazy_client=True)`），返回解析后的 manifest dict；失败抛 `ValueError`（消息可面向用户）；**零 LLM client 实例化**（D6，lazy_client 沿 submodule 递归传播——含 submodule 的 pack 校验同样不触发 from_env/config） |
+| `install_pack` | `(src: Path, *, source: str, name: str \| None = None) -> Path` | 安装 pack 进 store：`validate_pack_dir` 先于任何写入（校验失败零落盘）→ 整包 copytree 进 `store/modules/<名>/`（`.git` 目录不复制）→ 写 `manifests/<名>.json`（`{name, source, version, files: sha256 清单, installed_at}`）；`source` = 来源描述（本地路径 / git URL / pip 包名 / 消费端自定义，webview 构建器传 `"webview-builder"`）写入 manifest；`name` 缺省取 manifest 的 `name`；同名已存在 → `ValueError`（提示 uninstall，不覆盖）；manifest 写入失败回滚已复制目录（零残留）；返回目标目录 Path |
 
 `ModuleSource` 字段：`name`、`kind`（`entry | packed | pip`）、`path`（entry 文件 / pack 目录）、
 `description`、`version`、`priority`（搜索路径序，0 最高；pip 排最后）、`pip_dist`。
