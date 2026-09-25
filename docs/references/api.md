@@ -93,6 +93,7 @@ status.json 的反向通道：status.json 把运行状态带出运行进程，co
 | `detail_to_dict` | `(resolved: ResolvedModule) -> dict` | 模块详情 JSON 出口：`{name, kind, path, version, description, default_template, templates: [{name, description, spec_schema, default_spec}...], default_spec, spec_schema, submodules: [名...]}`（templates 为**解析后对象列表**——description 取模板 JSON 的 `description` 字段缺省 `""`，spec 两键 = `spec_for(name)` 解析结果、回落逻辑在库内消费端零解析；**形状变更（breaking）**：原 `templates: [名...]` 名字列表；排序稳定输出不变；packed 模块 `templates: []` 不受影响；模块级 `default_spec`/`spec_schema` 仍原样透传可独立消费） |
 | `search_paths` | `(base_dir: Path \| None = None) -> list[Path]` | 搜索链 `[base_dir or cwd]/modules + $SPECMODULE_PATH（os.pathsep 分隔）+ <store>/modules`，只含存在的目录；`base_dir` = 发现锚定根——服务器进程 cwd ≠ 运行根，跨进程消费显式传（效果：server 模块视图 ≡ spawn 子进程 CLI 视图），None = cwd 向后兼容；优先序不变 |
 | `store_home` | `() -> Path` | `SPECMODULE_HOME` 环境变量或 `~/.specmodule`（惰性创建，幂等） |
+| `validate_pack_dir` | `(path: Path) -> dict` | 校验 pack 目录（manifest 解析 + 引用完整性，经 `ModuleLoader().load(path, lazy_client=True)`），返回解析后的 manifest dict；失败抛 `ValueError`（消息可面向用户）；**零 LLM client 实例化**（D6，lazy_client 沿 submodule 递归传播——含 submodule 的 pack 校验同样不触发 from_env/config） |
 
 `ModuleSource` 字段：`name`、`kind`（`entry | packed | pip`）、`path`（entry 文件 / pack 目录）、
 `description`、`version`、`priority`（搜索路径序，0 最高；pip 排最后）、`pip_dist`。
