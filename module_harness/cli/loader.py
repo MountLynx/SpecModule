@@ -62,8 +62,9 @@ class ModuleLoader:
         """解析 module.json → 注册 provides → 校验 requires → 返回 SubModule。
 
         ``lazy_client=True``：校验/解析阶段不实例化 LLM client（D6——校验
-        无网络/key 需求）；SubModule 构造传 None，运行期惰性 from_env 或
-        由调用方经 ``run(llm_client=...)`` 注入。默认 False 保持旧语义。
+        无网络/key 需求，沿 submodule 递归传播）；SubModule 构造传 None，
+        运行期惰性 from_env 或由调用方经 ``run(llm_client=...)`` 注入。
+        默认 False 保持旧语义。
         """
         p = Path(path)
         manifest_path = p / "module.json"
@@ -91,7 +92,7 @@ class ModuleLoader:
         commands = self._load_commands(p)
         scripts = self._load_scripts(p)
         guards = self._load_guards(p)
-        submodules = self._load_submodules(p)
+        submodules = self._load_submodules(p, lazy_client=lazy_client)
 
         modules_raw = manifest.get("modules", []) or []
         if not isinstance(modules_raw, list) or not all(
@@ -198,12 +199,14 @@ class ModuleLoader:
             result[f.stem] = fn
         return result
 
-    def _load_submodules(self, p: Path) -> dict[str, SubModule]:
+    def _load_submodules(self, p: Path, *, lazy_client: bool = False) -> dict[str, SubModule]:
         """递归加载 submodules/*/（每个是完整子包）→ {目录名: 实例}。
 
         目录名为引用键（pack 时以父模块 modules 的键命名），与子模块
         自身 name 无关。guard 名不进入 provides/requires（边引用，不参与
-        重复名检测）；子模块实例是父的 modules 值，加载时同样解析。"""
+        重复名检测）；子模块实例是父的 modules 值，加载时同样解析。
+        ``lazy_client`` 沿递归传播——校验路径（validate_pack_dir，D6 零
+        client 实例化）对含 submodule 的 pack 同样不触发 from_env。"""
         result: dict[str, SubModule] = {}
         base = p / "submodules"
         if not base.is_dir():
@@ -211,5 +214,5 @@ class ModuleLoader:
         for d in sorted(base.iterdir()):
             if not (d / "module.json").is_file():
                 raise ModuleManifestError(f"{d} 缺少 module.json（submodule 目录无效）")
-            result[d.name] = self.load(d)
+            result[d.name] = self.load(d, lazy_client=lazy_client)
         return result

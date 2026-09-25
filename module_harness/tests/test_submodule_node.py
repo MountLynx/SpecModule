@@ -457,6 +457,20 @@ class TestPackLoadSubmodules:
         c_out = next(f.output for f in firings if f.node == "C")
         assert c_out == {"got": {"msg": "from_child"}}
 
+    def test_lazy_client_propagates_to_submodules(self, tmp_path, monkeypatch):
+        """lazy_client 沿 submodule 递归传播——校验路径（D6 零 client）对含
+        submodule 的 pack 同样不触发 from_env（否则无 config 环境直接炸）。"""
+        from module_harness.cli import loader as loader_mod
+        from module_harness.infra.store import validate_pack_dir
+
+        def _boom(*a, **k):
+            raise AssertionError("lazy_client 校验路径不得实例化 LLM client")
+
+        monkeypatch.setattr(loader_mod.LLMConfig, "from_env", _boom)
+        out = Parent().pack(tmp_path / "dist")
+        manifest = validate_pack_dir(out)
+        assert manifest["modules"] == ["echo_child"]
+
     def test_manifest_modules_missing_dir_rejected(self, tmp_path, mock_llm):
         import json as _json
         from module_harness.cli.loader import ModuleLoader, ModuleManifestError
