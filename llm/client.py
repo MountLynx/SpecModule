@@ -409,11 +409,13 @@ class AnthropicClient:
         }
         return content, tool_calls, usage, final.stop_reason
 
-    # --- 多轮底层接口（保留供对齐检查 / spec 翻译等 LLM 调用复用） -------------
+    # --- 多轮底层接口（首个正当消费端 = agent 工具循环；spec 翻译 / 对齐检查等 LLM 调用亦复用） -------------
 
     def _convert_messages(self, messages: list[Message]) -> tuple[str | None, list[dict[str, Any]]]:
         """分离 system 消息并转换其余消息；工具循环形状：assistant+tool_calls →
-        tool_use 内容块，tool 角色 → tool_result 用户消息块（Anthropic 契约）。"""
+        tool_use 内容块，tool 角色 → tool_result 用户消息块（Anthropic 契约）。
+        连续 tool 消息聚合为一条 user 消息（多个 tool_result 块）——Anthropic 要求
+        消息角色交替，逐条拆开会 400（Bedrock 实测）。"""
         system_prompt = None
         api_messages = []
         for msg in messages:
@@ -428,10 +430,15 @@ class AnthropicClient:
                                    "name": tc["name"], "input": tc.get("arguments", {})})
                 api_messages.append({"role": "assistant", "content": blocks})
             elif msg.role == "tool":
-                api_messages.append({"role": "user", "content": [
-                    {"type": "tool_result", "tool_use_id": msg.tool_call_id or "",
-                     "content": msg.content},
-                ]})
+                result = {"type": "tool_result", "tool_use_id": msg.tool_call_id or "",
+                          "content": msg.content}
+                last = api_messages[-1] if api_messages else None
+                # 连续 tool 消息并入同一条 user 消息（角色交替契约，见 docstring）
+                if last and last["role"] == "user" and isinstance(last["content"], list) \
+                        and last["content"] and last["content"][0]["type"] == "tool_result":
+                    last["content"].append(result)
+                else:
+                    api_messages.append({"role": "user", "content": [result]})
             else:
                 api_messages.append({"role": msg.role, "content": msg.content})
         return system_prompt, api_messages

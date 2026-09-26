@@ -38,6 +38,39 @@ class TestAnthropicConversion:
         assert system == "s"
         assert out == [{"role": "user", "content": "u"}]
 
+    def test_consecutive_tools_merge_into_one_user_message(self):
+        # Anthropic 要求消息角色交替：连续 tool 消息必须聚合为一条 user 消息
+        # （多个 tool_result 块），逐条拆开会被服务端 400（Bedrock 实测）。
+        msgs = [
+            Message(role="tool", content='{"phase": "done"}', tool_call_id="tc_1"),
+            Message(role="tool", content='{"tick": 3}', tool_call_id="tc_2"),
+        ]
+        _, out = _anthropic()._convert_messages(msgs)
+        assert out == [{"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "tc_1", "content": '{"phase": "done"}'},
+            {"type": "tool_result", "tool_use_id": "tc_2", "content": '{"tick": 3}'},
+        ]}]
+
+    def test_assistant_two_tool_calls_two_tool_use_blocks(self):
+        msgs = [Message(role="assistant", content="并行查", tool_calls=[
+            {"id": "tc_1", "name": "run_status", "arguments": {"run_id": "r1"}},
+            {"id": "tc_2", "name": "run_timeline", "arguments": {"run_id": "r1"}},
+        ])]
+        _, out = _anthropic()._convert_messages(msgs)
+        assert out == [{"role": "assistant", "content": [
+            {"type": "text", "text": "并行查"},
+            {"type": "tool_use", "id": "tc_1", "name": "run_status", "input": {"run_id": "r1"}},
+            {"type": "tool_use", "id": "tc_2", "name": "run_timeline", "input": {"run_id": "r1"}},
+        ]}]
+
+    def test_assistant_empty_content_yields_only_tool_use_blocks(self):
+        msgs = [Message(role="assistant", content="", tool_calls=[
+            {"id": "tc_1", "name": "run_status", "arguments": {"run_id": "r1"}}])]
+        _, out = _anthropic()._convert_messages(msgs)
+        assert out == [{"role": "assistant", "content": [
+            {"type": "tool_use", "id": "tc_1", "name": "run_status",
+             "input": {"run_id": "r1"}}]}]
+
 
 class TestOpenAIConversion:
     def test_tool_roundtrip_keeps_ids(self):

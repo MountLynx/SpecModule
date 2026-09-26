@@ -195,7 +195,9 @@ block 分离，content 不做内联标签剥离）。流式与非流式路径均
 - `tools: list[dict]`——`{"name", "description", "input_schema"}`（两后端转换器
   统一吃 `input_schema` 键，OpenAI 侧映射为 function.parameters）；
 - 返回 `LLMResponse(content, tool_calls, usage, finish_reason)`——`tool_calls`
-  元素 `{"id", "name", "arguments"}`（arguments 已解析为 dict）；
+  元素 `{"id", "name", "arguments"}`（arguments 已解析为 dict）；终态判断以
+  tool_calls 非空为准——finish_reason 词汇两后端不一致（Anthropic end_turn/tool_use
+  vs OpenAI stop/tool_calls），消费端不得按其值分支；
 - `chat()` 非流式（流式经 `complete()` 的 on_token 通道，两接口独立）；
 - 工具报错由消费端以 tool 消息喂回模型自纠；客户端只区分调用成功/失败（LLMError）。
 
