@@ -412,12 +412,26 @@ class AnthropicClient:
     # --- 多轮底层接口（保留供对齐检查 / spec 翻译等 LLM 调用复用） -------------
 
     def _convert_messages(self, messages: list[Message]) -> tuple[str | None, list[dict[str, Any]]]:
-        """分离 system 消息并转换其余消息。"""
+        """分离 system 消息并转换其余消息；工具循环形状：assistant+tool_calls →
+        tool_use 内容块，tool 角色 → tool_result 用户消息块（Anthropic 契约）。"""
         system_prompt = None
         api_messages = []
         for msg in messages:
             if msg.role == "system":
                 system_prompt = msg.content
+            elif msg.role == "assistant" and msg.tool_calls:
+                blocks: list[dict[str, Any]] = []
+                if msg.content:
+                    blocks.append({"type": "text", "text": msg.content})
+                for tc in msg.tool_calls:
+                    blocks.append({"type": "tool_use", "id": tc["id"],
+                                   "name": tc["name"], "input": tc.get("arguments", {})})
+                api_messages.append({"role": "assistant", "content": blocks})
+            elif msg.role == "tool":
+                api_messages.append({"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": msg.tool_call_id or "",
+                     "content": msg.content},
+                ]})
             else:
                 api_messages.append({"role": msg.role, "content": msg.content})
         return system_prompt, api_messages
