@@ -185,3 +185,21 @@ block 分离，content 不做内联标签剥离）。流式与非流式路径均
 `<think>` 标签（含仅传 `on_token` 的存量调用）；仅传 `on_token` 时思考增量静默
 丢弃（回调通道向后兼容）。回调异常不破主流程。对应 harness 事件 `LlmThinking`
 （stream.log 记录 `{"type": "thinking", "ts", "node", "chunk"}`）。
+
+### llm.chat —— 多轮聊天（工具循环底层接口）
+
+`RoutingClient.chat(messages, tools)` 及两后端同名方法。消费端（agent 循环）契约：
+
+- `messages: list[Message]`——`Message(role, content, tool_calls, tool_call_id)`；
+  工具循环序列：assistant(tool_calls) 后必须紧跟对应 tool(tool_call_id) 消息；
+- `tools: list[dict]`——`{"name", "description", "input_schema"}`（两后端转换器
+  统一吃 `input_schema` 键，OpenAI 侧映射为 function.parameters）；
+- 返回 `LLMResponse(content, tool_calls, usage, finish_reason)`——`tool_calls`
+  元素 `{"id", "name", "arguments"}`（arguments 已解析为 dict）；
+- `chat()` 非流式（流式经 `complete()` 的 on_token 通道，两接口独立）；
+- 工具报错由消费端以 tool 消息喂回模型自纠；客户端只区分调用成功/失败（LLMError）。
+
+两后端消息映射：OpenAI 侧 assistant(tool_calls) → `tool_calls` 数组（function 形态）、
+tool 角色 → `{"role": "tool", "tool_call_id", "content"}`；Anthropic 侧
+assistant(tool_calls) → `tool_use` 内容块、tool 角色 → `tool_result` 用户消息块，
+system 消息分离为顶层 `system` 参数。
