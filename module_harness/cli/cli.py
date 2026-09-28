@@ -59,7 +59,6 @@ from ..infra.query import (
     run_db_path,
     timeline_to_dict,
 )
-from ..core.registry import HarnessRegistry
 from .scaffold import scaffold, scaffold_dir
 from ..infra import store
 from ..model.spec import Tasklist
@@ -1009,7 +1008,7 @@ def _cmd_setup(args: argparse.Namespace) -> int:
 
 
 def _cmd_publish(args: argparse.Namespace) -> int:
-    """发布模块到 store：目录形态直接校验复制；单文件形态经等价 SubModule 转化。"""
+    """发布模块到 store：目录形态直接校验复制；单文件形态经 entry_to_pack 物化转化。"""
     src = Path(args.from_dir)
     if (src / "module.json").is_file():
         # 目录形态：与 install 同校验（D9）
@@ -1021,9 +1020,10 @@ def _cmd_publish(args: argparse.Namespace) -> int:
         print(f"已发布: {dest.name} → {dest}")
         return 0
 
-    # 单文件 entry 形态：以 default_template 的 tasklist 驱动等价 SubModule
-    # 导出（D9）。entry 组件注册在 build_registry 闭包内——用 Mock client
-    # 构建 registry 后按 tasklist 引用提取，包体自包含（无闭包依赖）。
+    # 单文件 entry 形态：库共享物化（entry_to_pack）→ install（D9）。
+    # 组件提取/别名行/submodule 打包的唯一实现收编 infra/entry_pack.py；
+    # guards 现随 Flow 引用导出（旧实现静默丢弃），script 注册名 ≠ 函数名
+    # 由别名行兜底（旧实现产物 loader 装载必炸）。
     entry_file = src / "modules" / f"{args.name}.py"
     if not entry_file.is_file():
         print(
@@ -1031,10 +1031,8 @@ def _cmd_publish(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    from ..core.builtins import BUILTIN_HARNESS_NAMES
     from .entry import discover_modules
-    from ..model.spec import SpecSchema
-    from ..model.submodule import SubModule
+    from ..infra.entry_pack import entry_to_pack
 
     entries = discover_modules(src / "modules")
     entry = entries.get(args.name)
@@ -1048,86 +1046,18 @@ def _cmd_publish(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    template_name = entry.default_template
-    if template_name not in entry.templates:
-        print(
-            f"单文件形态 publish 失败（{args.name}）：default_template "
-            f"'{template_name}' 不在 templates 中",
-            file=sys.stderr,
-        )
-        return 1
 
-    # 构建 registry（Mock 占位，零 LLM）→ 提取组件
-    event_bus = EventBus()
-    if entry.build_registry is not None:
-        registry = entry.build_registry(MockLLMClient(), template_name, event_bus)
-    else:
-        registry = HarnessRegistry(llm_client=MockLLMClient(), event_bus=event_bus)
-    template = entry.templates[template_name]
-    tasklist = Tasklist.from_json(template["tasklist"])
-
-    # 按 tasklist 引用提取组件（不含内置 harness）
-    harnesses = []
-    scripts: dict[str, Any] = {}
-    commands = []
-    for key, task in tasklist.tasks.items():
-        if task.type == "harness" and task.harness not in BUILTIN_HARNESS_NAMES:
-            cfg = registry.harness_config(task.harness)
-            if cfg is None:
-                print(
-                    f"单文件形态 publish 失败（{args.name}）：harness "
-                    f"'{task.harness}' 未在 registry 注册",
-                    file=sys.stderr,
-                )
-                return 1
-            if not any(h.name == cfg.name for h in harnesses):
-                harnesses.append(cfg)
-        elif task.type == "script":
-            fn = registry.get_body(task.script).__wrapped__ \
-                if hasattr(registry.get_body(task.script), "__wrapped__") \
-                else registry.get_body(task.script)
-            scripts.setdefault(task.script, fn)
-        elif task.type == "command":
-            cc = registry.command_config(task.command)
-            if cc is None:
-                print(
-                    f"单文件形态 publish 失败（{args.name}）：command "
-                    f"'{task.command}' 未在 registry 注册",
-                    file=sys.stderr,
-                )
-                return 1
-            if not any(c.name == cc.name for c in commands):
-                commands.append(cc)
-
-    # 等价 SubModule → pack → install（校验失败诚实报错）
-    sub = SubModule()
-    sub.name = entry.name
-    sub.version = "0.1.0"
-    sub.description = entry.description
-    sub.spec_schema = SpecSchema(
-        input=dict(entry.spec_schema or {}),
-        output={},
-    )
-    sub.tasklist = tasklist
-    sub.harnesses = harnesses
-    sub.commands = commands
-    sub._scripts = scripts
-    sub.guards = []  # guard 函数在闭包内不可静态导出——tasklist 引用 guard 的模块走目录形态
-    sub.modules = entry.submodules
-
+    import shutil
     import tempfile
 
     tmp = Path(tempfile.mkdtemp())
     try:
-        out = sub.pack(tmp / "pack")
-        try:
-            dest = store.install_pack(out, source=args.from_dir, name=entry.name)
-        except ValueError as e:
-            print(f"发布失败: {e}", file=sys.stderr)
-            return 1
+        result = entry_to_pack(entry)
+        dest = store.install_pack(result.pack_dir, source=args.from_dir, name=entry.name)
+    except ValueError as e:
+        print(f"发布失败: {e}", file=sys.stderr)
+        return 1
     finally:
-        import shutil
-
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"已发布（单文件转化）: {dest.name} → {dest}")
     return 0
@@ -1424,7 +1354,7 @@ def main(argv: list[str] | None = None) -> int:
     p_setup.set_defaults(func=_cmd_setup)
 
     p_publish = sub.add_parser(
-        "publish", help="发布模块到 store（目录形态校验复制；单文件形态经 SubModule 转化）"
+        "publish", help="发布模块到 store（目录形态校验复制；单文件形态经 entry_to_pack 转化）"
     )
     p_publish.add_argument("name", help="模块名")
     p_publish.add_argument("--from", dest="from_dir", default=".", help="发布源目录（默认 cwd）")

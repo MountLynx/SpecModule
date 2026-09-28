@@ -1022,3 +1022,22 @@ class TestDeleteRunCommand:
     def test_delete_traversal_rejected_nonzero(self, cwd, modules_dir, capsys):
         # 路径穿越形态：delete_run 返回 False → 非零退出（不删 runs 根外内容）
         assert main(["delete-run", "../evil"]) == 1
+
+
+class TestPublish:
+    def test_single_file_publish(self, tmp_path, monkeypatch):
+        from module_harness.tests.test_entry_pack import ENTRY_PY
+
+        monkeypatch.setenv("SPECMODULE_HOME", str(tmp_path / "home"))
+        (tmp_path / "modules").mkdir()
+        (tmp_path / "modules" / "hello_entry.py").write_text(ENTRY_PY, encoding="utf-8")
+        assert main(["publish", "hello_entry", "--from", str(tmp_path)]) == 0
+        dest = tmp_path / "home" / "modules" / "hello_entry"
+        assert (dest / "module.json").is_file()
+        assert (dest / "guards" / "is_ok.py").is_file()   # guard 不再静默丢弃
+        assert (tmp_path / "home" / "manifests" / "hello_entry.json").is_file()
+
+    def test_publish_no_entry(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SPECMODULE_HOME", str(tmp_path / "home"))
+        (tmp_path / "modules").mkdir()
+        assert main(["publish", "nope", "--from", str(tmp_path)]) == 1
