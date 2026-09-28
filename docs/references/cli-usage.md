@@ -41,7 +41,7 @@ usage: specmodule [-h] {init,run,status,review,resume,checkpoint,checkpoints,sna
 | `install` | 安装模块到 store（本地 pack 目录或 git URL，校验零落盘） | 非交互参数 |
 | `uninstall` | 从 store 移除模块（目录 + manifest） | 非交互参数 |
 | `setup` | 一次性配置向导：provider/model/key → 写 store 级配置 | 交互 |
-| `publish` | 发布模块到 store（目录形态校验复制；单文件形态经 SubModule 转化） | 非交互参数 |
+| `publish` | 发布模块到 store（目录形态校验复制；单文件形态经 `entry_to_pack` 物化转化） | 非交互参数 |
 | `update` | 更新模块（manifest 脏检测；本地改动列清单交互确认） | 交互 / `--yes` / `--keep` |
 
 核心数据流：
@@ -756,7 +756,8 @@ specmodule install <本地 pack 目录|git URL>   # 校验（零 client）→ �
 specmodule list [--json]             # 全部可用模块（同名多来源全量展示，含优先级）
 specmodule info <name>               # 元数据 + 来源 + 安装时间
 specmodule uninstall <name>          # 移除目录 + manifest
-specmodule publish <name> --from <dir>   # 目录形态校验复制（同 install）；单文件形态经等价 SubModule 转化
+specmodule publish <name> --from <dir>   # 目录形态校验复制（同 install）；单文件形态经 entry_to_pack 物化转化
+                                     #   （guards 随 Flow 引用导出；script 注册名 ≠ 函数名自动补别名行）
 specmodule update <name> [--yes|--keep]  # 按 manifest 来源重取 → 哈希比对 → 交互确认
 ```
 
