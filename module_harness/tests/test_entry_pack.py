@@ -163,6 +163,31 @@ class TestEntryToPack:
         with pytest.raises(ValueError, match="echo_sub"):
             _pack(entry, tmp_path)
 
+
+    def test_mutated_name_guard_alias(self, entry, tmp_path):
+        # __name__ 被运行期改写为注册名、源码 def 名不变（_make_loop_guards
+        # 形态）——别名判定须看源码 def 名，不看 __name__
+        def _mk():
+            def clean(view):
+                return True
+            clean.__name__ = "clean_1"
+            return clean
+
+        orig = entry.build_registry
+
+        def wrapped_registry(llm_client, template_name, event_bus):
+            reg = orig(llm_client, template_name, event_bus)
+            reg.guard("clean_1", _mk())
+            return reg
+
+        entry.build_registry = wrapped_registry
+        entry.templates["hello_entry"]["tasklist"]["Flow"] = (
+            "[Greet] --|clean_1|--> Shout --> Echo")
+        result = _pack(entry, tmp_path)
+        src = (result.pack_dir / "guards" / "clean_1.py").read_text(encoding="utf-8")
+        assert "clean_1 = clean" in src
+        ModuleLoader().load(result.pack_dir, lazy_client=True)   # 装载通过
+
     def test_missing_guard_error(self, entry, tmp_path):
         entry.templates["hello_entry"]["tasklist"]["Flow"] = (
             "[Greet] --|ghost_g|--> Shout")

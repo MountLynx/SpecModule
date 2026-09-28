@@ -49,11 +49,22 @@ class EntryPackResult:
     warnings: list[str] = field(default_factory=list)
 
 
+def _source_def_name(src: str) -> str | None:
+    """源码文本首个顶层 def 名（AST 解析——``__name__`` 可被运行期改写，
+    别名判定必须看源码真实 def 名，如 ``_make_loop_guards`` 形态）。"""
+    import ast
+
+    for node in ast.parse(src).body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return node.name
+    return None
+
+
 def _write_fn_source(
     fn: Any, reg_name: str, pack: Path, kind: str, warnings: list[str]
 ) -> None:
     """注册函数 → ``<kind>/<reg_name>.py``：getsource + __future__ 头 +
-    名不一致别名行（loader exec 后按 stem 取函数）。"""
+    源码 def 名 ≠ 注册名时补别名行（loader exec 后按 stem 取函数）。"""
     fn = inspect.unwrap(fn)
     try:
         src = textwrap.dedent(inspect.getsource(fn))
@@ -63,10 +74,11 @@ def _write_fn_source(
             "闭包依赖/内置函数无法物化为自包含文件"
         ) from e
     text = "from __future__ import annotations\n\n" + src
-    if fn.__name__ != reg_name:
-        text += f"\n\n{reg_name} = {fn.__name__}\n"
+    def_name = _source_def_name(src)
+    if def_name is not None and def_name != reg_name:
+        text += f"\n\n{reg_name} = {def_name}\n"
         warnings.append(
-            f"{kind} '{reg_name}' 注册名与函数名 {fn.__name__} 不一致——已补别名行")
+            f"{kind} '{reg_name}' 注册名与源码函数名 {def_name} 不一致——已补别名行")
     d = pack / kind
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{reg_name}.py").write_text(text, encoding="utf-8")
