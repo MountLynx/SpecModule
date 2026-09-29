@@ -104,8 +104,9 @@ status.json 的反向通道：status.json 把运行状态带出运行进程，co
 `submodule`（packed/pip 形态时加载后的 SubModule）按形态二选一；归一属性 `kind` / `description` /
 `default_template` / `default_spec` / `spec_schema`（packed 归一为 `spec_schema.input`）/ `templates` /
 `submodules` 屏蔽两形态差异，消费端不感知来源。归一方法 `spec_for(template_name)`：entry 形态委托
-`ModuleEntry.spec_for`（回落逻辑唯一驻点），packed/pip 无 per-template 概念、透传模块级 schema
-（default_spec 恒 None）。
+`ModuleEntry.spec_for`（回落逻辑唯一驻点），packed/pip 无 per-template 概念、透传模块级 schema 与
+`default_spec`（packed manifest 的可选 `default_spec` 键——对象形状，缺省/无键 → None；loader
+装载期拒收非对象）。
 
 entry 发现失败（缺 `entry` 变量 / 导入异常）逐文件跳过并 log，不阻断整体；pip 枚举失败整源跳过。
 
@@ -117,13 +118,12 @@ Web convert 消费端共用；纯物化零副作用（只写目录，不碰 stor
 
 | 符号 | 签名 | 行为 |
 |------|------|------|
-| `entry_to_pack` | `(entry: ModuleEntry, *, template_name: str \| None = None, out_dir: Path \| None = None) -> EntryPackResult` | 物化自包含 pack 目录：模板选择（缺省回落 `default_template`，未声明 → `ValueError`；其余模板进 `dropped_templates`）→ tasklist 经 `from_json → to_dict` 规一化（无效模板早期失败）→ Mock client 构建 registry（零 LLM，只取配置与函数源码）→ 按 tasklist 引用提取组件：harness/command 取配置 JSON（内置 harness 跳过——运行期由 packed 接线统一注册；注册键 ≠ 配置名 → `ValueError`，tasklist 引用与装载键必须一致）、script/guard 取函数源码（`getsource`，注册名 ≠ 函数名时文件尾补别名行——loader 按 stem 取函数）、submodule 走类式 `SubModule.pack()` 整包导出。manifest：`{name, version: "0.1.0", description, submodule: False, spec_schema: {input, output: {}}, requires: [], modules, tasklist}`。提取失败（引用未注册 / getsource 失败 / Flow 引用的 guard 未注册 / submodule 缺失或不可打包）→ `ValueError`（消息可直接面向用户），**不静默出坏包**；`out_dir` 缺省自建临时目录，调用方负责清理 `result.pack_dir` |
+| `entry_to_pack` | `(entry: ModuleEntry, *, template_name: str \| None = None, out_dir: Path \| None = None) -> EntryPackResult` | 物化自包含 pack 目录：模板选择（缺省回落 `default_template`，未声明 → `ValueError`；其余模板进 `dropped_templates`）→ tasklist 经 `from_json → to_dict` 规一化（无效模板早期失败）→ Mock client 构建 registry（零 LLM，只取配置与函数源码）→ 按 tasklist 引用提取组件：harness/command 取配置 JSON（内置 harness 跳过——运行期由 packed 接线统一注册；注册键 ≠ 配置名 → `ValueError`，tasklist 引用与装载键必须一致）、script/guard 取函数源码（`getsource`，注册名 ≠ 函数名时文件尾补别名行——loader 按 stem 取函数）、submodule 走类式 `SubModule.pack()` 整包导出。manifest：`{name, version: "0.1.0", description, submodule: False, spec_schema: {input, output: {}}, requires: [], modules, tasklist}`；entry 级 `default_spec` 非空时写入 manifest（packed 契约键）。提取失败（引用未注册 / getsource 失败 / Flow 引用的 guard 未注册 / submodule 缺失或不可打包）→ `ValueError`（消息可直接面向用户），**不静默出坏包**；`out_dir` 缺省自建临时目录，调用方负责清理 `result.pack_dir` |
 | `EntryPackResult` | dataclass | `pack_dir: Path`、`template_name: str`、`dropped_templates: list[str]`、`warnings: list[str]` |
 
 诚实边界（转化报告 `warnings` 交调用方透传用户）：translation 通道不保留（packed 无此
 契约，按模板静态 tasklist 转化）；`getsource` 只取函数体文本，引用模块级常量/辅助函数的
-body 物化后装载通过、运行期才炸（提示在组件库检查脚本文本）；`default_spec` 样例值不
-保留（packed manifest 无此契约键）。
+body 物化后装载通过、运行期才炸（提示在组件库检查脚本文本）。
 
 ## module_harness.cli.entry —— 入口声明
 
