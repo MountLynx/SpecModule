@@ -28,7 +28,24 @@ entry = ModuleEntry(
     ),
     templates={"generate": GENERATE_TEMPLATE},
     build_registry=_registry_for,
-    default_spec=None,   # 页册因项目而异，无零配置缺省（示例 spec 见 fixtures/）
+    default_spec={
+        "project": "demo_deck",
+        "source": {"kind": "topic", "topic": (
+            "用大模型做代码评审：LLM 分析 diff，生成按 severity 分类的"
+            " comments；在 200 个 PR 上 accuracy 85%，比规则 baseline 高 15 个百分点。"
+        )},
+        # placeholder 图像：试跑零图像 API 依赖（省略则规划者裁量可能选 ai，
+        # 只配 LLM key 的环境会中途失败）；实战在 spec 里换 ai/user。
+        "images": {"sources": ["placeholder"]},
+        "roster": [
+            {"id": "p01", "title": "LLM 代码评审", "role": "cover"},
+            {"id": "p02", "title": "方法：diff → 分类 comments",
+             "points": ["LLM 分析 diff", "按 severity 分类：critical/warning/suggestion"]},
+            {"id": "p03", "title": "实验：200 PR accuracy 85%",
+             "points": ["比规则 baseline 高 15 个百分点"]},
+            {"id": "p04", "title": "结语与未来工作", "role": "closing"},
+        ],
+    },   # 参考预填值（webview spec 参考/CLI 无 spec 回落）；全字段契约见 spec_schema.py
     default_template="generate",
     review_harness=None,  # 固定流程模板，发布前已验证
 )

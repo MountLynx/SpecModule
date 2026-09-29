@@ -8,13 +8,17 @@
 
 from __future__ import annotations
 
+import copy
 import re
+from pathlib import Path
 from typing import Any
 
 from example.ppt_master import workspace
 from example.ppt_master.module import GENERATE_TEMPLATE, _build_registry
+from example.ppt_master.spec_schema import validate_ppt_spec
 from example.ppt_master.test_support import sample_spec
 from example.ppt_master.translator import build_generate_tasklist
+from module_harness.cli.entry import discover_modules
 from module_harness.model.spec import TaskDefinition, Tasklist
 from module_harness.model.translator import TasklistValidator
 
@@ -118,3 +122,16 @@ def test_registered_commands_match_docstring_table(tmp_path, monkeypatch):
         )
         assert "run_tool.py" in cfg.command, f"'{name}' 未走 run_tool.py 入口"
         assert str(tmp_path) in cfg.command, f"'{name}' 信封路径未随 _ENVELOPE_DIR"
+
+
+def test_entry_default_spec_is_valid_reagent(tmp_path, monkeypatch):
+    """入口 default_spec 是 webview「spec 参考」/CLI 无 spec 通道的试剂：
+    契约校验 + 翻译层双闸全通（缺省回填后形状即 translator 所依赖）。"""
+    monkeypatch.setattr(workspace, "_ENVELOPE_DIR", tmp_path)
+    entries = discover_modules(Path(__file__).parent / "modules")
+    spec = copy.deepcopy(entries["ppt_master"].default_spec)
+    assert spec is not None, "ppt_master 入口未声明 default_spec"
+    validate_ppt_spec(spec)  # 回填缺省（原地进行，故上一步 deepcopy）
+    reg = _build_registry(llm_client=object())
+    errors = _validated_tasklist(spec, reg)
+    assert not errors, errors
