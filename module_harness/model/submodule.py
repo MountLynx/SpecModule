@@ -51,6 +51,7 @@ class SubModule:
     version: str = "0.1.0"
     description: str = ""
     spec_schema: SpecSchema = SpecSchema()
+    default_spec: dict[str, Any] | None = None
     harnesses: list[HarnessConfig] = []
     commands: list[CommandConfig] = []
     requires: list[str] = []
@@ -247,6 +248,8 @@ class SubModule:
             "modules": list(self.modules),
             "tasklist": self.tasklist.to_dict(),
         }
+        if self.default_spec is not None:
+            manifest["default_spec"] = dict(self.default_spec)
         (p / "module.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )

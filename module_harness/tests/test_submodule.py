@@ -565,3 +565,19 @@ class TestModulesAttr:
         m = Module(spec={}, tasklist=tl, llm_client=object())
         with pytest.raises(ValueError, match="未在 modules 中声明"):
             m.build_runner()
+
+
+class TestDefaultSpecContract:
+    """packed default_spec 契约：pack() 导出 ⇄ ModuleLoader 读回（round-trip）。"""
+
+    def test_pack_exports_default_spec(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(Translator, "default_spec", {"name": "world"},
+                            raising=False)
+        out = Translator().pack(tmp_path / "dist")
+        manifest = json.loads((out / "module.json").read_text(encoding="utf-8"))
+        assert manifest["default_spec"] == {"name": "world"}
+
+    def test_pack_omits_absent_default_spec(self, tmp_path):
+        out = Translator().pack(tmp_path / "dist")
+        manifest = json.loads((out / "module.json").read_text(encoding="utf-8"))
+        assert "default_spec" not in manifest
