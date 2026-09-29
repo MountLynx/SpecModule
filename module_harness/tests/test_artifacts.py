@@ -192,3 +192,24 @@ class TestWriteManifest:
         monkeypatch.chdir(tmp_path)
         write_artifacts_manifest("r1", [ArtifactDecl(name="x", path="nope/*")])
         assert not (tmp_path / ".specmodule").exists()
+
+    def test_write_oserror_swallowed(self, tmp_path, monkeypatch):
+        """写失败仅 log 不抛（对齐 _write_phase 哲学）。"""
+        monkeypatch.chdir(tmp_path)
+        run_dir = tmp_path / ".specmodule" / "runs" / "r1"
+        run_dir.mkdir(parents=True)
+        (tmp_path / "exports").mkdir()
+        (tmp_path / "exports" / "deck.pptx").write_bytes(b"PK")
+
+        import os as _os
+
+        real_replace = _os.replace
+
+        def boom(src, dst):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(_os, "replace", boom)
+        write_artifacts_manifest(
+            "r1", [ArtifactDecl(name="deck", path="exports/*.pptx")])
+        monkeypatch.setattr(_os, "replace", real_replace)  # 保险（monkeypatch 亦会还原）
+        assert not (run_dir / "artifacts.json").exists()

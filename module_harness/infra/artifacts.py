@@ -32,15 +32,15 @@ def artifacts_path(module_id: str, base_dir: Path | None = None) -> Path:
 
 
 def collect_artifacts(decls: list["ArtifactDecl"]) -> list[dict]:
-    """声明 → 清单条目（glob 展开，绝对路径 + size/mtime）。
+    """声明 → 清单条目（glob 展开，绝对路径 + size/mtime（mtime 转本地时区
+    ISO8601））。
 
     pick="latest" 在该声明的匹配集内取 mtime 最新一个；pick="all" 按 path
     排序全收；目录命中跳过（v1 只收文件）。零匹配的声明跳过——清单只含
     真实存在的文件（零匹配整体仍写空清单，见 write_artifacts_manifest）。
 
     标注经 ``from __future__ import annotations`` 字符串化，ArtifactDecl
-    仅运行期类型引用（TYPE_CHECKING 导入）——避免与 model.spec 导入环
-    （model.module 会导入本模块）。
+    仅经 TYPE_CHECKING 导入——infra 层不建立对 model 的运行期依赖（分层纪律）。
     """
     entries: list[dict] = []
     for decl in decls:
