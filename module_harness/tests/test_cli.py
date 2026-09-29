@@ -299,6 +299,25 @@ def _visualize(cwd, *argv):
     return main(["visualize", *argv, "--modules-dir", str(cwd / "modules")])
 
 
+def _write_packed(modules, name, default_spec):
+    """modules/ 下种最小 packed 模块（single script task）；default_spec None = 不写键。"""
+    p = modules / name
+    (p / "scripts").mkdir(parents=True)
+    manifest = {
+        "name": name, "description": "packed 夹具", "submodule": False,
+        "spec_schema": {"input": {}, "output": {}},
+        "requires": [], "modules": [],
+        "tasklist": {"Tasks": {"Greet": {"type": "script", "script": "greet"}},
+                     "Flow": "[Greet]"},
+    }
+    if default_spec is not None:
+        manifest["default_spec"] = default_spec
+    (p / "module.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (p / "scripts" / "greet.py").write_text(
+        "def greet(view):\n    return {'hi': 1}\n", encoding="utf-8")
+    return p
+
+
 class TestRun:
     def test_hello_success(self, cwd, modules_dir, capsys):
         assert _run(cwd, "--module", "hello", "--mock") == 0
@@ -319,6 +338,15 @@ class TestRun:
         # fail 无 default_spec 也不传 spec → 报错
         assert _run(cwd, "--module", "fail", "--mock") == 1
         assert "缺少 spec" in capsys.readouterr().err
+
+    def test_packed_run_default_spec_fallback(self, cwd, modules_dir, capsys):
+        # packed 无模板/spec 通道：manifest 无 default_spec → 报缺 spec；有键 → 回落发起
+        _write_packed(cwd / "modules", "packed_nods", None)
+        assert _run(cwd, "--module", "packed_nods", "--mock") == 1
+        assert "缺少 spec" in capsys.readouterr().err
+        _write_packed(cwd / "modules", "packed_ds", {"anything": 1})
+        assert _run(cwd, "--module", "packed_ds", "--mock") == 0
+        assert "运行完成" in capsys.readouterr().out
 
     def test_tasklist_template_mutually_exclusive(self, cwd, modules_dir, capsys):
         assert _run(
