@@ -14,6 +14,7 @@
     python -m module_harness.cli checkpoint <label> [<tick>] [--run-id xxx]
     python -m module_harness.cli cancel | pause | unpause [--run-id xxx]
     python -m module_harness.cli runs [--json]
+    python -m module_harness.cli artifacts [--run-id xxx] [--json]
     python -m module_harness.cli delete-run <run_id>
     python -m module_harness.cli visualize --module <名> [--tasklist x.json | --run-id xxx] [--out FILE]
 
@@ -56,6 +57,7 @@ from ..infra.query import (
     filter_tick,
     list_runs,
     load_snapshot_summary,
+    read_artifacts,
     run_db_path,
     timeline_to_dict,
 )
@@ -646,6 +648,30 @@ def _cmd_checkpoints(args: argparse.Namespace) -> int:
         "\n回退: specmodule resume <目标> --module <名>"
         "（缺省续最新；rollback <目标> 须显式指定目标）"
     )
+    return 0
+
+
+def _cmd_artifacts(args: argparse.Namespace) -> int:
+    """列出 run 声明的产物清单（终态收集的 artifacts.json）。"""
+    run_id = args.run_id or _latest_run_id()
+    if run_id is None:
+        print("无运行记录（先执行 specmodule run）", file=sys.stderr)
+        return 1
+    data = read_artifacts(run_id)
+    if data is None:
+        print(f"无运行记录: {run_id}（先执行 specmodule run）", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
+    arts = data["artifacts"]
+    if not arts:
+        print(f"run {run_id} 无产物（未声明或未收集）")
+        return 0
+    print(f"run {run_id} 产物 {len(arts)} 项：")
+    for a in arts:
+        print(f"  [{a['index']}] {a['name']} ({a['kind']}, "
+              f"{a['size'] / 1024:.1f} KB) {a['path']}")
     return 0
 
 
@@ -1247,6 +1273,11 @@ def main(argv: list[str] | None = None) -> int:
     p_checkpoints.add_argument("--run-id", help="运行 id（默认最近运行）")
     p_checkpoints.add_argument("--json", action="store_true", help="JSON 输出")
     p_checkpoints.set_defaults(func=_cmd_checkpoints)
+
+    p_artifacts = sub.add_parser("artifacts", help="列出 run 声明的产物清单")
+    p_artifacts.add_argument("--run-id", help="运行 id（默认最近运行）")
+    p_artifacts.add_argument("--json", action="store_true", help="JSON 输出")
+    p_artifacts.set_defaults(func=_cmd_artifacts)
 
     p_snapshot = sub.add_parser("snapshot", help="检视/导出指定 tick 的运行时快照")
     p_snapshot.add_argument(

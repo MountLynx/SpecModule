@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .stream import stream_log_path
+from .artifacts import artifacts_path
 
 log = logging.getLogger(__name__)
 
@@ -380,6 +381,33 @@ def read_module_inputs(
         return None
     finally:
         store.close()
+
+
+def read_artifacts(
+    run_id: str, base_dir: Path | None = None
+) -> dict[str, Any] | None:
+    """读 run 产物清单（artifacts.json：声明制产物，终态收尾收集）。
+
+    消费场景：Web 产物列表/下载端点、CLI ``artifacts``。run 目录不存在 →
+    None（同 read_module_inputs 容错）；清单缺失/损坏 → 空列表（收集过
+    但零产出与从未收集对消费端都是"无产物可下载"，不再区分）。条目附
+    ``index``（数组序）——下载通道按 index 引用，路径永不为客户端输入。
+    """
+    path = artifacts_path(run_id, base_dir)
+    if not path.parent.exists():
+        return None
+    entries: list[dict[str, Any]] = []
+    if path.exists():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict) and isinstance(raw.get("artifacts"), list):
+                entries = raw["artifacts"]
+        except (OSError, ValueError):
+            log.exception("读取 artifacts.json 失败（返回空清单）: %s", path)
+    return {
+        "run_id": run_id,
+        "artifacts": [{**e, "index": i} for i, e in enumerate(entries)],
+    }
 
 
 # ── run 枚举与删除（run 历史管理共享层：CLI/Web 共用）──────────────────

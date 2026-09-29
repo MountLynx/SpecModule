@@ -11,6 +11,7 @@ import pytest
 
 from module_harness.infra.artifacts import artifacts_path, collect_artifacts, write_artifacts_manifest
 from module_harness.infra.control import request_control
+from module_harness.infra.query import read_artifacts
 from module_harness.model.module import Module
 from module_harness.model.spec import ArtifactDecl, TaskDefinition, Tasklist
 
@@ -308,12 +309,9 @@ class TestModuleTerminalCollection:
             base_dir=tmp_path, module_id="art_done",
         )
         await mod.run(max_ticks=10)
-        # Task 4 将提供 query.read_artifacts——此处直接读清单文件断言等价形状
-        raw = json.loads(
-            (tmp_path / ".specmodule" / "runs" / "art_done" / "artifacts.json")
-            .read_text(encoding="utf-8"))
-        assert len(raw["artifacts"]) == 1
-        assert raw["artifacts"][0]["path"] == str(tmp_path / "exports" / "deck_2.pptx")
+        data = read_artifacts("art_done", base_dir=tmp_path)
+        assert data is not None and len(data["artifacts"]) == 1
+        assert data["artifacts"][0]["path"] == str(tmp_path / "exports" / "deck_2.pptx")
 
     @pytest.mark.asyncio
     async def test_run_exception_writes_no_manifest(
@@ -392,3 +390,68 @@ class TestModuleTerminalCollection:
                          .read_text(encoding="utf-8"))
         assert len(raw["artifacts"]) == 1
         mod.close()
+
+
+# ── 查询读端（query.read_artifacts）──────────────────────────────────
+
+
+class TestReadArtifacts:
+    @staticmethod
+    def _seed(tmp_path, run_id="r1", manifest=None):
+        run_dir = tmp_path / ".specmodule" / "runs" / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        if manifest is not None:
+            (run_dir / "artifacts.json").write_text(
+                json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        return run_dir
+
+    def test_no_run_dir_none(self, tmp_path):
+        assert read_artifacts("ghost", base_dir=tmp_path) is None
+
+    def test_no_manifest_empty(self, tmp_path):
+        self._seed(tmp_path)
+        assert read_artifacts("r1", base_dir=tmp_path) == {
+            "run_id": "r1", "artifacts": [],
+        }
+
+    def test_corrupt_manifest_empty(self, tmp_path):
+        run_dir = self._seed(tmp_path)
+        (run_dir / "artifacts.json").write_text("{broken", encoding="utf-8")
+        assert read_artifacts("r1", base_dir=tmp_path)["artifacts"] == []
+
+    def test_entries_indexed(self, tmp_path):
+        self._seed(tmp_path, manifest={"run_id": "r1", "artifacts": [
+            {"name": "a", "kind": "deliverable", "path": "C:/x.pptx",
+             "size": 1, "modified": "2026-09-29T10:00:00"},
+        ]})
+        data = read_artifacts("r1", base_dir=tmp_path)
+        assert data["artifacts"][0]["index"] == 0
+        assert data["artifacts"][0]["name"] == "a"
+
+
+# ── CLI（specmodule artifacts）───────────────────────────────────────
+
+
+class TestCliArtifacts:
+    def test_lists_artifacts(self, tmp_path, monkeypatch, capsys):
+        run_dir = tmp_path / ".specmodule" / "runs" / "r1"
+        run_dir.mkdir(parents=True)
+        (run_dir / "artifacts.json").write_text(json.dumps({
+            "run_id": "r1",
+            "artifacts": [{"name": "deck", "kind": "deliverable",
+                           "path": "x/deck.pptx", "size": 2048,
+                           "modified": "2026-09-29T10:00:00"}],
+        }, ensure_ascii=False), encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        from module_harness.cli import main
+
+        assert main(["artifacts", "--run-id", "r1"]) == 0
+        out = capsys.readouterr().out
+        assert "deck" in out and "deck.pptx" in out
+
+    def test_unknown_run_errors(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
+        from module_harness.cli import main
+
+        assert main(["artifacts", "--run-id", "ghost"]) == 1
+        assert "ghost" in capsys.readouterr().err
