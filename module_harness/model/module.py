@@ -398,8 +398,9 @@ class Module:
                 self._write_phase("aborted", error=str(e))
                 raise
             else:
-                self._finalize_phase(runner, max_ticks)
-                self._collect_artifacts()
+                phase = self._finalize_phase(runner, max_ticks)
+                if phase in ("done", "truncated"):
+                    self._collect_artifacts()
             return firings
         finally:
             self._close_stream_log(writer)
@@ -471,28 +472,35 @@ class Module:
             template_name=self.template_name,
         )
 
-    def _finalize_phase(self, runner: AsyncRunner, max_ticks: int) -> None:
-        """按 runner.status 映射终态 phase（run/resume 共用）。"""
+    def _finalize_phase(self, runner: AsyncRunner, max_ticks: int) -> str:
+        """按 runner.status 映射终态 phase（run/resume 共用），返回映射后的
+        phase 字符串——调用方据此做终态门控（如产物收集只认 done/truncated）。"""
         from tickflow.runner import RunStatus
         if runner.status == RunStatus.ABORTED:
             self._write_phase("aborted", error=runner.cancel_reason or "aborted")
+            return "aborted"
         elif runner.status == RunStatus.CANCELLED:
             self._write_phase("cancelled", error=runner.cancel_reason or "cancelled")
+            return "cancelled"
         elif runner.status == RunStatus.FAILED:
             self._write_phase("aborted", error="all nodes failed")
+            return "aborted"
         elif runner.status == RunStatus.RUNNING:
             # max_ticks 耗尽（pause 挂起发生在 run_until_idle 内部不返回，
             # RUNNING 是唯一来源）→ 真终态：监控方拿到可 resume 的确定性信号
             self._write_phase(
                 "truncated", error=f"max_ticks={max_ticks} 截断（可 resume 续跑）"
             )
+            return "truncated"
         else:
             self._write_phase("done")
+            return "done"
 
     def _collect_artifacts(self) -> None:
         """终态收集声明产物 → run 目录 artifacts.json（done/truncated 共用路径）。
 
-        cancelled/aborted 走不到这里（部分产物不保证，见 infra/artifacts.py）；
+        引擎级 cancelled/aborted/failed 经 _finalize_phase 映射后被门控排除；
+        仅 done/truncated 收集（部分产物不保证，见 infra/artifacts.py）。
         无声明的 run 不产生清单文件；纯内存模式（run 目录不存在）不落盘。
         resume 经 _run_with_phases 共用路径自动收集。
         """

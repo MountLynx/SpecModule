@@ -33,7 +33,7 @@ def artifacts_path(module_id: str, base_dir: Path | None = None) -> Path:
 
 def collect_artifacts(decls: list["ArtifactDecl"]) -> list[dict]:
     """声明 → 清单条目（glob 展开，绝对路径 + size/mtime（mtime 转本地时区
-    ISO8601））。
+    裸 ISO8601 串，无 offset 后缀））。
 
     pick="latest" 在该声明的匹配集内取 mtime 最新一个；pick="all" 按 path
     排序全收；目录命中跳过（v1 只收文件）。零匹配的声明跳过——清单只含

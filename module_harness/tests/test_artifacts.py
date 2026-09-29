@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from module_harness.infra.artifacts import artifacts_path, collect_artifacts, write_artifacts_manifest
+from module_harness.infra.control import request_control
 from module_harness.model.module import Module
 from module_harness.model.spec import ArtifactDecl, TaskDefinition, Tasklist
 
@@ -203,17 +204,12 @@ class TestWriteManifest:
         (tmp_path / "exports").mkdir()
         (tmp_path / "exports" / "deck.pptx").write_bytes(b"PK")
 
-        import os as _os
-
-        real_replace = _os.replace
-
         def boom(src, dst):
             raise OSError("disk full")
 
-        monkeypatch.setattr(_os, "replace", boom)
+        monkeypatch.setattr(os, "replace", boom)
         write_artifacts_manifest(
             "r1", [ArtifactDecl(name="deck", path="exports/*.pptx")])
-        monkeypatch.setattr(_os, "replace", real_replace)  # 保险（monkeypatch 亦会还原）
         assert not (run_dir / "artifacts.json").exists()
 
 
@@ -258,6 +254,47 @@ def _decl_tl(decl_path: str) -> Tasklist:
     )
 
 
+def _decl_loop_module(tmp_path, module_id, decl_path, **kw):
+    """可循环 Module + 产物声明——复刻 test_control._mini_loop_module 结构
+    （A→B→A 带 guard，零 LLM 零 sleep），顶层加 Artifacts 声明。
+
+    供引擎级终态用例：engine cancelled（control 协议 tick 边界消费）与
+    truncated（max_ticks 耗尽）都从 run_until_idle 正常返回，走 else 分支。
+    """
+    from module_harness.core.registry import HarnessRegistry
+    from module_harness.infra.events import EventBus
+
+    mock_llm = MagicMock()
+    mock_llm.complete = AsyncMock()
+    reg = HarnessRegistry(llm_client=mock_llm, event_bus=EventBus.null())
+
+    @reg.script("A")
+    def a(view):
+        return {"value": "from A"}
+
+    @reg.script("B")
+    def b(view):
+        return {"greeting": "hello " + view.field("value")["value"]}
+
+    @reg.guard("g")
+    def g(view):
+        return True
+
+    tl = Tasklist.from_json({
+        "Tasks": {
+            "A": {"type": "script", "script": "A"},
+            "B": {"type": "script", "script": "B", "inputs": {"value": "A"}},
+        },
+        "Flow": "[A] --> B\nB --|g|--> A",
+        "Artifacts": [{"name": "deck", "path": decl_path,
+                       "kind": "deliverable", "pick": "latest"}],
+    })
+    return Module(
+        spec={}, tasklist=tl, llm_client=mock_llm, registry=reg,
+        review_harness=None, module_id=module_id, base_dir=tmp_path, **kw,
+    )
+
+
 class TestModuleTerminalCollection:
     @pytest.mark.asyncio
     async def test_done_writes_manifest(self, mock_llm, registry, tmp_path):
@@ -279,9 +316,10 @@ class TestModuleTerminalCollection:
         assert raw["artifacts"][0]["path"] == str(tmp_path / "exports" / "deck_2.pptx")
 
     @pytest.mark.asyncio
-    async def test_aborted_writes_no_manifest(
+    async def test_run_exception_writes_no_manifest(
         self, mock_llm, registry, tmp_path, monkeypatch,
     ):
+        """run_until_idle 抛异常（引擎炸了）→ aborted，不收集。"""
         (tmp_path / "exports").mkdir()
         (tmp_path / "exports" / "deck.pptx").write_bytes(b"PK")
         from tickflow.async_runner import AsyncRunner
@@ -309,3 +347,48 @@ class TestModuleTerminalCollection:
         )
         await mod.run(max_ticks=5)
         assert not artifacts_path("art_nodecl", base_dir=tmp_path).exists()
+
+    @pytest.mark.asyncio
+    async def test_engine_cancelled_writes_no_manifest(
+        self, tmp_path,
+    ):
+        """引擎级 cancelled（control 协议 tick 边界消费，run_until_idle 正常
+        返回）→ 门控排除，不写清单（C1 回归：除 except 分支外还有此通道）。"""
+        (tmp_path / "exports").mkdir()
+        (tmp_path / "exports" / "deck.pptx").write_bytes(b"PK")
+
+        def request_cancel_at_tick2(tick, fireable):
+            if tick == 2:
+                request_control(
+                    "art_engcancel", "cancel", reason="回归", base_dir=tmp_path)
+
+        mod = _decl_loop_module(
+            tmp_path, "art_engcancel",
+            str(tmp_path / "exports" / "*.pptx"),
+            hooks={"on_tick_start": request_cancel_at_tick2},
+        )
+        await mod.run(max_ticks=100)
+        st = json.loads(
+            (tmp_path / ".specmodule" / "runs" / "art_engcancel" / "status.json")
+            .read_text(encoding="utf-8"))
+        assert st["phase"] == "cancelled"
+        assert not artifacts_path("art_engcancel", base_dir=tmp_path).exists()
+        mod.close()
+
+    @pytest.mark.asyncio
+    async def test_truncated_writes_manifest(self, tmp_path):
+        """max_ticks 耗尽 → truncated（run_until_idle 正常返回的终态）→
+        门控放行仍收集（承重用例：truncated 与 done 共用收集路径）。"""
+        (tmp_path / "exports").mkdir()
+        (tmp_path / "exports" / "deck.pptx").write_bytes(b"PK")
+        mod = _decl_loop_module(
+            tmp_path, "art_trunc", str(tmp_path / "exports" / "*.pptx"))
+        await mod.run(max_ticks=1)
+        st = json.loads(
+            (tmp_path / ".specmodule" / "runs" / "art_trunc" / "status.json")
+            .read_text(encoding="utf-8"))
+        assert st["phase"] == "truncated"
+        raw = json.loads(artifacts_path("art_trunc", base_dir=tmp_path)
+                         .read_text(encoding="utf-8"))
+        assert len(raw["artifacts"]) == 1
+        mod.close()
