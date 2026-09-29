@@ -94,11 +94,55 @@ class TaskDefinition:
 
 
 @dataclass
+class ArtifactDecl:
+    """run 产物声明（tasklist 顶层 ``Artifacts`` 项）：模块作者显式声明产出。
+
+    path 是具体 glob 串（相对路径按运行进程 cwd 解析；spec 派生路径由翻译
+    脚本自行插值，库不做模板机制）。收集语义见 infra/artifacts.py。
+    """
+
+    name: str                    # 展示名（消费端 label，可中文）
+    path: str                    # 具体 glob 串；相对路径按运行进程 cwd 解析
+    kind: str = "intermediate"   # "deliverable"（交付物）| "intermediate"（中间产物）
+    pick: str = "all"            # "all"（全收）| "latest"（匹配集取 mtime 最新一个）
+
+    _KINDS = ("deliverable", "intermediate")
+    _PICKS = ("all", "latest")
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ArtifactDecl":
+        if not isinstance(d, dict):
+            raise ValueError("Artifacts 项应为 dict")
+        name = d.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Artifacts 项 'name' 应为非空字符串")
+        path = d.get("path")
+        if not isinstance(path, str) or not path.strip():
+            raise ValueError("Artifacts 项 'path' 应为非空字符串")
+        kind = d.get("kind", "intermediate")
+        if kind not in cls._KINDS:
+            raise ValueError(
+                f"Artifacts 项 'kind' 应为 {'/'.join(cls._KINDS)} 之一，得 {kind!r}"
+            )
+        pick = d.get("pick", "all")
+        if pick not in cls._PICKS:
+            raise ValueError(
+                f"Artifacts 项 'pick' 应为 {'/'.join(cls._PICKS)} 之一，得 {pick!r}"
+            )
+        return cls(name=name, path=path, kind=kind, pick=pick)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "path": self.path,
+                "kind": self.kind, "pick": self.pick}
+
+
+@dataclass
 class Tasklist:
-    """完整的 tasklist：Tasks + Flow。"""
+    """完整的 tasklist：Tasks + Flow + Artifacts（产物声明，可选）。"""
 
     tasks: dict[str, TaskDefinition]
     flow: str
+    artifacts: list[ArtifactDecl] = field(default_factory=list)
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> "Tasklist":
@@ -110,14 +154,21 @@ class Tasklist:
             key: TaskDefinition.from_dict(td)
             for key, td in data["Tasks"].items()
         }
-        return cls(tasks=tasks, flow=data["Flow"])
+        raw_artifacts = data.get("Artifacts", [])
+        if not isinstance(raw_artifacts, list):
+            raise ValueError("tasklist 'Artifacts' 应为 list")
+        artifacts = [ArtifactDecl.from_dict(a) for a in raw_artifacts]
+        return cls(tasks=tasks, flow=data["Flow"], artifacts=artifacts)
 
     def to_dict(self) -> dict[str, Any]:
         """JSON 可序列化 dict（与 ``from_json`` 对称）——唯一实现（S4）。"""
-        return {
+        out: dict[str, Any] = {
             "Tasks": {k: dataclasses.asdict(v) for k, v in self.tasks.items()},
             "Flow": self.flow,
         }
+        if self.artifacts:
+            out["Artifacts"] = [a.to_dict() for a in self.artifacts]
+        return out
 
 
 @dataclass
