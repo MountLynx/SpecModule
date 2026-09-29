@@ -3,8 +3,12 @@
 
 from __future__ import annotations
 
+import json
+import os
+
 import pytest
 
+from module_harness.infra.artifacts import artifacts_path, collect_artifacts, write_artifacts_manifest
 from module_harness.model.spec import ArtifactDecl, TaskDefinition, Tasklist
 
 
@@ -86,3 +90,105 @@ class TestTasklistArtifacts:
         assert Tasklist.from_json(d).artifacts[0].path == "exports/*.pptx"
         # 空声明不出现在序列化——旧格式 tasklist 往返零扰动
         assert "Artifacts" not in self._tl([]).to_dict()
+
+
+# ── 收集器（infra/artifacts.py）───────────────────────────────────────
+
+
+class TestCollectArtifacts:
+    def test_glob_relative_resolved_absolute(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "exports").mkdir()
+        (tmp_path / "exports" / "deck.pptx").write_bytes(b"PK")
+        entries = collect_artifacts(
+            [ArtifactDecl(name="deck", path="exports/*.pptx")])
+        assert len(entries) == 1
+        e = entries[0]
+        assert e["path"] == str(tmp_path / "exports" / "deck.pptx")
+        assert e["name"] == "deck"
+        assert e["kind"] == "intermediate"
+        assert e["size"] == 2
+        assert "T" in e["modified"]  # ISO8601 本地时间
+
+    def test_pick_all_sorted(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "exports").mkdir()
+        for n in ("b.pptx", "a.pptx"):
+            (tmp_path / "exports" / n).write_bytes(b"x")
+        entries = collect_artifacts(
+            [ArtifactDecl(name="deck", path="exports/*.pptx")])
+        assert [os.path.basename(e["path"]) for e in entries] == ["a.pptx", "b.pptx"]
+
+    def test_pick_latest_by_mtime(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "exports").mkdir()
+        old = tmp_path / "exports" / "deck_1.pptx"
+        new = tmp_path / "exports" / "deck_2.pptx"
+        old.write_bytes(b"old")
+        new.write_bytes(b"new")
+        os.utime(old, (1000000000, 1000000000))
+        entries = collect_artifacts(
+            [ArtifactDecl(name="deck", path="exports/*.pptx", pick="latest")])
+        assert len(entries) == 1
+        assert entries[0]["path"] == str(new)
+
+    def test_zero_match_skipped(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        assert collect_artifacts(
+            [ArtifactDecl(name="deck", path="exports/*.pptx")]) == []
+
+    def test_directory_match_skipped(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "exports" / "sub").mkdir(parents=True)
+        assert collect_artifacts(
+            [ArtifactDecl(name="x", path="exports/*")]) == []
+
+    def test_multiple_decls_accumulate(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "exports").mkdir()
+        (tmp_path / "notes").mkdir()
+        (tmp_path / "exports" / "a.pptx").write_bytes(b"x")
+        (tmp_path / "notes" / "total.md").write_text("# n", encoding="utf-8")
+        entries = collect_artifacts([
+            ArtifactDecl(name="deck", path="exports/*.pptx"),
+            ArtifactDecl(name="notes", path="notes/*.md"),
+        ])
+        assert [e["name"] for e in entries] == ["deck", "notes"]
+
+
+class TestWriteManifest:
+    def test_writes_manifest_with_run_id(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        run_dir = tmp_path / ".specmodule" / "runs" / "r1"
+        run_dir.mkdir(parents=True)
+        (tmp_path / "exports").mkdir()
+        (tmp_path / "exports" / "deck.pptx").write_bytes(b"PK")
+        write_artifacts_manifest(
+            "r1", [ArtifactDecl(name="deck", path="exports/*.pptx")])
+        raw = json.loads(
+            (run_dir / "artifacts.json").read_text(encoding="utf-8"))
+        assert raw["run_id"] == "r1"
+        assert len(raw["artifacts"]) == 1
+
+    def test_zero_match_writes_empty_list(self, tmp_path, monkeypatch):
+        """声明存在但零匹配 → 空清单（区分"收集过没产出"与"没收集"）。"""
+        monkeypatch.chdir(tmp_path)
+        run_dir = tmp_path / ".specmodule" / "runs" / "r1"
+        run_dir.mkdir(parents=True)
+        write_artifacts_manifest("r1", [ArtifactDecl(name="x", path="nope/*")])
+        raw = json.loads(
+            (run_dir / "artifacts.json").read_text(encoding="utf-8"))
+        assert raw["artifacts"] == []
+
+    def test_no_decls_no_file(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        run_dir = tmp_path / ".specmodule" / "runs" / "r1"
+        run_dir.mkdir(parents=True)
+        write_artifacts_manifest("r1", [])
+        assert not (run_dir / "artifacts.json").exists()
+
+    def test_no_run_dir_no_side_effect(self, tmp_path, monkeypatch):
+        """纯内存模式（run 目录不存在）不落盘、不建目录。"""
+        monkeypatch.chdir(tmp_path)
+        write_artifacts_manifest("r1", [ArtifactDecl(name="x", path="nope/*")])
+        assert not (tmp_path / ".specmodule").exists()
