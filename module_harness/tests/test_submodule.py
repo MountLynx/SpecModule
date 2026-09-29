@@ -581,3 +581,21 @@ class TestDefaultSpecContract:
         out = Translator().pack(tmp_path / "dist")
         manifest = json.loads((out / "module.json").read_text(encoding="utf-8"))
         assert "default_spec" not in manifest
+
+    def test_load_default_spec(self, tmp_path, mock_llm):
+        out = Translator().pack(tmp_path / "dist")
+        mp = out / "module.json"
+        manifest = json.loads(mp.read_text(encoding="utf-8"))
+        manifest["default_spec"] = {"name": "world"}
+        mp.write_text(json.dumps(manifest), encoding="utf-8")
+        module = ModuleLoader(llm_client=mock_llm).load(out)
+        assert module.default_spec == {"name": "world"}
+
+    def test_load_rejects_non_dict_default_spec(self, tmp_path, mock_llm):
+        out = Translator().pack(tmp_path / "dist")
+        mp = out / "module.json"
+        manifest = json.loads(mp.read_text(encoding="utf-8"))
+        manifest["default_spec"] = ["oops"]
+        mp.write_text(json.dumps(manifest), encoding="utf-8")
+        with pytest.raises(ModuleManifestError):
+            ModuleLoader(llm_client=mock_llm).load(out)

@@ -112,6 +112,9 @@ class ModuleLoader:
             input=schema_data.get("input", {}) or {},
             output=schema_data.get("output", {}) or {},
         )
+        default_spec = manifest.get("default_spec")
+        if default_spec is not None and not isinstance(default_spec, dict):
+            raise ModuleManifestError("default_spec 必须是对象（{字段: 参考值}）")
         requires_raw = manifest.get("requires", []) or []
         if not isinstance(requires_raw, list) or not all(
                 isinstance(r, str) for r in requires_raw):
@@ -132,6 +135,7 @@ class ModuleLoader:
             "version": manifest.get("version", "0.1.0"),
             "description": manifest.get("description", ""),
             "spec_schema": spec_schema,
+            "default_spec": dict(default_spec) if default_spec is not None else None,
             "requires": requires,
             "tasklist": tasklist,
             "harnesses": harnesses,
