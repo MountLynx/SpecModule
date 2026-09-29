@@ -1034,7 +1034,8 @@ def _cmd_setup(args: argparse.Namespace) -> int:
 
 
 def _cmd_publish(args: argparse.Namespace) -> int:
-    """发布模块到 store：目录形态直接校验复制；单文件形态经 entry_to_pack 物化转化。"""
+    """发布模块到 store：目录形态直接校验复制；单文件形态经 entry_to_pack 物化
+    转化（含 submodule 时递归登记进 store——install_submodules）。"""
     src = Path(args.from_dir)
     if (src / "module.json").is_file():
         # 目录形态：与 install 同校验（D9）
@@ -1080,11 +1081,18 @@ def _cmd_publish(args: argparse.Namespace) -> int:
     try:
         result = entry_to_pack(entry)
         dest = store.install_pack(result.pack_dir, source=args.from_dir, name=entry.name)
+        # submodule 递归登记进 store（编辑闭环按名解析的前提）——跳过项
+        # 诚实透出（已存在防遮蔽 / 键名不一致无法按引用键解析）
+        sub = store.install_submodules(result.pack_dir, source=args.from_dir)
     except ValueError as e:
         print(f"发布失败: {e}", file=sys.stderr)
         return 1
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+    for sname in sub["installed"]:
+        print(f"submodule 已登记: {sname}")
+    for s in sub["skipped"]:
+        print(f"submodule 跳过: {s['name']}（{s['reason']}）")
     print(f"已发布（单文件转化）: {dest.name} → {dest}")
     return 0
 

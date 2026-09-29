@@ -442,3 +442,177 @@ class TestPackedDefaultSpec:
         assert res.spec_for(None) == ({"name": "str"}, {"name": "world"})
         assert res.spec_for("anything") == ({"name": "str"}, {"name": "world"})
         assert store.detail_to_dict(res)["default_spec"] == {"name": "world"}
+
+
+# ── install_submodules：pack 内 submodule 递归登记（编辑闭环补链）──────
+
+
+class _SubFam:
+    """三层嵌套 submodule 家族：parent_mod ⊃ echo_sub ⊃ leaf_sub。"""
+
+    @staticmethod
+    def make_parent():
+        from module_harness.model.spec import SpecSchema, TaskDefinition, Tasklist
+        from module_harness.model.submodule import SubModule, script
+
+        class LeafSub(SubModule):
+            name = "leaf_sub"
+            description = "叶子子模块"
+            spec_schema = SpecSchema(input={"x": "str"})
+            tasklist = Tasklist(
+                tasks={"L": TaskDefinition(type="script", script="leaf_fn")},
+                flow="[L]",
+            )
+
+            @script("leaf_fn")
+            def leaf_fn(view):
+                return {"leaf": "ok"}
+
+        class EchoSub(SubModule):
+            name = "echo_sub"
+            description = "回声子模块"
+            spec_schema = SpecSchema(input={"x": "str"})
+            modules = {"leaf_sub": LeafSub}
+            tasklist = Tasklist(
+                tasks={"E": TaskDefinition(type="script", script="echo_fn")},
+                flow="[E]",
+            )
+
+            @script("echo_fn")
+            def echo_fn(view):
+                return {"echo": "ok"}
+
+        class ParentMod(SubModule):
+            name = "parent_mod"
+            description = "父模块"
+            spec_schema = SpecSchema(input={"x": "str"})
+            modules = {"echo_sub": EchoSub}
+            tasklist = Tasklist(
+                tasks={"P": TaskDefinition(type="script", script="parent_fn")},
+                flow="[P]",
+            )
+
+            @script("parent_fn")
+            def parent_fn(view):
+                return {"parent": "ok"}
+
+        return ParentMod()
+
+
+class TestInstallSubmodules:
+    """install_submodules：把 pack 内 submodules/** 递归登记为独立 packed 模块。
+
+    背景：自包含 pack 的 submodule 只存在于包内目录（运行期零依赖），但反解
+    编辑闭环按名从 store 解析 submodule 源包——缺失即组装失败（webview
+    convert 的 submodule 缺口）。键 = manifest name 是引用键可解析的前提。
+    """
+
+    def test_installs_nested_submodules(self, fake_home, tmp_path):
+        pack = tmp_path / "pack"
+        _SubFam.make_parent().pack(pack)
+        out = store.install_submodules(pack, source="test")
+        assert out["installed"] == ["echo_sub", "leaf_sub"]
+        assert out["skipped"] == []
+        for name in ("echo_sub", "leaf_sub"):
+            assert (store.modules_dir() / name / "module.json").is_file()
+            assert (store.manifests_dir() / f"{name}.json").is_file()
+            hit = store.resolve_module(name, search=[store.modules_dir()])
+            assert hit is not None and hit.kind == "packed"
+        # manifest source 透传
+        m = json.loads((store.manifests_dir() / "leaf_sub.json").read_text("utf-8"))
+        assert m["source"] == "test"
+
+    def test_no_submodules_noop(self, fake_home, tmp_path):
+        pack = tmp_path / "pack"
+        _PackedMod.make().pack(pack)
+        out = store.install_submodules(pack, source="test")
+        assert out == {"installed": [], "skipped": []}
+
+    def test_skip_when_resolvable_in_store(self, fake_home, tmp_path):
+        pack = tmp_path / "pack"
+        _SubFam.make_parent().pack(pack)
+        echo_dir = store.modules_dir() / "echo_sub"
+        echo_dir.mkdir(parents=True)
+        marker = echo_dir / "module.json"
+        marker.write_text('{"name": "echo_sub"}', encoding="utf-8")
+        out = store.install_submodules(pack, source="test")
+        assert out["installed"] == ["leaf_sub"]   # 未冲突的照常装
+        assert [s["name"] for s in out["skipped"]] == ["echo_sub"]
+        # 不覆盖：占位内容原样
+        assert json.loads(marker.read_text("utf-8")) == {"name": "echo_sub"}
+        assert out["skipped"][0]["path"] == str(echo_dir)
+        assert "已存在" in out["skipped"][0]["reason"]
+
+    def test_skip_checks_explicit_search_paths(self, fake_home, tmp_path):
+        pack = tmp_path / "pack"
+        _SubFam.make_parent().pack(pack)
+        elsewhere = tmp_path / "elsewhere"
+        from module_harness.model.spec import SpecSchema, TaskDefinition, Tasklist
+        from module_harness.model.submodule import SubModule, script
+
+        class EchoSub2(SubModule):
+            name = "echo_sub"
+            spec_schema = SpecSchema(input={"x": "str"})
+            tasklist = Tasklist(
+                tasks={"E": TaskDefinition(type="script", script="e2")},
+                flow="[E]",
+            )
+
+            @script("e2")
+            def e2(view):
+                return {}
+
+        EchoSub2().pack(elsewhere / "echo_sub")
+        out = store.install_submodules(pack, source="test", search=[elsewhere])
+        assert out["installed"] == ["leaf_sub"]
+        assert [s["name"] for s in out["skipped"]] == ["echo_sub"]
+        assert not (store.modules_dir() / "echo_sub").exists()
+
+    def test_key_name_mismatch_skipped(self, fake_home, tmp_path):
+        """目录键 ≠ manifest name：装了也按引用键解析不到——跳过并给理由。"""
+        from module_harness.model.spec import SpecSchema, TaskDefinition, Tasklist
+        from module_harness.model.submodule import SubModule, script
+
+        class OddlyNamed(SubModule):
+            name = "real_name"
+            spec_schema = SpecSchema(input={"x": "str"})
+            tasklist = Tasklist(
+                tasks={"O": TaskDefinition(type="script", script="o1")},
+                flow="[O]",
+            )
+
+            @script("o1")
+            def o1(view):
+                return {}
+
+        class KeyParent(SubModule):
+            name = "key_parent"
+            spec_schema = SpecSchema(input={"x": "str"})
+            modules = {"ref_key": OddlyNamed}
+            tasklist = Tasklist(
+                tasks={"K": TaskDefinition(type="script", script="k1")},
+                flow="[K]",
+            )
+
+            @script("k1")
+            def k1(view):
+                return {}
+
+        pack = tmp_path / "pack"
+        KeyParent().pack(pack)
+        out = store.install_submodules(pack, source="test")
+        assert out["installed"] == []
+        assert [s["name"] for s in out["skipped"]] == ["ref_key"]
+        assert "不一致" in out["skipped"][0]["reason"]
+        assert not (store.modules_dir() / "real_name").exists()
+
+    def test_invalid_submodule_aborts_zero_install(self, fake_home, tmp_path):
+        """坏 submodule：整体中止且零安装（先全量校验后安装，零半状态）。"""
+        pack = tmp_path / "pack"
+        _SubFam.make_parent().pack(pack)
+        leaf_mj = pack / "submodules" / "echo_sub" / "submodules" / "leaf_sub" / "module.json"
+        leaf_mj.write_text("{broken", encoding="utf-8")
+        with pytest.raises(ValueError, match="leaf_sub"):
+            store.install_submodules(pack, source="test")
+        assert not (store.modules_dir() / "echo_sub").exists()
+        assert not (store.modules_dir() / "leaf_sub").exists()

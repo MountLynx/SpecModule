@@ -496,6 +496,63 @@ def _now_iso() -> str:
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def install_submodules(
+    pack_dir: Path,
+    *,
+    source: str,
+    search: list[Path] | None = None,
+) -> dict[str, Any]:
+    """把 pack 内 ``submodules/**``（含嵌套）登记为独立 packed 模块。
+
+    自包含 pack 的 submodule 只存在于包内目录——运行期零依赖，但反解编辑
+    闭环（Web 反解 / 更新组装）按名从 store 解析 submodule 源包，缺失即
+    组装失败。本函数把包内每个 submodule 目录作为独立 pack 安装进 store，
+    使含 submodule 的 entry 经转化发布后编辑闭环可达。
+
+    - 碰撞策略：名字在搜索路径（``search`` 缺省 :func:`search_paths`）已可
+      解析 → 跳过不覆盖（防遮蔽引用它的其他父模块），计入 ``skipped``
+    - 目录键 ≠ manifest name 的 submodule 装了也按引用键解析不到
+      （:func:`list_modules` 按 manifest name 命名）→ 跳过并给理由
+    - 先全量校验（:func:`validate_pack_dir` 沿嵌套传播）再安装——坏
+      submodule 整体中止且零安装（零半状态）
+    """
+    base = Path(pack_dir) / "submodules"
+    found: list[tuple[str, Path]] = []  # (目录键, 目录)
+    if base.is_dir():
+        for mj in sorted(base.rglob("module.json")):
+            found.append((mj.parent.name, mj.parent))
+    # 最深层优先校验：嵌套损坏时错误命名最内层坏节点——父目录的递归
+    # 校验复用子目录已通过的结论，不把错误报到父身上
+    candidates: list[tuple[str, Path, dict[str, Any]]] = []
+    for key, d in sorted(found, key=lambda t: len(t[1].parts), reverse=True):
+        try:
+            manifest = validate_pack_dir(d)
+        except ValueError as e:
+            raise ValueError(f"submodule '{key}' 校验失败: {e}") from e
+        candidates.append((key, d, manifest))
+    installed: list[str] = []
+    skipped: list[dict[str, str]] = []
+    for key, d, manifest in candidates:
+        name = manifest.get("name", "")
+        if name != key:
+            skipped.append({
+                "name": key, "path": str(d),
+                "reason": f"目录键与 manifest name '{name}' 不一致——"
+                          "按引用键无法解析，跳过",
+            })
+            continue
+        hit = resolve_module(name, search=search)
+        if hit is not None:
+            skipped.append({
+                "name": name, "path": str(hit.path),
+                "reason": "已存在——不覆盖（防遮蔽引用它的其他模块）",
+            })
+            continue
+        install_pack(d, source=source)
+        installed.append(name)
+    return {"installed": sorted(installed), "skipped": skipped}
+
+
 def load_manifest(name: str) -> dict[str, Any] | None:
     """读取安装 manifest；缺失/损坏 → None。"""
     p = manifests_dir() / f"{name}.json"

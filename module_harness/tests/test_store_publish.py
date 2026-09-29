@@ -138,3 +138,62 @@ entry = ModuleEntry(
         (bad / "module.json").write_text("{broken", encoding="utf-8")
         assert main(["publish", "bad", "--from", str(bad)]) == 1
         assert "发布失败" in capsys.readouterr().err
+
+
+class TestPublishWithSubmodule:
+    def test_publish_single_file_registers_submodules(self, cwd, store_home, capsys):
+        # 含 submodule 的 entry：发布父模块的同时把 submodule 递归登记进
+        # store（编辑闭环按名解析的前提；webview convert 同款消费）
+        (cwd / "modules").mkdir()
+        (cwd / "modules" / "submod.py").write_text("""\
+from __future__ import annotations
+from module_harness.cli.entry import ModuleEntry
+from module_harness.core.config import HarnessConfig
+from module_harness.core.registry import HarnessRegistry
+from module_harness.infra.events import EventBus
+from module_harness.model.spec import SpecSchema, TaskDefinition, Tasklist
+from module_harness.model.submodule import SubModule, script
+
+
+class EchoSub(SubModule):
+    name = "echo_sub"
+    description = "回声子模块"
+    spec_schema = SpecSchema(input={"x": "str"})
+    tasklist = Tasklist(
+        tasks={"E": TaskDefinition(type="script", script="echo_fn")},
+        flow="[E]",
+    )
+
+    @script("echo_fn")
+    def echo_fn(view):
+        return {"echo": "ok"}
+
+
+def _registry(llm_client, template_name, event_bus):
+    return HarnessRegistry(llm_client=llm_client, event_bus=event_bus or EventBus.null())
+
+
+entry = ModuleEntry(
+    name="submod",
+    description="含 submodule 的 entry",
+    templates={"t": {"name": "t", "tasklist": {
+        "Tasks": {"Echo": {"type": "submodule", "submodule": "echo_sub"}},
+        "Flow": "[Echo]",
+    }}},
+    build_registry=_registry,
+    default_template="t",
+    submodules={"echo_sub": EchoSub},
+    review_harness=None,
+)
+""", encoding="utf-8")
+        assert main(["publish", "submod", "--from", "."]) == 0
+        out = capsys.readouterr().out
+        assert "已发布" in out
+        assert "echo_sub" in out          # submodule 登记透出
+        assert (store_home / "modules" / "submod" / "module.json").is_file()
+        assert (store_home / "modules" / "echo_sub" / "module.json").is_file()
+        assert (store_home / "manifests" / "echo_sub.json").is_file()
+        # 父子均入 store 枚举
+        assert main(["list"]) == 0
+        listing = capsys.readouterr().out
+        assert "submod" in listing and "echo_sub" in listing
