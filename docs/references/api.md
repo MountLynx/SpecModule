@@ -23,6 +23,7 @@
 | `create_checkpoint` | `(module_id: str, label: str, *, tick: int \| None = None, base_dir: Path \| None = None) -> dict` | 给 tick 快照（缺省最新）命名——复制进 checkpoints 表，覆盖同名；返回 `{label, tick, overwritten}`；无运行/无快照/tick 不存在 → `KeyError` 带可用清单 |
 | `load_snapshot_summary` | `(module_id: str, *, tick: int \| None = None, base_dir: Path \| None = None) -> dict \| None` | tick 快照摘要 `{tick, status, fireable, fired, outputs}`（outputs=各节点最新值，时点输出用 review(tick=N)）；db 缺失/读失败 → `None`（查询容错）；无快照/tick 不存在 → `KeyError` |
 | `read_module_inputs` | `(module_id: str, base_dir: Path \| None = None) -> dict \| None` | 读运行输入存档 `{spec, tasklist, template}`（module_inputs 表，本次 run 使用的输入；`template` 为本次 run 所选模板名，tasklist 通道 run 或迁移前旧存档为 `None`）；消费场景：resume/rollback 前预填上次输入（换 spec/tasklist 重传的编辑起点）、运行图重建按原模板注册 harness；db 缺失/无存档/读失败 → `None` |
+| `read_artifacts` | `(run_id: str, base_dir: Path \| None = None) -> dict \| None` | 读 run 产物清单（tasklist 顶层 `Artifacts` 声明制，Module 终态 done/truncated 收尾收集落 `artifacts.json`，文件本体不搬、条目路径为收集时绝对路径）；返回 `{run_id, artifacts: [{index, name, kind, path, size, modified}]}`（index=数组序，下载只按 index 引用——路径永不为客户端输入）；run 目录不存在 → `None`；清单缺失/损坏 → 空列表 |
 | `check_resume_compat_from_run` | `(module_name: str, run_id: str, *, new_tasklist: dict \| Tasklist \| None = None, target: int \| str \| None = None, base_dir: Path \| None = None) -> dict \| None` | 恢复预检：从运行产物组合兼容性校验材料（目标快照解析 + executed_nodes + 旧输入存档 + Mock registry 建图）跑 `check_resume_compat`——不 spawn、不写状态；`new_tasklist`/`target` 缺省用归档值（纯续跑预检）；目标解析失败不抛错、作为 `hard_errors[0]` 返回（附可用清单）；run.sqlite 缺失/读失败 → `None`；tasklist 非法/建图失败 → `ValueError`（消息可面向用户）。Web resume/preflight 端点消费；CLI `resume --dry-run` 需要时薄加 |
 | `run_db_path` | `(module_id: str, base_dir: Path \| None = None) -> Path` | run.sqlite 路径规则单一来源（`<base>/.specmodule/runs/<id>/run.sqlite`）；`base_dir` 缺省 = cwd（服务器进程 cwd ≠ agent cwd，消费方宜显式传） |
 | `build_run_graph` | `(module_name: str, run_id: str \| None = None, *, base_dir: Path \| None = None, template: str \| None = None, tasklist: dict \| Tasklist \| None = None, src: ModuleSource \| None = None) -> tuple[Graph, Tasklist] \| None` | 从运行存档（module_inputs 表）或直接给定的 tasklist 重建 tickflow Graph——可视化共用（CLI visualize / Web 图渲染）；零 LLM（registry 以 MockLLMClient 占位构建）；registry 按 `template` 构建（模板专属 harness 须对应模板的 registry 才可解析——非默认模板 run 不传 `template` 会报 harness not found），缺省优先级：显式 `template` > 存档记录的模板（module_inputs.template）> `entry.default_template`；存档模板未在当前模块注册 → `ValueError`（模块与存档漂移，不静默回落）；`tasklist` 给出时跳过存档 tasklist 读取（直渲染通道，`template` 仍按上述优先级）；`src` 为预解析 ModuleSource（缺省 `store.resolve_module` 统一搜索路径解析）；返回 `(Graph, Tasklist)`，无存档且未传 tasklist → `None`；模块未找到/加载/构建失败 → `ValueError`（消息可直接面向用户）；packed/pip 模块无存档时回落模块自带 tasklist |
@@ -32,7 +33,16 @@
 | `recent_runs` | `(base_dir: Path \| None = None, *, limit: int = 100) -> dict` | 最近运行快速列表（Web 列表共享层，2026-09-15）：`os.scandir` 枚举 run 目录，排序键锚定各目录 status.json 自身 mtime（每目录一次元数据 stat，不打开文件内容；单条 stat 失败逐条跳过），mtime 降序（同值按目录名降序）——非终态 run 在 phase 迁移时重写 status.json 刷新 mtime，新发起的 run 必然靠前；长跑 run（长时间无 phase 迁移）可能滑出前 `limit`，粒度与 `list_runs` 的 updated_at 排序一致，尾部由 total + CLI `runs` 兜底；只对前 `limit` 条读 status.json 构建完整行（形状同 `list_runs`），**tick 不回落 sqlite**（旧 run 无 status.json tick 键 → None）；返回 `{"runs": [...], "total": <run 目录总数>}`（尾部只计不展开，单次成本与历史规模解耦）；容错同 `list_runs`（损坏/缺失 → `phase="unknown"` 不跳过），runs 根不存在 → `{"runs": [], "total": 0}` |
 | `delete_run` | `(run_id: str, base_dir: Path \| None = None) -> bool` | 删除 run 目录整树（status.json + run.sqlite/WAL 侧车 + stream.log），run 历史单条删除共享层（CLI `delete-run` / Web 共用）；防路径穿越：`run_id` 为空/`.`/`..`/含路径分隔符（`/` `\`）/非 basename 形态（盘符、绝对路径——pathlib join 会被整路径替换）→ `False`；目录不存在 → `False`（调用方映射 404）；删除期 OSError 原样抛（本函数是操作不是查询）；运行中进程库侧不可知，活性防护（先 cancel/terminate）是消费端职责 |
 
-CLI 对应子命令：`specmodule runs [--json]`（`list_runs` 列表展示）、`specmodule delete-run <run_id>`（删除并打印移除的目录；不存在报错退出非零）——参数语义见 [cli-usage.md](cli-usage.md)。
+CLI 对应子命令：`specmodule runs [--json]`（`list_runs` 列表展示）、`specmodule delete-run <run_id>`（删除并打印移除的目录；不存在报错退出非零）、`specmodule artifacts [--run-id xxx] [--json]`（产物清单）——参数语义见 [cli-usage.md](cli-usage.md)。
+
+run 产物声明（2026-09-29）：tasklist 顶层可带 `"Artifacts": [{name, path, kind, pick}]`
+（`ArtifactDecl`，model/spec.py）——`name` 展示名；`path` 具体 glob 串（相对路径按
+运行进程 cwd 解析，spec 派生路径由翻译脚本自行插值，库不做模板机制）；`kind` ∈
+`deliverable`（交付物）| `intermediate`（缺省）；`pick` ∈ `all`（缺省，按 path 排序
+全收）| `latest`（匹配集 mtime 最新一个）。Module 在终态 done/truncated 收尾收集
+（`_run_with_phases` → `infra/artifacts.py`；cancelled/aborted 不收集；声明存在但
+零匹配 → 写空清单），落 `<run_dir>/artifacts.json`（原子写）。无声明的 run 不产生
+清单文件。`Artifacts` 不参与 resume 兼容性校验，随 module_inputs 存档自然往返。
 
 `query_value` 寻址语法：顶层标量 `phase` / `status` / `tick` / `fireable` / `fired` / `error` / `updated_at`；
 输出 `outputs.<node>.<key...>`（节点最新输出内部键）；可变状态 `state.<node>.<key...>`（含 `_llm_raw`
