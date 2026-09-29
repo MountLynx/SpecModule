@@ -256,7 +256,17 @@ def make_image_node(llm_client: Any, event_bus: Any = None) -> Any:
                     llm_client=llm_client,
                     event_bus=event_bus,
                 )
-                row = {**row, "status": "terminal", "file": result.value}
+                # 生成物对齐 plan 行声明的规范路径：页 SVG 按 lock 引用
+                # images/<file>，harness 落盘却是 __call__-<ns>.png 随机名
+                generated = Path(result.value)
+                planned = row.get("file")
+                if planned:
+                    dest = root / planned
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    generated.replace(dest)
+                    row = {**row, "status": "terminal", "file": str(dest)}
+                else:
+                    row = {**row, "status": "terminal", "file": str(generated)}
             except HarnessCallError as e:
                 row = {**row, "status": "Needs-Manual", "error": str(e)}
             out_rows.append(row)

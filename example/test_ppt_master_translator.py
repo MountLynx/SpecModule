@@ -43,10 +43,16 @@ def test_four_pages_no_early_gate():
 def test_ten_pages_has_early_gate_and_batching():
     tasks, flow = build_generate_tasklist(_spec(10))
     assert "EarlyGate" in tasks and "EarlyRepair" in tasks
-    # 批1 = P01..P05 直连 EarlyGate；P06..P10 与 EarlyRepair 汇入 FinalGate
+    # 批1 = P01..P05 直连 EarlyGate；早门两分支（干净/修复）都汇入
+    # EarlyDispatch 后批2 扇出——EarlyRepair 不得直连 FinalGate（否则
+    # issues 分支下 EarlyDispatch 永不点火，批2 页永不生成，roadmap 缺口）
     assert "P05 --> EarlyGate" in flow
     assert "EarlyGate --> EarlyVerdict" in flow
-    assert "EarlyRepair --> FinalGate" in flow
+    assert "EarlyRepair --> FinalGate" not in flow
+    assert "EarlyRepair --> EarlyDispatch" in flow
+    assert "EarlyVerdict --|early_clean|--> EarlyDispatch" in flow
+    # EarlyDispatch 双入边 = XOR producer → 必须 OR-join（AND 死锁）
+    assert "EarlyDispatch.join: OR" in flow
     assert "P10 --> FinalGate" in flow
     assert "EarlyDispatch --> P06" in flow
     # 钉死单一干净路径形状（计划 Step 4 注：干净出边只有一条，无二段守卫）
@@ -141,22 +147,26 @@ def test_flow_parses_clean_without_deadlock():
             assert key in graph.nodes  # 无孤立节点（图节点级，非子串匹配）
 
 
-def _simulate(flow: str, page_keys: list[str], gate_errors: list[bool]) -> dict:
+def _simulate(flow: str, page_keys: list[str], gate_errors: list[bool],
+              early_gate_errors: list[bool] | None = None) -> dict:
     """假 body 引擎仿真：真实 flow 原样过 tickflow Runner，钉死门"波"语义。
 
     页 body 把自身节点名记入"已落盘"集合；门 body 记录每次点火时在盘的页
-    集合；gate_errors 队列控制逐轮终检裁决（True=有错→Repair 回边；耗尽
-    后全程干净）。返回点火统计（gate_seen / fired / repair）。
+    集合；gate_errors / early_gate_errors 队列控制终检/早检逐轮裁决
+    （True=有错→修复回边；耗尽后全程干净）。返回点火统计（gate_seen /
+    fired / repair）。
     """
     from tickflow import Registry, Runner, parse
 
     state: dict = {"pages_done": set(), "gate_seen": [], "repair": 0,
-                   "verdicts": list(gate_errors), "last": False}
+                   "final_q": list(gate_errors), "final_last": False,
+                   "early_q": list(early_gate_errors or []),
+                   "early_last": False}
     reg = Registry()
-    reg.guard("early_issues", lambda view: state["last"])
-    reg.guard("early_clean", lambda view: not state["last"])
-    reg.guard("final_errors", lambda view: state["last"])
-    reg.guard("final_clean", lambda view: not state["last"])
+    reg.guard("early_issues", lambda view: state["early_last"])
+    reg.guard("early_clean", lambda view: not state["early_last"])
+    reg.guard("final_errors", lambda view: state["final_last"])
+    reg.guard("final_clean", lambda view: not state["final_last"])
 
     def body_page(view):
         state["pages_done"].add(view.node)  # 页 SVG 视为已落盘
@@ -166,8 +176,12 @@ def _simulate(flow: str, page_keys: list[str], gate_errors: list[bool]) -> dict:
         state["gate_seen"].append(sorted(state["pages_done"]))
         return {}
 
-    def body_verdict(view):
-        state["last"] = bool(state["verdicts"].pop(0)) if state["verdicts"] else False
+    def body_final_verdict(view):
+        state["final_last"] = bool(state["final_q"].pop(0)) if state["final_q"] else False
+        return {}
+
+    def body_early_verdict(view):
+        state["early_last"] = bool(state["early_q"].pop(0)) if state["early_q"] else False
         return {}
 
     def body_repair(view):
@@ -179,7 +193,8 @@ def _simulate(flow: str, page_keys: list[str], gate_errors: list[bool]) -> dict:
 
     reg.body("sim_page", body_page)
     reg.body("sim_gate", body_gate)
-    reg.body("sim_verdict", body_verdict)
+    reg.body("sim_final_verdict", body_final_verdict)
+    reg.body("sim_early_verdict", body_early_verdict)
     reg.body("sim_repair", body_repair)
     reg.body("sim_noop", body_noop)
 
@@ -190,8 +205,10 @@ def _simulate(flow: str, page_keys: list[str], gate_errors: list[bool]) -> dict:
         elif key == "FinalGate":
             node.body = "sim_gate"
         elif key == "FinalVerdict":
-            node.body = "sim_verdict"
-        elif key == "Repair":
+            node.body = "sim_final_verdict"
+        elif key == "EarlyVerdict":
+            node.body = "sim_early_verdict"
+        elif key in ("Repair", "EarlyRepair"):
             node.body = "sim_repair"
         else:
             node.body = "sim_noop"
@@ -229,6 +246,31 @@ def test_or_join_repair_loop_fires_gate_once_per_wave():
     assert sim["gate_seen"][1] == ["P01", "P02", "P03"]
     assert sim["fired"].count("Repair") == 1
     assert sim["fired"].count("Report") == 1
+
+
+def test_early_issues_branch_still_generates_batch2():
+    """早门 issues 分支下批2 页必须照常生成、终门单次点火见全册（roadmap
+    缺口 1 回归钉死）。
+
+    旧接线 EarlyRepair 直连 FinalGate、EarlyDispatch 只挂 early_clean：早门
+    一查出问题，EarlyDispatch 永不点火 → P06..P10 从未使能，缺后半册的
+    deck 静默导出（mock E2E 4 页无早门，测不到此分支）。新接线两分支汇入
+    EarlyDispatch（OR-join），早门阶段了结（修没修都一样）后批2 展开。
+    对照干净分支：同图同册，同样门单次见全册。
+    """
+    _, flow = build_generate_tasklist(_spec(10))
+    deck = [f"P{i:02d}" for i in range(1, 11)]
+
+    sim = _simulate(flow, deck, gate_errors=[], early_gate_errors=[True])
+    assert sim["fired"].count("EarlyRepair") == 1
+    assert sim["gate_seen"] == [deck]           # 终门恰 1 次点火、见全 10 页
+    assert sim["fired"].count("Report") == 1
+    assert sim["fired"].count("Repair") == 0    # 终门一次过
+
+    clean = _simulate(flow, deck, gate_errors=[], early_gate_errors=[])
+    assert clean["fired"].count("EarlyRepair") == 0
+    assert clean["gate_seen"] == [deck]
+    assert clean["fired"][-1] == "Report"
 
 
 def test_tl_generate_writes_envelope_and_returns_tasks(tmp_path, monkeypatch):

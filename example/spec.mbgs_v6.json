@@ -1,0 +1,112 @@
+{
+  "project": "mbgs_v6_deck",
+  "source": {
+    "kind": "files",
+    "paths": [
+      "E:/Index/Research/1fe1d8be9b9c/Draft/v8/article_v6.md"
+    ]
+  },
+  "reading_mode": "balanced",
+  "production": {"speaker_notes": true},
+  "output": {"dir": "C:/Users/xingy/Desktop/开发/SpecModule/projects/mbgs_v6_deck"},
+  "images": {"sources": ["ai", "user"]},
+  "roster": [
+    {
+      "id": "p01",
+      "title": "无曝气 MBGS-SNDPR 的快速启动",
+      "role": "cover",
+      "points": [
+        "共接种 AGS × MBGS：光供氧同步硝化-反硝化-除磷",
+        "100 天稳定运行：COD 88% / 氨氮 99% / TN 85% / 磷 91%"
+      ]
+    },
+    {
+      "id": "p02",
+      "title": "背景与挑战：启动慢是 MBGS 的阿喀琉斯之踵",
+      "points": [
+        "传统活性污泥：硝化/反硝化/除磷分池分阶段，高能耗高占地",
+        "MBGS 光合供氧可无曝气脱氮除磷，但颗粒化+功能富集周期长",
+        "已报道 de novo 启动需 32 天，前期性能低且不稳定、生物量流失"
+      ]
+    },
+    {
+      "id": "p03",
+      "title": "方法：共接种策略与无曝气光序批反应器",
+      "points": [
+        "5 L 反应器（3 L 工作体积），AGS:MBGS = 1:1 共接种",
+        "8 h 厌氧-好氧-缺氧（AOA）批次，HRT 16 h，SRT 20 d",
+        "全程无机械曝气：100 rpm 桨搅拌 + LED 300 μmol·m⁻²·s⁻¹ 光照供氧"
+      ]
+    },
+    {
+      "id": "p04",
+      "title": "总体性能：生物量不掉、污染物从第一天就高效去除",
+      "points": [
+        "生物量 2.18→3.14 g VSS/L 后稳定 2.55 ± 0.15，全程高于接种水平",
+        "SVI30 79.2 mL/g、SVI5/SVI30 ≈ 1.0：沉降与固液分离始终良好",
+        "COD 88% ± 4%、NH4+-N 99%、TN 85% ± 6%、PO4³⁻-P 91% ± 7%"
+      ]
+    },
+    {
+      "id": "p05",
+      "title": "形态分化：丝状蓝藻主导的三条光聚合路径",
+      "points": [
+        "MBGS-O 自生长，外缘长出触手状丝状蓝藻结构",
+        "小 AGS（<1 mm）被剪切脱落的丝状蓝藻缠绕捕获 → MBGS-S（24 d 成熟）",
+        "大 AGS（>1 mm）表面定殖 → MBGS-L（36 d 才完整包被）",
+        "密度 16.4→33.8 g VSS/L、EPS 108→148 mg/g、PN/PS 2.0→3.5：结构更致密"
+      ]
+    },
+    {
+      "id": "p06",
+      "title": "功能分化：MBGS-S 主硝化除磷，MBGS-L 主反硝化",
+      "points": [
+        "FISH-CLSM：S 富集硝化菌（红）与 PAOs（蓝）；L 分层、内部出现缺氧区",
+        "功能基因：S 的 ppk/amoA/nxrA 为 L 的 9.8/2.7/1.7 倍；L 的 nirS/narG 为 S 的 1.7/2.8 倍",
+        "批次试验：S 除 COD 71% vs L 48%；L 总氮去除 89% vs S 37%",
+        "生态位互补而非竞争，共同实现 SNDPR"
+      ]
+    },
+    {
+      "id": "p07",
+      "title": "SNDPR 机理：周期动态与 C/N/P 质量平衡",
+      "points": [
+        "第 1 h 低 DO 下 SND 效率 95%；全周期好氧 SND 45%，贡献 68% TN 去除",
+        "厌氧段 (D)PAOs 摄取 83.8% 乙酸合成 PHA，释磷 294.6%",
+        "生物量产率 0.96 g VSS/g COD；磷以同化途径回收约 90.5%",
+        "64.8% 进水氮以 N2 排放，CO2 净排放仅 0.43 g/g COD"
+      ]
+    },
+    {
+      "id": "p08",
+      "title": "微生物群落：功能菌群全程存续、基因丰度稳中有升",
+      "points": [
+        "PCoA：先剧烈重组，52 d 后向 MBGS 接种源方向回聚",
+        "AOB/NOB/(D)PAOs/(D)GAOs/DNB 从 day 1 到 day 100 持续存续",
+        "硝化基因 amoBC/hao 预测丰度高于接种源；Nitrospira（含 comammox）持续上升",
+        "除磷模块功能冗余度持续下降：高效但生态弹性降低"
+      ]
+    },
+    {
+      "id": "p09",
+      "title": "结论：共接种让无曝气 MBGS-SNDPR 快速可用的启动",
+      "role": "closing",
+      "points": [
+        "共接种避免启动期污泥洗脱，实现生物量保持与功能菌群整合",
+        "MBGS-S（硝化+除磷）与 MBGS-L（反硝化）分工协作完成 SNDPR",
+        "高生物量产率 + 磷回收 + 低碳排放：低成本的可持续污水处理路线",
+        "展望：粒径精准调控与接种配比优化"
+      ]
+    }
+  ],
+  "contract": {
+    "语言与文风": "页面标题/正文/讲者备注全部用中文；专业术语与缩写保留英文（SNDPR、MBGS、AGS、PAO、DPAO、SND、FISH-CLSM 等）；一切数值逐字取自源摘要，禁止改写或臆造",
+    "图像总体": "本册共 6 张位图：1 张 AI 生成封面图 + 5 张用户已提供论文图（文件均已预置于项目 images/ 目录，直接引用，不要复述复制）；其余视觉元素一律原生 SVG 构图，不要为其他页申请任何图像",
+    "用户图清单": "images/fig1_performance.png = Fig.1 长期运行性能（生物量、SVI 与四项污染物去除率分布）；images/fig2_morphology.png = Fig.2 颗粒形态分化与理化性质（密度/粒径/叶绿素/EPS 动态）；images/fig3_function.png = Fig.3 FISH-CLSM 空间分布 + MBGS-S/L 功能基因对比 + 批次试验；images/fig4_mechanism.png = Fig.4 典型周期 N/P/COD/DO 动态、SND 效率与 C/N/P 质量流；images/fig5_community.png = Fig.5 PCoA、功能属丰度环形图、基因 LogFC 与功能冗余度",
+    "用户图行规则": "image_rows 中 user 行格式 {\"page\": <页id>, \"name\": <语义名>, \"file\": <清单路径>, \"acquire\": \"user\", \"status\": \"ready\"}，file 逐字引用用户图清单路径；每张在 design_spec §VIII 登记一行：**Type 写 Placed**（直接放置引用，绝不可写 Type: Source）、Acquire Via 写 user、**Status 写 Existing**（§VIII 词表区分于 image_rows 收据词表：user 行终态只有 Existing/Needs-Manual，写 Pending/Ready 均为终门 blocking）；spec_lock images 段写一行 `- <页id>: images/<file> | source=user | crop=no-crop`（论文数据图不得裁剪）",
+    "AI 封面图": "仅 p01 一张位图由 AI 生成：image_rows 行 {\"page\": \"p01\", \"name\": \"cover_hero\", \"file\": \"images/cover_hero.png\", \"acquire\": \"ai\", \"status\": \"pending\", \"prompt\": <英文生图 prompt>}；prompt 主题：abstract scientific illustration of microalgal-bacterial granular sludge, dense spherical biofilm granules entangled by green filamentous cyanobacteria, soft underwater glow, dark teal clean biotech aesthetic, no text, no labels, no watermark；design_spec §VIII 该行 **Type 写 Placed**、Acquire Via=ai、**Status 写 Generated**（ai 行终态，非 Pending）；spec_lock images 段写 `- p01: images/cover_hero.png | source=ai | crop=adaptive`",
+    "页面引用位图": "页 SVG 引用位图一律写成 <image href=\"../images/<file>\">（相对本页 svg_output/ 的上级 images 目录）；论文图是页面主体，建议占版面宽度 ≥55%，图旁配 2-3 条中文要点标注，不得在 SVG 里复刻坐标轴或臆造数据点",
+    "图标池": "icon_pool 收据固定为 [\"tabler-outline/flask\", \"tabler-outline/microscope\", \"tabler-outline/test-pipe\", \"tabler-outline/leaf\", \"tabler-outline/droplet\", \"tabler-outline/recycle\", \"tabler-outline/activity\", \"tabler-outline/chart-line\", \"tabler-outline/arrows-split-2\", \"tabler-outline/layers-intersect\", \"tabler-outline/ruler-measure\", \"tabler-outline/trending-up\", \"tabler-outline/bulb\", \"tabler-outline/bolt\"]——全部已在本地 tabler-outline 库验证存在，id 必须用完整 库/名字 形式，不得增删替换（icon_sync 对缺名或裸名硬失败停图）",
+    "备注深度": "讲者备注每页 80-150 字，口语化讲稿体，突出该页数据的 means/insight，不要复述页面文字"
+  }
+}

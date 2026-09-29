@@ -133,6 +133,52 @@ def test_full_pipeline_mock(tmp_path, monkeypatch):
     assert len(Presentation(str(pptx[0])).slides) == 4
 
 
+class FlakyP03Mock(ScriptedMock):
+    """p03 页首次输出非 SVG 垃圾（页节点失败收据、不落盘），其后（修复环）
+    正常出 SVG——钉缺页自愈路径。判别次序：规划 prompt 含 roster_ids（亦含
+    p03 字样）先排除；页/修复 prompt 的 page JSON 均含 "p03"。"""
+
+    def __init__(self):
+        self.p03_calls = 0
+
+    async def complete(self, **kw):
+        prompt = kw.get("prompt", "")
+        if "roster_ids" not in prompt and '"p03"' in prompt:
+            self.p03_calls += 1
+            if self.p03_calls == 1:
+                return LLMResponse(content="（非 SVG 垃圾输出）")
+        return await super().complete(**kw)
+
+
+def test_missing_page_heals_via_repair_ring(tmp_path, monkeypatch):
+    """页册完整性回归（roadmap 缺口 2）：页节点失败 → 终检合成缺页 blocking
+    （带 page 键）→ 修复环按页补生成 → 复检干净 → 全册导出。
+
+    旧契约下 vendor checker 只质检在盘文件、不知页册存在：3 页在盘全绿放行，
+    缺 p03 的 3 页 pptx 静默导出（Report 依旧 ok）。
+    """
+    monkeypatch.setattr(workspace, "_ENVELOPE_DIR", tmp_path)
+    out_dir = tmp_path / "deck"
+    firings = asyncio.run(run_generate(
+        _spec(out_dir), llm_client=FlakyP03Mock(), persist=False))
+    by_node = {f.node: f.output for f in firings}
+
+    # 首轮终检合成缺页 blocking（带 page 键，repair 分组依据）
+    first_verdict = next(f.output for f in firings if f.node == "FinalVerdict")
+    assert first_verdict["ok"] is False
+    assert any(i.get("page") == "p03" and "缺失" in i.get("message", "")
+               for i in first_verdict["issues"]), first_verdict["issues"]
+    # 修复环补生成 p03（恰好一轮），复检干净 → 4 页 pptx 在盘
+    repair = by_node.get("Repair")
+    assert repair and repair.get("repaired") == ["p03"], repair
+    assert by_node["FinalVerdict"]["ok"] is True
+    assert by_node["Report"].get("status") == "ok", by_node["Report"]
+    pptx = list((out_dir / "exports").glob("*.pptx"))
+    assert pptx, "exports/ 应有 pptx"
+    from pptx import Presentation
+    assert len(Presentation(str(pptx[0])).slides) == 4
+
+
 def test_cli_mock_smoke(tmp_path, monkeypatch, capsys):
     """CLI 冒烟：真 entry 发现 + 命令面 + --mock 通道全链跑通。
 

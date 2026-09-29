@@ -57,6 +57,20 @@ def _blocking_issues(root: str | Path, stage: str) -> list[dict] | None:
     return data.get("categories", {}).get("blocking", {}).get("issues", []) or []
 
 
+def _missing_roster_pages() -> list[str]:
+    """页册完整性差集：roster 声称的页 − svg_output 在盘页（升序）。
+
+    vendor checker 只质检在盘文件、不知道页册的存在——缺页 deck 照样全绿。
+    终检（final verdict/guard）据此把缺页合成 blocking issue（带 page 键，
+    repair 按页补生成），缺页 deck 不得静默导出。早检不查：批2 页在早门时
+    合法未生成（translator 分批判：P01..P05 先行，其余早门了结后展开）。
+    """
+    env = workspace.read_envelope()
+    root = Path(env["output_dir"])
+    return sorted(p["id"] for p in env["roster"]
+                  if not (root / "svg_output" / f"page_{p['id']}.svg").exists())
+
+
 def ingest(view) -> dict[str, Any]:
     """files → sources/ 拷贝 + 摘要（topic-only 由 Research 节点供摘要）。"""
     env = workspace.read_envelope()
@@ -146,6 +160,8 @@ def make_gate_verdict(stage: str):
     ok = checker exit 0 **且** 无 blocking issues——rc≠0 时报告再干净也不
     是 ok（checker 在落盘前可 sys.exit，收据必须如实记 rc）。issues 归一化
     出 page 键（repair 按页分组）；全局性条目无 page，由 repair 收进 skipped。
+    final 阶段另补页册完整性差集（checker 不知页册存在）：缺页合成带 page
+    键的 blocking，checker 全绿的缺页 deck 不得静默导出。
     """
 
     def verdict(view) -> dict[str, Any]:
@@ -153,6 +169,10 @@ def make_gate_verdict(stage: str):
         gate = view.field("gate") or {}
         raw = _blocking_issues(env["output_dir"], stage)
         issues = [_normalize_issue(i) for i in (raw or []) if isinstance(i, dict)]
+        if stage == "final":
+            issues += [{"page": pid, "scope": "roster",
+                        "message": "页 SVG 缺失（页册完整性）"}
+                       for pid in _missing_roster_pages()]
         returncode = gate.get("returncode")
         return {"stage": stage, "returncode": returncode,
                 "ok": returncode == 0 and not issues, "issues": issues}
@@ -165,6 +185,9 @@ def make_guard(stage: str, want_clean: bool):
 
     放行条件 = checker exit 0 且报告在盘且无 blocking——无证据 ≠ 干净
     （checker 有落盘前的 sys.exit 路径，崩溃的门不得静默放行未验证的稿）。
+    final 阶段同源补查页册完整性：缺页即 blocking，不放行干净边、路由
+    errors 边进修复环（repair 按页补生成；轮上限在 repair_node 内计数，
+    超限 infrastructure Failure 停图——不会静默循环）。
     循环安全：crash 路由进 Repair 消耗修复轮，轮上限触发 infrastructure
     Failure 停图 → 崩溃必然 loud abort，不会静默循环。
     """
@@ -174,6 +197,8 @@ def make_guard(stage: str, want_clean: bool):
         # 无证据 ≠ 干净：checker 崩溃（rc≠0 / 报告未落盘）不得放行
         issues = _blocking_issues(env["output_dir"], stage)
         has_issues = True if (rc != 0 or issues is None) else bool(issues)
+        if stage == "final" and not has_issues and _missing_roster_pages():
+            has_issues = True   # 缺页 = blocking：checker 全绿也不放行
         return (not has_issues) if want_clean else has_issues
     return guard
 

@@ -107,6 +107,46 @@ def test_page_node_receipt_ok_and_failed(env):
     assert out2["status"] == "failed" and "network down" in out2["error"]
 
 
+class ImageGenClient:
+    """generate_image 假客户端（图像模式只走 generate_image，不走 complete）。"""
+
+    def __init__(self):
+        self.calls = []
+
+    async def generate_image(self, **kw):
+        from llm.client import ImageResult
+
+        self.calls.append(kw)
+        return ImageResult(data=b"PNGBYTES", usage={"total_tokens": 7})
+
+
+def test_image_node_writes_ai_row_to_planned_file(env):
+    """AI 行生成后必须落到 plan 行声明的规范路径：页 SVG 按 lock 引用
+    images/<file>，harness 落盘却是 __call__-<ns>.png 随机名——无人回接则
+    图永远进不了 deck。user 行原样透传（文件由置入保证）。"""
+    from example.ppt_master.llm_nodes import make_image_node
+
+    client = ImageGenClient()
+    node = make_image_node(client)
+    view = _View("ImageAcquire", {"plan": {"image_rows": [
+        {"page": "p01", "name": "hero", "file": "images/cover_hero.png",
+         "acquire": "ai", "prompt": "granule hero", "status": "pending"},
+        {"page": "p04", "name": "fig1", "file": "images/fig1.png",
+         "acquire": "user", "status": "ready"},
+    ]}})
+    out = _run(node(view))
+    rows = out["rows"]
+    # ai 行：terminal + 规范路径在盘，随机名临时文件不残留
+    assert rows[0]["status"] == "terminal"
+    assert rows[0]["file"] == str(env / "images" / "cover_hero.png")
+    assert (env / "images" / "cover_hero.png").read_bytes() == b"PNGBYTES"
+    assert not list((env / "images").glob("__call__-*"))
+    # 生图 prompt 原样进调用；user 行透传
+    assert client.calls and client.calls[0]["prompt"] == "granule hero"
+    assert rows[1] == {"page": "p04", "name": "fig1", "file": "images/fig1.png",
+                       "acquire": "user", "status": "ready"}
+
+
 def test_repair_node_round_limit(env):
     repair = make_repair_node(OkClient("<svg/>"), max_rounds=2)
     verdict = {"ok": False, "issues": [{"page": "p01", "message": "溢出"}]}

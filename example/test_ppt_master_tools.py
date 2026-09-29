@@ -101,6 +101,7 @@ def test_gate_verdict_parses_blocking(tmp_path, monkeypatch):
     """真实报告形状：issue 无 page 键（file="page_p01.svg"）→ 归一化出 page。"""
     from example.ppt_master.tools_nodes import make_gate_verdict
     root = _env(tmp_path, monkeypatch)
+    (root / "svg_output" / "page_p01.svg").write_text("<svg/>", encoding="utf-8")
     report = {"categories": {"blocking": {"count": 2, "issues": [
         {"file": "page_p01.svg", "message": "文本溢出"},
         {"file": "Page_P02.SVG", "message": "字型漂移"},
@@ -120,6 +121,8 @@ def test_gate_verdict_requires_exit_zero(tmp_path, monkeypatch):
     """verdict ok = checker exit 0 且无 blocking——rc≠0 时报告干净也不是 ok。"""
     from example.ppt_master.tools_nodes import make_gate_verdict
     root = _env(tmp_path, monkeypatch)
+    # 页在盘（页册完整）：本测试只钉 rc/报告语义，完整性归专门用例
+    (root / "svg_output" / "page_p01.svg").write_text("<svg/>", encoding="utf-8")
     verdict = make_gate_verdict("final")
     # 报告缺失 + rc≠0（checker 落盘前崩溃）→ ok False，收据记 rc
     out = verdict(_View("FinalVerdict", {"gate": {"returncode": 7}}))
@@ -146,6 +149,8 @@ def test_guard_requires_exit_zero_and_report(tmp_path, monkeypatch):
     """
     from example.ppt_master.tools_nodes import make_guard
     root = _env(tmp_path, monkeypatch)
+    # 页在盘（页册完整）：本测试只钉 rc/报告语义，完整性归专门用例
+    (root / "svg_output" / "page_p01.svg").write_text("<svg/>", encoding="utf-8")
     # (a) 报告缺失 + rc≠0 → want_clean 不放行
     assert make_guard("final", True)(_View("Guard", {"gate": {"returncode": 1}})) is False
     # rc=0 但报告未落盘 → 同样不放行（checker 声称成功却无证据）
@@ -162,6 +167,58 @@ def test_guard_requires_exit_zero_and_report(tmp_path, monkeypatch):
         json.dumps({"categories": {"blocking": {"count": 0, "issues": []}}}),
         encoding="utf-8")
     assert make_guard("final", True)(_View("Guard", {"gate": {"returncode": 0}})) is True
+
+
+def test_final_verdict_synthesizes_roster_issues_for_missing_pages(tmp_path, monkeypatch):
+    """页册完整性（roadmap 缺口 2）：vendor checker 只质检在盘文件、不知
+    页册存在——终检裁决必须补差集：缺页合成带 page 键的 blocking（repair
+    据此按页补生成），checker 报告再干净也不 ok。"""
+    from example.ppt_master.tools_nodes import make_gate_verdict
+    root = _env(tmp_path, monkeypatch, roster=[
+        {"id": "p01", "title": "封面"},
+        {"id": "p02", "title": "方法"},
+    ])
+    (root / "svg_output" / "page_p01.svg").write_text("<svg/>", encoding="utf-8")
+    workspace.gate_report_path(root, "final").write_text(
+        json.dumps({"categories": {"blocking": {"count": 0, "issues": []}}}),
+        encoding="utf-8")
+    out = make_gate_verdict("final")(
+        _View("FinalVerdict", {"gate": {"returncode": 0}}))
+    assert out["ok"] is False
+    assert out["issues"] == [{"page": "p02", "scope": "roster",
+                              "message": "页 SVG 缺失（页册完整性）"}]
+
+
+def test_final_guard_blocks_clean_route_when_page_missing(tmp_path, monkeypatch):
+    """守卫同源补查：checker rc 0 + 报告干净，缺页仍不放行干净边、并路由
+    errors 边进修复环——checker 全绿的缺页 deck 不得静默导出。"""
+    from example.ppt_master.tools_nodes import make_guard
+    root = _env(tmp_path, monkeypatch, roster=[
+        {"id": "p01", "title": "封面"},
+        {"id": "p02", "title": "方法"},
+    ])
+    (root / "svg_output" / "page_p01.svg").write_text("<svg/>", encoding="utf-8")
+    workspace.gate_report_path(root, "final").write_text(
+        json.dumps({"categories": {"blocking": {"count": 0, "issues": []}}}),
+        encoding="utf-8")
+    assert make_guard("final", True)(_View("Guard", {"gate": {"returncode": 0}})) is False
+    assert make_guard("final", False)(_View("Guard", {"gate": {"returncode": 0}})) is True
+
+
+def test_early_verdict_ignores_roster_completeness(tmp_path, monkeypatch):
+    """早检不查页册完整性：批2 页在早门时合法未生成——全册差集只归终检。"""
+    from example.ppt_master.tools_nodes import make_gate_verdict
+    root = _env(tmp_path, monkeypatch, roster=[
+        {"id": "p01", "title": "封面"},
+        {"id": "p02", "title": "方法"},
+    ])
+    (root / "svg_output" / "page_p01.svg").write_text("<svg/>", encoding="utf-8")
+    workspace.gate_report_path(root, "early").write_text(
+        json.dumps({"categories": {"blocking": {"count": 0, "issues": []}}}),
+        encoding="utf-8")
+    out = make_gate_verdict("early")(
+        _View("EarlyVerdict", {"gate": {"returncode": 0}}))
+    assert out == {"stage": "early", "returncode": 0, "ok": True, "issues": []}
 
 
 def test_calibrate_receipt_carries_stderr(tmp_path, monkeypatch):

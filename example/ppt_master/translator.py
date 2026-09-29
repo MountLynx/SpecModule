@@ -1,8 +1,11 @@
 """generate 模板翻译器：spec → 信封 + 完整 tasklist（动态展开）。
 
 页册先行：roster 静态展开为 N 个页节点（P01..P{nn}，运行时按 P01→p01
-反查 roster id）；批1 = min(5, N) 过 EarlyGate（N ≤ 6 无早门，批2 页从
-EarlyDispatch 扇出）；条件段按 spec 声明生成/省略。命令任务按框架约定
+反查 roster id）；批1 = min(5, N) 过 EarlyGate（N ≤ 6 无早门）；早门两
+分支（干净/修复）都汇入 EarlyDispatch 后批2 扇出——EarlyRepair 若直连
+FinalGate，issues 分支下 EarlyDispatch 永不点火，批2 页永不生成（缺半册
+deck 静默导出，roadmap 遗留缺口已钉死回归）；条件段按 spec 声明生成/省略。
+命令任务按框架约定
 引**注册名**（字面串归注册方 module.py 的 CommandConfig：
 run_tool.py --envelope <workspace._envelope_path()> --tool <tool> [-- args]；
 同进程注册 → 同 pid → 信封路径一致）。命令名 → vendor 工具 + 参数 +
@@ -19,9 +22,10 @@ TasklistValidator / 构图时点名 fail-fast）::
 守卫环：FinalVerdict --|final_errors|--> Repair --> FinalGate（环上含
 守卫边，满足 tickflow 环约束）。
 
-FinalGate 必须声明 OR-join（flow 中 ``FinalGate.join: OR`` 行）：Repair
-是门的**条件** producer，AND-join 要求全部 producer 槽位齐整——干净路径
-Repair 永不产槽位，门一次都点不了火（n > 6 时还会被 tickflow checker 判
+FinalGate 与 EarlyDispatch 必须声明 OR-join（flow 中 ``*.join: OR`` 行）：
+二者的 producer 都是**条件**的——FinalGate 的 Repair 回边只在有错波出现，
+EarlyDispatch 的两入边是 XOR 分支（每跑恰一）——AND-join 要求全部 producer
+槽位齐整，条件槽位永不齐整即饿死（n > 6 时还会被 tickflow checker 判
 XOR-splitter 死锁，Runner 构造即抛 DeadlockError）。OR-join 的"波"语义
 （勿"修"回 AND——饿死；也非"每页到齐各发一次"）：同步 tick 屏障下同波
 producer 齐发共占一个 tick，扇出的页节点天然同波，故门**单次点火即见全
@@ -29,7 +33,8 @@ producer 齐发共占一个 tick，扇出的页节点天然同波，故门**单�
 test_or_join_gate_fires_once_with_full_deck（干净路径恰 1 次点火见全册，
 及去 OR 改回 AND 后 0 次点火饿死的对照）与
 test_or_join_repair_loop_fires_gate_once_per_wave（有错一轮：门 2 次、
-Repair 1 次、Report 1 次）以假 body 引擎仿真动态钉死。
+Repair 1 次、Report 1 次）以假 body 引擎仿真动态钉死；早门两分支汇流后
+批2 照常展开由 test_early_issues_branch_still_generates_batch2 钉死。
 """
 
 from __future__ import annotations
@@ -127,8 +132,9 @@ def build_generate_tasklist(
                                   "inputs": {"verdict": "EarlyVerdict"}}
         flow += ["EarlyGate --> EarlyVerdict",
                  "EarlyVerdict --|early_issues|--> EarlyRepair",
-                 "EarlyRepair --> FinalGate",
-                 "EarlyVerdict --|early_clean|--> EarlyDispatch"]
+                 "EarlyVerdict --|early_clean|--> EarlyDispatch",
+                 "EarlyRepair --> EarlyDispatch",
+                 "EarlyDispatch.join: OR"]
         batch2_src = "EarlyDispatch"
     else:
         batch2_src = None  # n ≤ 6：无批2

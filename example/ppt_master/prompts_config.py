@@ -59,6 +59,22 @@ _PLAN_CORE = (
     # 收据括号串为 schema 提示；PromptRenderer 仅替换 \w+ 键，逗号组原样透传
     "收据 JSON：{status, roster_ids, design_spec_md, spec_lock_md, "
     "image_rows, icon_pool, notes_enabled}\n"
+    # 模块机检契约：参考包教的是上游格式（#### Slide NN / ## colors），不含
+    # PlanValidate 的私有锚点——不写明则真实 LLM 必然违反（首跑实测停图）
+    "模块硬校验（PlanValidate 逐条机检，违反即 infrastructure 停图）："
+    "design_spec.md 必须为页册每页各含一节二级标题 `## <页id>`"
+    "（如 `## p04 总体性能`，与上游 Slide 编号节并存），节内含一行 "
+    "`Audience move: <观众从…转变到…>`；spec_lock.md 必须含 `## palette` "
+    "（色板）与 `## typography`（字体栈）两个锚点节；收据 roster_ids 与"
+    "页册逐字一致\n"
+    # 终门 checker 主题契约（导出 pptx 的 theme 必需）：缺失为 scope 级
+    # blocking，repair 只重写页 SVG 修不了锁文件 → 必须一次写对（实测：
+    # 不钉死则 colors 节随机缺失，修复轮耗尽后停图）
+    "spec_lock.md 主题契约（终门导出强制，缺即停图且不可修复）：必须有"
+    "`## palette` 节；必须有 `## colors` 节，行为 `- 角色: #RRGGBB`，"
+    "至少含 bg / secondary_bg / text / primary / accent / border 六个角色；"
+    "必须有 `## typography` 节，且含 `font_family` / `title_family` / "
+    "`body_family` 三行字体族（如 `Segoe UI, Microsoft YaHei`）\n"
     "占位符 —— 契约：{contract}；页册：{roster}；源摘要：{source_digest}"
 )
 
@@ -128,5 +144,8 @@ def research_config() -> HarnessConfig:
 def image_config(image_dir: str) -> HarnessConfig:
     return HarnessConfig(
         name="ppt_image", prompt_core="{image_prompt}", mode="image",
+        # model 缺省会路由到默认文本 provider（无 images API）——必须显式指到
+        # config.json 中唯一注册 image_gen 的模型；横版 3:2 贴近 16:9 版面
+        model="gpt-image-1-mini", image_size="1536x1024",
         image_dir=image_dir,
     )
