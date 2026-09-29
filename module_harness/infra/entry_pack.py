@@ -10,8 +10,8 @@ publish（CLI 单文件形态）与 Web convert 共用的唯一转化实现—�
 
 诚实边界（warnings 交调用方透传）：translation 通道不保留（packed 无此契约，
 按模板静态 tasklist 转化）；getsource 只取函数体文本，引用模块级常量/辅助函数
-的 body 物化后装载通过、运行期才炸；default_spec 样例值不保留（packed manifest
-无此契约键）。
+的 body 物化后装载通过、运行期才炸。entry 级 default_spec 非空时写入 manifest
+（packed 契约键）。
 """
 
 from __future__ import annotations
@@ -120,8 +120,6 @@ def entry_to_pack(
     if tpl.get("translation"):
         warnings.append(
             "模板翻译通道未保留——按模板静态 tasklist 转化（packed 无 translation 契约）")
-    if entry.default_spec:
-        warnings.append("entry 级 default_spec 样例值不保留（packed manifest 无此契约键）")
 
     from llm.mock import MockLLMClient
 
@@ -191,6 +189,8 @@ def entry_to_pack(
         "modules": sorted(entry.submodules),
         "tasklist": tasklist.to_dict(),
     }
+    if entry.default_spec:
+        manifest["default_spec"] = dict(entry.default_spec)
     (pack / "module.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     (pack / "harnesses").mkdir(parents=True, exist_ok=True)

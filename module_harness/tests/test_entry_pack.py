@@ -104,7 +104,8 @@ class TestEntryToPack:
         assert (pack / "guards" / "is_ok.py").is_file()
         assert (pack / "submodules" / "echo_sub" / "module.json").is_file()
         assert manifest["modules"] == ["echo_sub"]
-        assert any("default_spec" in w for w in result.warnings)
+        assert manifest["default_spec"] == {"name": "world"}
+        assert not any("default_spec" in w for w in result.warnings)
         assert any("shout" in w for w in result.warnings)
         assert result.dropped_templates == []
 
