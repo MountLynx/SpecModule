@@ -84,6 +84,41 @@ build/test tooling. Tests use `pytest` + `unittest.mock` (`MagicMock`,
    ecosystem forms (MCP, Web) and embedders → it lives once in
    `module_harness/infra/query.py`; every consumer imports it, never reimplements.
 
+## Run & Debug Discipline — reuse the framework's capabilities
+
+SpecModule's core value is auditable, debuggable, controllable runs. When
+driving real (non-mock) module pipelines — debugging, tuning, or long
+generation chains — use what the framework already provides instead of
+bypassing it with ad-hoc tooling:
+
+1. **Run with persistence on.** Debugging/tuning runs use `persist=True`
+   (persistence backend + status/stream + `specmodule feed` query layer),
+   not the zero-persistence fast path. Diagnose failures from the audit
+   timeline and on-disk gate reports — never "rerun until it dies" as a
+   probing strategy, and never rebuild parallel audit dumps (ad-hoc firing
+   logs) for what events/records already capture. Cross-run comparisons
+   (did the issue set shrink after a contract change?) go through the
+   persisted audit, not reread-from-memory.
+2. **Let the repair ring do its job.** Page-level failures (issues carrying
+   a `page` key) are the designed self-healing path — read repair receipts
+   (`repaired/failed/skipped`) before changing anything. Scope-level
+   failures (design_spec §VIII / spec_lock / icon_pool — one-shot artifacts
+   the repair ring cannot rewrite) are unrepairable by design: fix the
+   spec/prompt contract, then rerun the affected prefix.
+3. **Cheap preflight before long chains.** When iterating on spec/prompt
+   contracts, probe the plan stage alone (one LLM call) and machine-check
+   its receipt against every vocabulary (machine anchors, resource word
+   lists, icon existence) before spending page-generation cost.
+4. **Know the state boundary.** RunState snapshots/persistence cover engine
+   state only; workspace artifacts (svg_output, spec_lock, gate reports)
+   live outside it — "rewinding the graph" is not "rewinding the deck".
+   Artifact-level versioning/resume belongs to ecosystem forms (rule 5);
+   the library states this boundary instead of faking it.
+
+Write-ups behind these rules: `docs/dev/ppt-master-spec-authoring.md`
+(spec workflow, word-list layering), `docs/dev/planner-resource-blindspot.md`
+(planner blindspot analysis, candidate fixes).
+
 ## Coding Conventions
 
 - Every file starts with `from __future__ import annotations`

@@ -5,6 +5,8 @@
 | 路径 | 内容 | 说明 |
 |------|------|------|
 | `progress/module-roadmap.md` | 开发路线图 | 实施状态与规划，随开发更新 |
+| `ppt-master-spec-authoring.md` | spec 制作经验 | ppt_master generate spec 的撰写原则/词表分层/工作流，后续制作 spec 的讨论参考 |
+| `planner-resource-blindspot.md` | 资源盲选问题分析 | planner 对 §VIII 词表/图标库存在性盲选的根因、代价与候选修复（待定稿设计） |
 | `superpowers/specs/` | 设计 spec（15 份） | 各功能的设计依据；修改敏感代码前按 AGENTS.md 要求阅读对应设计 |
 | `superpowers/plans/` | 实施计划（12 份） | 历史实施计划，落地后仅作追溯，不再执行 |
 

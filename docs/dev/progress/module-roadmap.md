@@ -212,10 +212,16 @@ harness 图像模式，2026-09-15）
   spec 即确认（页册先行，非交互）；设计见
   `docs/dev/superpowers/specs/2026-09-15-ppt-master-module-design.md`。
   待办：store 发布闭环（publish→install→run，Mock 全链零 LLM 路径作首个
-  验收 fixture）；真实 LLM 端到端调优（prompt 素材质量）。遗留缺口简记：
-  早门 issues 分支时批 2 页不生成（EarlyDispatch 只挂 early_clean）且
-  vendor checker 不查页册完整性——后续可在 checker 或 PlanValidate 侧补
-  页册完整性证据
+  验收 fixture）。真实 LLM 端到端调优首轮已完成（2026-09-15，真实论文
+  9 页册 + AI 封面图 + 5 张用户图置入，全链 Report ok；spec 制作经验
+  沉淀：`docs/dev/ppt-master-spec-authoring.md`）：原遗留缺口在真
+  实环境验证（早门 issues 分支批 2 照常展开；终门页册完整性安全网实测
+  兜住真缺页并修复环自愈）；调优修复：image_config 显式指生图模型、
+  AI 生成物回接 plan 行规范路径、plan prompt 钉模块机检锚点（## <页id>
+  页块 / palette / lock 主题契约 colors+typography）。遗留观察（候选修复，
+  问题分析单列：`docs/dev/planner-resource-blindspot.md`）：planner 对
+  §VIII Status/Type 词表与图标库存在性是盲选，现靠 spec 契约钉死兜底——
+  候选组合：词表内建 prompt + PlanValidate 左移校验 + icon_sync 软降级
 - [x] **嵌入式验证（已完成）**：最小 demo 项目 `pip install specmodule` 后 `import Module / HarnessRegistry`
   跑通一个 workflow——证明库面干净、可嵌入（`examples/embed_minimal/`；暴露并修复
   `register_builtin_harnesses` 未从包顶层导出的库面缺口）
