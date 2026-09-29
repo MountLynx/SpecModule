@@ -30,6 +30,7 @@ from ..infra.events import (
     LlmToken,
     LlmThinking,
 )
+from ..infra.artifacts import write_artifacts_manifest
 from ..infra.checkpoint import (
     ModuleInputStore,
     ResumeError,
@@ -398,6 +399,7 @@ class Module:
                 raise
             else:
                 self._finalize_phase(runner, max_ticks)
+                self._collect_artifacts()
             return firings
         finally:
             self._close_stream_log(writer)
@@ -486,6 +488,17 @@ class Module:
             )
         else:
             self._write_phase("done")
+
+    def _collect_artifacts(self) -> None:
+        """终态收集声明产物 → run 目录 artifacts.json（done/truncated 共用路径）。
+
+        cancelled/aborted 走不到这里（部分产物不保证，见 infra/artifacts.py）；
+        无声明的 run 不产生清单文件；纯内存模式（run 目录不存在）不落盘。
+        resume 经 _run_with_phases 共用路径自动收集。
+        """
+        decls = self._last_tasklist.artifacts if self._last_tasklist else []
+        if decls:
+            write_artifacts_manifest(self.module_id, decls, self._base_dir)
 
     async def resume(self, rollback_to: int | str | None = None, max_ticks: int = 100):
         """跨进程续跑：从 tick 号/手动检查点恢复 + 用当前 spec/tasklist 重建未执行部分。

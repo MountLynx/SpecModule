@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import json
 import os
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from module_harness.infra.artifacts import artifacts_path, collect_artifacts, write_artifacts_manifest
+from module_harness.model.module import Module
 from module_harness.model.spec import ArtifactDecl, TaskDefinition, Tasklist
 
 
@@ -213,3 +215,97 @@ class TestWriteManifest:
             "r1", [ArtifactDecl(name="deck", path="exports/*.pptx")])
         monkeypatch.setattr(_os, "replace", real_replace)  # 保险（monkeypatch 亦会还原）
         assert not (run_dir / "artifacts.json").exists()
+
+
+# ── Module 终态挂点（model/module.py）────────────────────────────────
+
+
+@pytest.fixture
+def mock_llm():
+    client = MagicMock()
+    client.complete = AsyncMock()
+    return client
+
+
+@pytest.fixture
+def registry(mock_llm):
+    from module_harness.core.registry import HarnessRegistry
+    from module_harness.infra.events import EventBus
+
+    reg = HarnessRegistry(llm_client=mock_llm, event_bus=EventBus.null())
+
+    @reg.script("A")
+    def a(view):
+        return {"text": "hello"}
+
+    @reg.script("B")
+    def b(view):
+        return {"echo": view.field("value")}
+
+    return reg
+
+
+def _decl_tl(decl_path: str) -> Tasklist:
+    """两节点顺序图 + 一条产物声明（path 指向调用方 tmp_path）。"""
+    return Tasklist(
+        tasks={
+            "A": TaskDefinition(type="script", script="A"),
+            "B": TaskDefinition(type="script", script="B", inputs={"value": "A"}),
+        },
+        flow="[A] --> B",
+        artifacts=[ArtifactDecl(name="deck", path=decl_path,
+                                kind="deliverable", pick="latest")],
+    )
+
+
+class TestModuleTerminalCollection:
+    @pytest.mark.asyncio
+    async def test_done_writes_manifest(self, mock_llm, registry, tmp_path):
+        (tmp_path / "exports").mkdir()
+        (tmp_path / "exports" / "deck_1.pptx").write_bytes(b"old")
+        (tmp_path / "exports" / "deck_2.pptx").write_bytes(b"new")
+        os.utime(tmp_path / "exports" / "deck_1.pptx", (1000000000, 1000000000))
+        mod = Module(
+            spec={}, tasklist=_decl_tl(str(tmp_path / "exports" / "*.pptx")),
+            llm_client=mock_llm, registry=registry, review_harness=None,
+            base_dir=tmp_path, module_id="art_done",
+        )
+        await mod.run(max_ticks=10)
+        # Task 4 将提供 query.read_artifacts——此处直接读清单文件断言等价形状
+        raw = json.loads(
+            (tmp_path / ".specmodule" / "runs" / "art_done" / "artifacts.json")
+            .read_text(encoding="utf-8"))
+        assert len(raw["artifacts"]) == 1
+        assert raw["artifacts"][0]["path"] == str(tmp_path / "exports" / "deck_2.pptx")
+
+    @pytest.mark.asyncio
+    async def test_aborted_writes_no_manifest(
+        self, mock_llm, registry, tmp_path, monkeypatch,
+    ):
+        (tmp_path / "exports").mkdir()
+        (tmp_path / "exports" / "deck.pptx").write_bytes(b"PK")
+        from tickflow.async_runner import AsyncRunner
+
+        async def boom(self, *, max_ticks):
+            raise RuntimeError("引擎炸了")
+
+        monkeypatch.setattr(AsyncRunner, "run_until_idle", boom)
+        mod = Module(
+            spec={}, tasklist=_decl_tl(str(tmp_path / "exports" / "*.pptx")),
+            llm_client=mock_llm, registry=registry, review_harness=None,
+            base_dir=tmp_path, module_id="art_abort",
+        )
+        with pytest.raises(RuntimeError):
+            await mod.run(max_ticks=10)
+        assert not artifacts_path("art_abort", base_dir=tmp_path).exists()
+
+    @pytest.mark.asyncio
+    async def test_no_decls_no_manifest(self, mock_llm, registry, tmp_path):
+        tl = Tasklist(
+            tasks={"A": TaskDefinition(type="script", script="A")}, flow="[A]")
+        mod = Module(
+            spec={}, tasklist=tl, llm_client=mock_llm, registry=registry,
+            review_harness=None, base_dir=tmp_path, module_id="art_nodecl",
+        )
+        await mod.run(max_ticks=5)
+        assert not artifacts_path("art_nodecl", base_dir=tmp_path).exists()
