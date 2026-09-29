@@ -347,7 +347,7 @@ class TestResolveModuleFull:
             res.spec_for("ghost")
 
     def test_packed_spec_for_passthrough(self, fake_home, tmp_path):
-        """packed 无 per-template 概念：透传模块级 schema，default_spec 恒 None。"""
+        """packed 无 per-template 概念：透传模块级 schema，default_spec 无键 → None。"""
         packs = tmp_path / "packs"
         _PackedMod.make().pack(packs / "packed_mod")
         res = store.resolve_module_full("packed_mod", search=[packs])
@@ -424,3 +424,21 @@ class TestDetailToDict:
             "spec_schema": {"name": "str"},
             "submodules": [],
         }
+
+
+class TestPackedDefaultSpec:
+    """packed default_spec 契约：manifest 键 → ResolvedModule/detail 透出。"""
+
+    def test_packed_default_spec_passthrough(self, fake_home, tmp_path):
+        packs = tmp_path / "packs"
+        out = _PackedMod.make().pack(packs / "packed_mod")
+        mp = out / "module.json"
+        manifest = json.loads(mp.read_text(encoding="utf-8"))
+        manifest["default_spec"] = {"name": "world"}
+        mp.write_text(json.dumps(manifest), encoding="utf-8")
+        res = store.resolve_module_full("packed_mod", search=[packs])
+        assert res is not None
+        assert res.default_spec == {"name": "world"}
+        assert res.spec_for(None) == ({"name": "str"}, {"name": "world"})
+        assert res.spec_for("anything") == ({"name": "str"}, {"name": "world"})
+        assert store.detail_to_dict(res)["default_spec"] == {"name": "world"}

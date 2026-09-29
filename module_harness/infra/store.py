@@ -280,7 +280,7 @@ class ResolvedModule:
     @property
     def default_spec(self) -> dict[str, Any] | None:
         if self.submodule is not None:
-            return None
+            return self.submodule.default_spec
         return self.entry.default_spec if self.entry is not None else None
 
     @property
@@ -309,11 +309,11 @@ class ResolvedModule:
 
         entry 形态委托 :meth:`ModuleEntry.spec_for`（回落逻辑唯一驻点，
         此处零复制）；packed/pip 无 per-template 概念，透传模块级
-        schema（default_spec 恒 None）。
+        schema 与 default_spec（manifest 可选键，无键 → None）。
         """
         if self.entry is not None:
             return self.entry.spec_for(template_name)
-        return self.spec_schema, None
+        return self.spec_schema, self.default_spec
 
 
 def resolve_module_full(
