@@ -423,10 +423,26 @@ class TestReadArtifacts:
         self._seed(tmp_path, manifest={"run_id": "r1", "artifacts": [
             {"name": "a", "kind": "deliverable", "path": "C:/x.pptx",
              "size": 1, "modified": "2026-09-29T10:00:00"},
+            {"name": "b", "kind": "intermediate", "path": "C:/y.md",
+             "size": 2, "modified": "2026-09-29T10:01:00"},
+            {"name": "c", "kind": "deliverable", "path": "C:/z.pdf",
+             "size": 3, "modified": "2026-09-29T10:02:00"},
         ]})
         data = read_artifacts("r1", base_dir=tmp_path)
+        assert [e["index"] for e in data["artifacts"]] == [0, 1, 2]
+        assert [e["name"] for e in data["artifacts"]] == ["a", "b", "c"]
+
+    def test_non_dict_entries_skipped(self, tmp_path):
+        """脏条目（非 dict）跳过留痕不抛——查询层永不抛契约。"""
+        self._seed(tmp_path, manifest={"run_id": "r1", "artifacts": [
+            "junk",
+            {"name": "ok", "kind": "deliverable", "path": "x",
+             "size": 1, "modified": "t"},
+        ]})
+        data = read_artifacts("r1", base_dir=tmp_path)
+        assert len(data["artifacts"]) == 1
+        assert data["artifacts"][0]["name"] == "ok"
         assert data["artifacts"][0]["index"] == 0
-        assert data["artifacts"][0]["name"] == "a"
 
 
 # ── CLI（specmodule artifacts）───────────────────────────────────────

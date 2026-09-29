@@ -390,8 +390,9 @@ def read_artifacts(
 
     消费场景：Web 产物列表/下载端点、CLI ``artifacts``。run 目录不存在 →
     None（同 read_module_inputs 容错）；清单缺失/损坏 → 空列表（收集过
-    但零产出与从未收集对消费端都是"无产物可下载"，不再区分）。条目附
-    ``index``（数组序）——下载通道按 index 引用，路径永不为客户端输入。
+    但零产出与从未收集对消费端都是"无产物可下载"，不再区分）；条目非
+    dict 的脏行跳过（log 留痕）。条目附 ``index``（数组序）——下载通道
+    按 index 引用，路径永不为客户端输入。
     """
     path = artifacts_path(run_id, base_dir)
     if not path.parent.exists():
@@ -401,7 +402,13 @@ def read_artifacts(
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(raw, dict) and isinstance(raw.get("artifacts"), list):
-                entries = raw["artifacts"]
+                bad = [e for e in raw["artifacts"] if not isinstance(e, dict)]
+                if bad:
+                    log.warning(
+                        "artifacts.json 含 %d 个非 dict 条目，已跳过: %s",
+                        len(bad), path,
+                    )
+                entries = [e for e in raw["artifacts"] if isinstance(e, dict)]
         except (OSError, ValueError):
             log.exception("读取 artifacts.json 失败（返回空清单）: %s", path)
     return {
