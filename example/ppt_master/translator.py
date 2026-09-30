@@ -208,4 +208,15 @@ def tl_generate(view: Any) -> dict[str, Any]:
         "sources": spec["source"].get("paths") or [],
         "spec": spec,
     })
-    return {"Tasks": tasks, "Flow": flow}
+    return {
+        "Tasks": tasks,
+        "Flow": flow,
+        # 产物声明：最终交付物 = exports/ 下最新导出的 pptx（命名带时间戳，
+        # 同项目多次运行积累——pick=latest 取 mtime 最新；output.dir 已回填）
+        "Artifacts": [{
+            "name": f"{spec['project']} 演示文稿",
+            "kind": "deliverable",
+            "pick": "latest",
+            "path": f"{spec['output']['dir']}/exports/*.pptx",
+        }],
+    }

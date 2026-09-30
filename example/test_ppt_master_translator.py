@@ -286,6 +286,12 @@ def test_tl_generate_writes_envelope_and_returns_tasks(tmp_path, monkeypatch):
     envelope = workspace.read_envelope()
     assert envelope["roster"][0]["id"] == "p01"
     assert (tmp_path / "projects" / "t").is_dir()
+    assert out["Artifacts"] == [{
+        "name": "t 演示文稿",
+        "kind": "deliverable",
+        "pick": "latest",
+        "path": "projects/t/exports/*.pptx",
+    }]
 
 
 def test_tl_generate_failfast_leaves_no_workspace(tmp_path, monkeypatch):
