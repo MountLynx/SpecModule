@@ -15,7 +15,13 @@ from tickflow.views import NodeView, Resolved
 
 from ..core.config import HarnessConfig
 from ..core.harness import Harness
-from .spec import Spec, Tasklist, TasklistTemplate, TaskDefinition
+from .spec import (
+    ArtifactDecl,
+    Spec,
+    Tasklist,
+    TasklistTemplate,
+    TaskDefinition,
+)
 from ..core.registry import HarnessRegistry
 
 # Regex to find the first node name in a flow line.
@@ -225,8 +231,13 @@ class Translator:
 
         # 检测 LLM 返回的包装格式 {"Tasks": {...}, "Flow": "..."}
         flow = template.tasklist.flow
+        artifacts: list[ArtifactDecl] = []
         if isinstance(tasks_dict, dict) and "Tasks" in tasks_dict:
             flow = tasks_dict.get("Flow", flow)
+            # 产物声明随包装格式透传（翻译脚本插值后的具体 glob 串）
+            raw_artifacts = tasks_dict.get("Artifacts", [])
+            if raw_artifacts:
+                artifacts = [ArtifactDecl.from_dict(a) for a in raw_artifacts]
             tasks_dict = tasks_dict["Tasks"]
 
         # 兼容 LLM 将 Tasks 输出为数组：转为 {A: ..., B: ...} 格式
@@ -250,7 +261,7 @@ class Translator:
         tasklist = Tasklist(tasks={
             key: TaskDefinition.from_dict(td) if isinstance(td, dict) else td
             for key, td in tasks_dict.items()
-        }, flow=flow)
+        }, flow=flow, artifacts=artifacts)
 
         errors = TasklistValidator.validate(tasklist, self.reg)
         if errors:

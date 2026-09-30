@@ -471,3 +471,45 @@ class TestCliArtifacts:
 
         assert main(["artifacts", "--run-id", "ghost"]) == 1
         assert "ghost" in capsys.readouterr().err
+
+
+# ── 模板翻译通道（Translator.translate）──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_translator_preserves_artifacts_declaration():
+    """模板翻译通道：脚本返回的 Artifacts 声明必须进 Tasklist。
+
+    回归：Translator 曾手工拼装 Tasklist(tasks=, flow=) 丢弃包装格式里的
+    "Artifacts" 键——tasklist 直传通道有 from_json 兜着，模板通道静默丢失
+    （ppt_master 首个真实消费方踩中）。"""
+    from module_harness.core.registry import HarnessRegistry
+    from module_harness.infra.events import EventBus
+    from module_harness.model.spec import Spec
+    from module_harness.model.translator import TemplateLoader, Translator
+
+    reg = HarnessRegistry(llm_client=MagicMock(), event_bus=EventBus.null())
+
+    @reg.script("A")
+    def a(view):
+        return {"ok": True}
+
+    @reg.script("tl_art")
+    def tl_art(view):
+        return {
+            "Tasks": {"A": {"type": "script", "script": "A"}},
+            "Flow": "[A]",
+            "Artifacts": [{"name": "deck", "path": "exports/*.pptx",
+                           "kind": "deliverable", "pick": "latest"}],
+        }
+
+    loader = TemplateLoader()
+    loader.register("t_art", {
+        "name": "t_art", "description": "产物声明翻译回归",
+        "translation": {"type": "script", "script": "tl_art"},
+        "tasklist": {"Tasks": {}, "Flow": ""},
+    })
+    tl = await Translator(reg).translate(Spec({}), loader.get("t_art"))
+    assert [a.name for a in tl.artifacts] == ["deck"]
+    assert tl.artifacts[0].kind == "deliverable"
+    assert tl.artifacts[0].pick == "latest"
