@@ -17,6 +17,7 @@ from module_harness.infra.query import (
     filter_node,
     filter_tick,
     load_snapshot_summary,
+    node_run_summary,
     run_db_path,
     timeline_to_dict,
 )
@@ -115,6 +116,19 @@ class TestTimelineToDict:
         assert d["latest_tick"] == 2
         assert d["entries"][0] == {
             "tick": 1, "node": "A", "status": "ok", "output": "a1", "error": None,
+        }
+
+
+class TestNodeRunSummary:
+    def test_no_db_returns_none(self, tmp_path):
+        assert node_run_summary("mod_x", base_dir=tmp_path) is None
+
+    def test_cumulative_per_node(self, tmp_path):
+        _seed(tmp_path)
+        summary = node_run_summary("mod_x", base_dir=tmp_path)
+        assert summary == {
+            "A": {"fired_count": 2, "last_status": "ok", "last_tick": 2},
+            "B": {"fired_count": 1, "last_status": "failed", "last_tick": 1},
         }
 
 

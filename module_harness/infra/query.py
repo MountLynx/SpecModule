@@ -768,6 +768,31 @@ def timeline_to_dict(timeline: ReviewTimeline) -> dict[str, Any]:
     }
 
 
+def node_run_summary(module_id: str, base_dir: Path | None = None) -> dict[str, dict[str, Any]] | None:
+    """按节点累计运行摘要：``{node: {fired_count, last_status, last_tick}}``。
+
+    firings 表全量累计（去重语义与 build_timeline 一致，append 序即 tick 序，
+    末条即最新状态）；未执行节点不在表内，消费方按全节点集叠加 0/None。
+    监控面共用组合（Web 图叠加 + WS status 推送）：推送携带累计结构，客户端
+    纯覆盖即可，无需逐 tick 增量记账（轮询跳拍/断线重连不丢状态）。
+    db 缺失 / 读失败 → None（查询容错）。
+    """
+    tl = build_timeline(module_id, base_dir=base_dir)
+    if tl is None:
+        return None
+    by_node: dict[str, list[ReviewEntry]] = {}
+    for e in tl.entries:
+        by_node.setdefault(e.node, []).append(e)
+    return {
+        node: {
+            "fired_count": len(entries),
+            "last_status": entries[-1].status,
+            "last_tick": entries[-1].tick,
+        }
+        for node, entries in by_node.items()
+    }
+
+
 @dataclass
 class QueryValueResult:
     """细粒度查询结果：tick + 命中值 / 未命中时的可用键（MCP peek 用）。"""
