@@ -780,7 +780,7 @@ git commit -m "feat(orchestrate): validate_retries 传播链补全——task 级
 (a) "### TaskDefinition 字段" 表格 `image_dir` 行之后加一行：
 
 ```markdown
-| `validate_retries` | `int \| None` | 输出校验失败带反馈重试次数覆盖；`None`（缺省）= 沿用注册 config。显式值须 ≥ 0（TasklistValidator 校验）；`mode="image"` 的 harness 须为 0（合成 config 构建期 `ValueError`） |
+| `validate_retries` | `int \| None` | 输出校验失败带反馈重试次数覆盖；`None`（缺省；显式 null 等同缺省）= 沿用注册 config。显式值须 ≥ 0（TasklistValidator 校验）；`mode="image"` 的 harness 须为 0（合成 config 构建期 `ValueError`） |
 ```
 
 (b) "## harness 语法（HarnessConfig）" 代码示例 `api_params` 行之后加：
