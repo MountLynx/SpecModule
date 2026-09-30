@@ -154,7 +154,8 @@ git commit -m "feat(core): HarnessConfig.validate_retries 字段——缺省 0 �
 **Files:**
 - Modify: `module_harness/model/spec.py`（TaskDefinition + from_dict）
 - Modify: `module_harness/model/translator.py`（TasklistValidator._check_task）
-- Test: `module_harness/tests/test_spec.py`、`module_harness/tests/test_validator.py`
+- Modify: `module_harness/core/config.py`（`__post_init__` 加 isinstance 加固——Task 1 质量审查发现：dataclass 直接构造 / `from_dict` / `from_task_definition` 不经过 tasklist 校验器，bool/float/None 会漏进预算循环）
+- Test: `module_harness/tests/test_spec.py`、`module_harness/tests/test_validator.py`、`module_harness/tests/test_config.py`
 
 - [ ] **Step 1: 写失败测试** — `module_harness/tests/test_spec.py` 的 `TestTaskDefinition` 类末尾（`test_from_dict_script` 之后）加：
 
@@ -205,6 +206,22 @@ git commit -m "feat(core): HarnessConfig.validate_retries 字段——缺省 0 �
         assert TasklistValidator.validate(tl, reg) == []
 ```
 
+`module_harness/tests/test_config.py` 的 `TestValidateRetriesConfig` 类末尾加（dataclass 层 isinstance 加固——堵住不经过 tasklist 校验器的编程 API 边界；显式 null 同样报错，框架不猜）：
+
+```python
+    def test_bool_rejected(self):
+        with pytest.raises(ValueError, match="validate_retries"):
+            HarnessConfig(prompt_core="x", validate_retries=True)
+
+    def test_float_rejected(self):
+        with pytest.raises(ValueError, match="validate_retries"):
+            HarnessConfig(prompt_core="x", validate_retries=1.5)
+
+    def test_explicit_none_rejected(self):
+        with pytest.raises(ValueError, match="validate_retries"):
+            HarnessConfig(prompt_core="x", validate_retries=None)
+```
+
 - [ ] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest module_harness/tests/test_spec.py::TestTaskDefinition -q module_harness/tests/test_validator.py::TestTasklistValidator -q`
@@ -241,16 +258,25 @@ Expected: FAIL — test_spec 两条 `TypeError: __init__() got an unexpected key
                 )
 ```
 
+(c) `module_harness/core/config.py`：`__post_init__` 的负数检查**之前**加 isinstance 加固（先类型后数值——None/str/float 不得落到 `< 0` 比较里炸出 opaque TypeError；bool 显式排除，`True == 1` 不得伪装成预算 1；float 会把 `budget -= 1` 循环拖出 1.5→0.5→-0.5 的三次尝试）：
+
+```python
+        if isinstance(self.validate_retries, bool) or not isinstance(self.validate_retries, int):
+            raise ValueError(
+                f"validate_retries 须为 int，得到 {type(self.validate_retries).__name__}"
+            )
+```
+
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `python -m pytest module_harness/tests/test_spec.py module_harness/tests/test_validator.py -q`
+Run: `python -m pytest module_harness/tests/test_spec.py module_harness/tests/test_validator.py module_harness/tests/test_config.py -q`
 Expected: PASS（全部）
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add module_harness/model/spec.py module_harness/model/translator.py module_harness/tests/test_spec.py module_harness/tests/test_validator.py
-git commit -m "feat(model): TaskDefinition.validate_retries 可选覆盖字段 + TasklistValidator 校验 int>=0（bool 不算 int）"
+git add module_harness/model/spec.py module_harness/model/translator.py module_harness/core/config.py module_harness/tests/test_spec.py module_harness/tests/test_validator.py module_harness/tests/test_config.py
+git commit -m "feat(model): TaskDefinition.validate_retries 可选覆盖字段——TasklistValidator 与 dataclass 双层校验 int>=0（bool 不算 int）"
 ```
 
 ---
@@ -652,7 +678,8 @@ git commit -m "docs(call): HarnessCallResult 重试语义写明——usage 累�
 
 **Files:**
 - Modify: `module_harness/orchestrate/graph_builder.py:188-214`（`_register_harness` 的 HarnessConfig 构造）
-- Test: `module_harness/tests/test_graph_builder.py`
+- Modify: `module_harness/model/submodule.py:141-155`（`_apply_harness_overrides` 拷贝构造——Task 1 质量审查发现：该链携带 mode/image_size/image_dir 却漏 validate_retries，SubModule `run(harness_overrides=...)` 重建 config 时预算静默归零，与 graph_builder 要修的"漏掉即静默回默认"同类）
+- Test: `module_harness/tests/test_graph_builder.py`、`module_harness/tests/test_submodule.py`
 
 - [ ] **Step 1: 写失败测试** — `module_harness/tests/test_graph_builder.py` 末尾追加（`TestImageModePropagation` 之后）：
 
@@ -689,12 +716,25 @@ class TestValidateRetriesPropagation:
             TasklistTranslator(reg, module_id="m1").build(tl)
 ```
 
+`module_harness/tests/test_submodule.py` 的 `test_harness_overrides_keep_image_mode` 之后加（同款守护，同文件既有 import 即可）：
+
+```python
+    def test_harness_overrides_keep_validate_retries(self):
+        """LLM 覆盖重建 config 时不得丢校验重试预算——漏掉会静默归零。"""
+        hc = HarnessConfig(name="jt", prompt_core="P", validate_retries=3)
+        out = SubModule._apply_harness_overrides(hc, {"model": "m2"})
+        assert out.validate_retries == 3
+        assert out.model == "m2"
+```
+
 - [ ] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest module_harness/tests/test_graph_builder.py::TestValidateRetriesPropagation -q`
 Expected: FAIL — `test_task_overrides_budget` 得 1 ≠ 5（override 链还没带 validate_retries）；`test_inherited_budget_conflicts_with_image_mode_at_build` 不抛（合成 config 的 validate_retries 缺省 0，无冲突）
 
-- [ ] **Step 3: 实现** — `module_harness/orchestrate/graph_builder.py` 的 `_register_harness` 中 `cfg = HarnessConfig(...)` 构造里，`image_dir=(...)` 项之后加：
+- [ ] **Step 3: 实现** — 两文件改动：
+
+(a) `module_harness/orchestrate/graph_builder.py` 的 `_register_harness` 中 `cfg = HarnessConfig(...)` 构造里，`image_dir=(...)` 项之后加：
 
 ```python
             # 校验重试预算：task 级覆盖，缺省沿用注册 config——漏掉会让
@@ -706,16 +746,23 @@ Expected: FAIL — `test_task_overrides_budget` 得 1 ≠ 5（override 链还没
             ),
 ```
 
+(b) `module_harness/model/submodule.py` 的 `_apply_harness_overrides` 返回的 `HarnessConfig(...)` 构造里，`image_dir=hc.image_dir,` 之后加（与"调用形态三字段原样携带"同类语义——覆盖词汇表不含 validate_retries，只保证基配置预算不被重建丢掉）：
+
+```python
+            # 校验重试预算原样携带——漏掉会在覆盖时静默归零
+            validate_retries=hc.validate_retries,
+```
+
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `python -m pytest module_harness/tests/test_graph_builder.py -q`
+Run: `python -m pytest module_harness/tests/test_graph_builder.py module_harness/tests/test_submodule.py -q`
 Expected: PASS（全部）
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add module_harness/orchestrate/graph_builder.py module_harness/tests/test_graph_builder.py
-git commit -m "feat(orchestrate): task 级 validate_retries 覆盖进 _register_harness override 链——tasklist 文本按任务调预算"
+git add module_harness/orchestrate/graph_builder.py module_harness/model/submodule.py module_harness/tests/test_graph_builder.py module_harness/tests/test_submodule.py
+git commit -m "feat(orchestrate): validate_retries 传播链补全——task 级覆盖进 _register_harness，SubModule 覆盖重建不丢预算"
 ```
 
 ---
