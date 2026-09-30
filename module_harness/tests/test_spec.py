@@ -67,6 +67,16 @@ class TestTaskDefinition:
         assert t.script == "s"
         assert t.inputs == {"x": "y"}
 
+    def test_validate_retries_default_none(self):
+        td = TaskDefinition(type="harness", harness="translate")
+        assert td.validate_retries is None
+
+    def test_from_dict_reads_validate_retries(self):
+        td = TaskDefinition.from_dict(
+            {"type": "harness", "harness": "translate", "validate_retries": 2}
+        )
+        assert td.validate_retries == 2
+
 
 class TestTasklist:
     def test_from_json(self):
@@ -188,6 +198,7 @@ class TestTasklistToDict:
                             "temperature": None, "think": None,
                             "api_params": None, "mode": None,
                             "image_size": None, "image_dir": None,
+                            "validate_retries": None,
                             "inputs": {"x": "B"}}},
             "Flow": "[A] --> B",
         }

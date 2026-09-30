@@ -136,6 +136,17 @@ class TasklistValidator:
         else:
             errors.append(f"Task '{key}': 未知 type '{task.type}'")
 
+        if task.validate_retries is not None:
+            if isinstance(task.validate_retries, bool) or not isinstance(task.validate_retries, int):
+                errors.append(
+                    f"Task '{key}': validate_retries 应为 int，"
+                    f"得到 {type(task.validate_retries).__name__}"
+                )
+            elif task.validate_retries < 0:
+                errors.append(
+                    f"Task '{key}': validate_retries 须 >= 0，得到 {task.validate_retries}"
+                )
+
         return errors
 
     @staticmethod

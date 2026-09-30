@@ -197,3 +197,15 @@ class TestValidateRetriesConfig:
     def test_from_task_definition_absent_means_zero(self):
         cfg = HarnessConfig.from_task_definition({"prompt_core": "x"})
         assert cfg.validate_retries == 0
+
+    def test_bool_rejected(self):
+        with pytest.raises(ValueError, match="validate_retries"):
+            HarnessConfig(prompt_core="x", validate_retries=True)
+
+    def test_float_rejected(self):
+        with pytest.raises(ValueError, match="validate_retries"):
+            HarnessConfig(prompt_core="x", validate_retries=1.5)
+
+    def test_explicit_none_rejected(self):
+        with pytest.raises(ValueError, match="validate_retries"):
+            HarnessConfig(prompt_core="x", validate_retries=None)

@@ -115,6 +115,37 @@ class TestTasklistValidator:
             tl, _make_registry(), modules={"child": object()})
         assert errors == []
 
+    def test_validate_retries_negative_rejected(self):
+        tl = Tasklist(
+            tasks={"A": TaskDefinition(type="harness", harness="translate",
+                                       validate_retries=-1)},
+            flow="[A]",
+        )
+        reg = _make_registry(harnesses={"translate"})
+        errors = TasklistValidator.validate(tl, reg)
+        assert any("validate_retries" in e for e in errors)
+
+    def test_validate_retries_non_int_rejected(self):
+        """非 int（含 bool——框架 bool 与 int 严格区分）显式值报错。"""
+        for bad in ("2", True, 1.5):
+            tl = Tasklist(
+                tasks={"A": TaskDefinition(type="harness", harness="translate",
+                                           validate_retries=bad)},
+                flow="[A]",
+            )
+            reg = _make_registry(harnesses={"translate"})
+            errors = TasklistValidator.validate(tl, reg)
+            assert any("validate_retries" in e for e in errors), f"未拒绝 {bad!r}"
+
+    def test_validate_retries_valid_passes(self):
+        tl = Tasklist(
+            tasks={"A": TaskDefinition(type="harness", harness="translate",
+                                       validate_retries=2)},
+            flow="[A]",
+        )
+        reg = _make_registry(harnesses={"translate"})
+        assert TasklistValidator.validate(tl, reg) == []
+
 
 class TestGuardFlow:
     def _reg(self):

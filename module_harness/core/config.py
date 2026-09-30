@@ -75,6 +75,10 @@ class HarnessConfig:
             )
         if self.mode == "image" and self.image_dir is None:
             raise ValueError("mode='image' 不接受显式 null 的 image_dir")
+        if isinstance(self.validate_retries, bool) or not isinstance(self.validate_retries, int):
+            raise ValueError(
+                f"validate_retries 须为 int，得到 {type(self.validate_retries).__name__}"
+            )
         if self.validate_retries < 0:
             raise ValueError(f"validate_retries 须 >= 0，得到 {self.validate_retries!r}")
         if self.validate_retries > 0 and self.mode == "image":

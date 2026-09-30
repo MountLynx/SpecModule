@@ -65,6 +65,7 @@ class TaskDefinition:
     mode: str | None = None             # "image" = 图像生成节点
     image_size: str | None = None       # 图像尺寸覆盖
     image_dir: str | None = None        # 图像落盘目录覆盖
+    validate_retries: int | None = None  # 校验失败重试预算覆盖（None = 沿用注册 config）
     inputs: dict[str, str] | None = None
 
     @classmethod
@@ -89,6 +90,7 @@ class TaskDefinition:
             mode=d.get("mode"),
             image_size=d.get("image_size"),
             image_dir=d.get("image_dir"),
+            validate_retries=d.get("validate_retries"),
             inputs=d.get("inputs"),
         )
 
