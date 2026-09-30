@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -17,6 +18,17 @@ def test_init_workspace_creates_contract(tmp_path):
     assert (root / "validation" / "workflow.log").exists()
     # 幂等：重复调用不抛
     workspace.init_workspace(root)
+
+
+def test_init_workspace_resets_repair_budget(tmp_path):
+    """修复轮预算按 run 重置：计数器持久在项目工作区会跨 run 泄漏——
+    同一项目重跑第一次修复即越限（demo_deck 实测踩中）。resume 经预填
+    tasklist 跳过翻译不经此处，同一 run 续跑预算自然延续。"""
+    root = workspace.init_workspace(tmp_path / "deck")
+    counter = root / "validation" / "repair_rounds.json"
+    counter.write_text(json.dumps({"final": 4}), encoding="utf-8")
+    workspace.init_workspace(root)  # 重跑同一项目（重翻译）
+    assert not counter.exists()
 
 
 def test_envelope_roundtrip(tmp_path, monkeypatch):

@@ -51,6 +51,10 @@ def init_workspace(output_dir: str | Path) -> Path:
     for d in WORKSPACE_DIRS:
         (root / d).mkdir(exist_ok=True)
     (root / "validation" / "workflow.log").touch(exist_ok=True)
+    # 修复轮预算按 run 重置（计数器持久在项目工作区会跨 run 泄漏——同一
+    # 项目重跑第一次修复即越限）。resume 经预填 tasklist 跳过翻译不经此处，
+    # 同一 run 续跑预算自然延续。
+    (root / "validation" / "repair_rounds.json").unlink(missing_ok=True)
     return root
 
 
