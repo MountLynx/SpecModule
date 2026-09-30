@@ -632,6 +632,32 @@ class TestCallHarnessRetry:
         assert result.usage == {"input_tokens": 3}
 ```
 
+另外（Task 3 质量审查 Minor 折入——流式审计是框架核心价值，4 行保险）：把 `module_harness/tests/test_harness.py` 的 `TestValidationRetry.test_first_fail_second_pass` 改为带 token 回放的 side_effect 并断言重试路径同样发流式 token。具体：该测试开头加 `tokens: list = []`、`bus = EventBus()`、`bus.subscribe(LlmToken, lambda e: tokens.append(e))`，`Harness(...)` 第三参传 `bus`；`mock_llm.complete` 的 side_effect 换成（仿既有 `test_llm_token_events_emitted` 的 fake_complete 模式）：
+
+```python
+        async def fake_complete(*args, **kwargs):
+            on_token = kwargs.get("on_token")
+            if attempt_log[0] == 0:
+                if on_token:
+                    on_token("bad ")
+                attempt_log[0] = 1
+                return self._resp(self.BAD, usage={"input_tokens": 1, "output_tokens": 2})
+            if on_token:
+                on_token('{"ok"')
+                on_token(': 1}')
+            return self._resp('{"ok": 1}', usage={"input_tokens": 3, "output_tokens": 4})
+
+        attempt_log = [0]
+        mock_llm.complete = AsyncMock(side_effect=fake_complete)
+```
+
+测试末尾加断言：
+
+```python
+        # 重试路径同样发流式 token（on_token 每次 attempt 原样传入）
+        assert tokens == ["bad ", '{"ok"', ': 1}']
+```
+
 - [ ] **Step 2: 跑测试确认通过**
 
 Run: `python -m pytest module_harness/tests/test_call.py::TestCallHarnessRetry -q`
@@ -795,7 +821,7 @@ git commit -m "feat(orchestrate): validate_retries 传播链补全——task 级
 ```markdown
 ### 校验重试（validate_retries）
 
-`HarnessConfig.validate_retries`（缺省 0）：输出校验失败时的额外重试次数——每次重试 prompt 追加校验错误反馈段，LLM 参数（model/temperature/think/notdo/api_params）原样保留。预算耗尽返回最后一次的 `Failure(type="llm")`（下游跳过语义不变，不中止 run）。仅作用于输出校验失败；`LLMError`（传输层）不重试（SDK `max_retries` 已管）、不消耗预算。审计：每次尝试发完整事件链，节点 state 记 `_validation_attempts`（实际调用次数）与 `_validation_retry_errors`（历次校验错误），`_usage` 累计、`_llm_raw` 为最后一次输出；`call_harness` 诊断链同语义。
+`HarnessConfig.validate_retries`（缺省 0）：输出校验失败时的额外重试次数——每次重试 prompt 追加校验错误反馈段，LLM 参数（model/temperature/think/notdo/api_params）原样保留。预算耗尽返回最后一次的 `Failure(type="llm")`（下游跳过语义不变，不中止 run）。仅作用于输出校验失败；`LLMError`（传输层）不重试（SDK `max_retries` 已管）、不消耗预算。审计：每次尝试发完整事件链，节点 state 记 `_validation_attempts`（实际调用次数）与 `_validation_retry_errors`（触发重试的历次校验错误——预算耗尽的最后一次错误不在列表内，它在返回的 Failure 与 failed `OutputValidated` 事件中），`_usage` 累计、`_llm_raw` 为最后一次输出；`call_harness` 诊断链同语义。
 ```
 
 - [ ] **Step 2: config-guide.md** — "### 各消费位置" 表的 harness 覆盖行改为：
