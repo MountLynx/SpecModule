@@ -26,6 +26,13 @@ from ..infra.events import (
 )
 
 
+# 校验失败反馈段（框架契约文案）：重试时追加到原渲染 prompt 末尾重问
+_VALIDATION_FEEDBACK = (
+    "\n\n上一次输出未通过校验：{error}\n"
+    "请修正该问题后重新输出完整结果，不要复述错误内容，不要解释修改过程。"
+)
+
+
 class Harness:
     """持有 HarnessConfig + LLM 客户端 + EventBus。
 
@@ -151,15 +158,21 @@ class Harness:
                 rendered=rendered,
             ))
 
-            # 2. 调用 LLM
-            bus.emit(LlmCallStarted(
-                timestamp=time.monotonic(), node=node, tick=0,
-                model=config.model or "default",
-                prompt_chars=len(rendered),
-            ))
-
+            # 2. 调用 LLM（image 单次；text 带校验重试循环）
             if config.mode == "image":
+                bus.emit(LlmCallStarted(
+                    timestamp=time.monotonic(), node=node, tick=0,
+                    model=config.model or "default",
+                    prompt_chars=len(rendered),
+                ))
                 return await _run_image(view, rendered, state)
+
+            budget = config.validate_retries
+            retrying = budget > 0
+            attempt_prompt = rendered
+            usage_acc: dict[str, int] = {}
+            attempts = 0
+            retry_errors: list[str] = []
 
             def on_token(chunk: str) -> None:
                 bus.emit(LlmToken(
@@ -173,63 +186,92 @@ class Harness:
                     chunk=chunk,
                 ))
 
-            try:
-                from llm.client import LLMError
-
-                # notdo 由 LLM client 内部通过 _build_system() 拼入 system prompt
-                response = await llm.complete(
-                    prompt=rendered,
-                    model=config.model,
-                    temperature=config.temperature,
-                    think=config.think,
-                    output_format=dataclasses.asdict(config.output_format) if config.output_format else None,
-                    notdo=config.notdo if config.notdo else None,
-                    on_token=on_token,
-                    on_thinking=on_thinking,
-                    api_params=config.api_params if config.api_params else None,
-                )
-            except LLMError as e:
-                if state is not None:
-                    state["_llm_error"] = str(e)
-                bus.emit(HarnessFailed(
+            while True:
+                attempts += 1
+                bus.emit(LlmCallStarted(
                     timestamp=time.monotonic(), node=node, tick=0,
-                    reason=str(e),
-                    failure_type="infrastructure",
+                    model=config.model or "default",
+                    prompt_chars=len(attempt_prompt),
                 ))
-                return Failure(str(e), type="infrastructure")
 
-            # 3. LLM 原始响应 + usage 写入节点状态（审计链：NodeState.mutable_state）
-            if state is not None:
-                state["_llm_raw"] = response.content
-                state["_usage"] = dict(response.usage)
+                try:
+                    from llm.client import LLMError
 
-            # 3. 校验输出
-            bus.emit(LlmCallCompleted(
-                timestamp=time.monotonic(), node=node, tick=0,
-                content_chars=len(response.content),
-                usage=response.usage,
-                finish_reason=response.finish_reason,
-            ))
+                    # notdo 由 LLM client 内部通过 _build_system() 拼入 system prompt
+                    response = await llm.complete(
+                        prompt=attempt_prompt,
+                        model=config.model,
+                        temperature=config.temperature,
+                        think=config.think,
+                        output_format=dataclasses.asdict(config.output_format) if config.output_format else None,
+                        notdo=config.notdo if config.notdo else None,
+                        on_token=on_token,
+                        on_thinking=on_thinking,
+                        api_params=config.api_params if config.api_params else None,
+                    )
+                except LLMError as e:
+                    # 传输层失败不重试（SDK max_retries 已管）、不消耗校验重试预算
+                    if state is not None:
+                        state["_llm_error"] = str(e)
+                    bus.emit(HarnessFailed(
+                        timestamp=time.monotonic(), node=node, tick=0,
+                        reason=str(e),
+                        failure_type="infrastructure",
+                    ))
+                    return Failure(str(e), type="infrastructure")
 
-            if validator is not None:
+                # LLM 原始响应 + usage 写入节点状态（审计链：NodeState.mutable_state）；
+                # 重试开启时 usage 累计、_validation_attempts 记实际调用次数
+                if state is not None:
+                    state["_llm_raw"] = response.content
+                    usage_acc = _merge_usage(usage_acc, response.usage)
+                    state["_usage"] = dict(usage_acc)
+                    if retrying:
+                        state["_validation_attempts"] = attempts
+
+                # 3. 校验输出
+                bus.emit(LlmCallCompleted(
+                    timestamp=time.monotonic(), node=node, tick=0,
+                    content_chars=len(response.content),
+                    usage=response.usage,
+                    finish_reason=response.finish_reason,
+                ))
+
+                if validator is None:
+                    return response.content
+
                 result = validator.validate(response.content)
-                if isinstance(result, Failure):
+                if not isinstance(result, Failure):
                     bus.emit(OutputValidated(
                         timestamp=time.monotonic(), node=node, tick=0,
-                        passed=False,
-                        extracted=False,
-                        error=result.error,
+                        passed=True,
+                        extracted=_was_extracted(response.content, result),
+                        error=None,
                     ))
                     return result
+
                 bus.emit(OutputValidated(
                     timestamp=time.monotonic(), node=node, tick=0,
-                    passed=True,
-                    extracted=_was_extracted(response.content, result),
-                    error=None,
+                    passed=False,
+                    extracted=False,
+                    error=result.error,
                 ))
-                return result
 
-            return response.content
+                if budget <= 0:
+                    return result  # 预算耗尽：最后一次的 Failure(type="llm")
+
+                # 带反馈重问：prompt 追加校验错误反馈段，LLM 参数原样保留
+                budget -= 1
+                retry_errors.append(result.error)
+                if state is not None:
+                    state["_validation_retry_errors"] = list(retry_errors)
+                attempt_prompt = rendered + _VALIDATION_FEEDBACK.format(error=result.error)
+                if state is not None:
+                    state["_prompt"] = attempt_prompt
+                bus.emit(PromptRendered(
+                    timestamp=time.monotonic(), node=node, tick=0,
+                    rendered=attempt_prompt,
+                ))
 
         return body
 
@@ -239,3 +281,15 @@ def _was_extracted(raw: str, result: Any) -> bool:
     if not isinstance(result, str):
         return True  # JSON 解析必然是提取
     return raw.strip() != result.strip()
+
+
+def _merge_usage(acc: dict[str, int], new: dict[str, int]) -> dict[str, int]:
+    """累计多次尝试的 token 用量：数值键求和，单侧缺键取另一侧。"""
+    merged = dict(acc)
+    for key, val in new.items():
+        prev = merged.get(key)
+        if isinstance(prev, int) and isinstance(val, int):
+            merged[key] = prev + val
+        else:
+            merged[key] = val
+    return merged

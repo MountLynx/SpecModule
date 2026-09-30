@@ -303,3 +303,115 @@ class TestHarnessImageMode:
         assert result.type == "infrastructure"
         assert state["_usage"] == {"input_tokens": 3, "output_tokens": 100}  # 已计费调用的审计不因落盘失败丢失
         assert "_image_path" not in state
+
+
+class TestValidationRetry:
+    """validate_retries：校验失败带反馈重问（预算内循环；LLMError 不消耗预算）。"""
+
+    BAD = "not json at all, completely invalid {{{"
+
+    @staticmethod
+    def _cfg(**overrides) -> HarnessConfig:
+        kwargs: dict = {
+            "prompt_core": "P",
+            "output_format": OutputFormat(type="json_object"),
+        }
+        kwargs.update(overrides)
+        return HarnessConfig(**kwargs)
+
+    @staticmethod
+    def _resp(content: str, usage: dict | None = None):
+        from llm.client import LLMResponse
+        return LLMResponse(
+            content=content,
+            usage=usage if usage is not None else {"input_tokens": 1, "output_tokens": 1},
+            finish_reason="end_turn",
+        )
+
+    @staticmethod
+    def _state_view():
+        """挂了 state dict 的视图（模拟引擎供数的 mutable_state 审计链）。"""
+        state: dict = {}
+        view = NodeView(node="test_node", fields=(), values=(), state=state)
+        return view, state
+
+    @pytest.mark.asyncio
+    async def test_first_fail_second_pass(self, mock_llm):
+        """首败次过：2 次 complete、第二次 prompt 含反馈（带首错文本）、参数原样保留、usage 累计。"""
+        mock_llm.complete = AsyncMock(side_effect=[
+            self._resp(self.BAD, usage={"input_tokens": 1, "output_tokens": 2}),
+            self._resp('{"ok": 1}', usage={"input_tokens": 3, "output_tokens": 4}),
+        ])
+        h = Harness(self._cfg(validate_retries=1, temperature=0.3), mock_llm, EventBus())
+        view, state = self._state_view()
+        result = await h.build_body()(view)
+
+        assert result == {"ok": 1}
+        assert mock_llm.complete.await_count == 2
+        calls = mock_llm.complete.await_args_list
+        assert "上一次输出未通过校验" not in calls[0].kwargs["prompt"]
+        assert "上一次输出未通过校验" in calls[1].kwargs["prompt"]
+        assert "输出格式校验失败" in calls[1].kwargs["prompt"]  # 反馈携带首错 error
+        # LLM 参数重试时原样保留（不降温不换模型）
+        assert calls[1].kwargs["temperature"] == calls[0].kwargs["temperature"] == 0.3
+        # usage 累计、raw 取最后一次
+        assert state["_usage"] == {"input_tokens": 4, "output_tokens": 6}
+        assert state["_llm_raw"] == '{"ok": 1}'
+
+    @pytest.mark.asyncio
+    async def test_budget_exhausted_returns_last_failure(self, mock_llm):
+        mock_llm.complete = AsyncMock(side_effect=[
+            self._resp(self.BAD), self._resp(self.BAD),
+        ])
+        h = Harness(self._cfg(validate_retries=1), mock_llm, EventBus())
+        result = await h.build_body()(_make_view())
+
+        assert isinstance(result, Failure)
+        assert result.type == "llm"
+        assert mock_llm.complete.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_default_zero_no_retry_no_new_state_keys(self, mock_llm):
+        """缺省 0：1 次调用即返 Failure；不新增状态键（与无此字段时逐字节一致）。"""
+        mock_llm.complete = AsyncMock(side_effect=[self._resp(self.BAD)])
+        h = Harness(self._cfg(), mock_llm, EventBus())
+        view, state = self._state_view()
+        result = await h.build_body()(view)
+
+        assert isinstance(result, Failure)
+        assert result.type == "llm"
+        assert mock_llm.complete.await_count == 1
+        assert "_validation_attempts" not in state
+        assert "_validation_retry_errors" not in state
+
+    @pytest.mark.asyncio
+    async def test_llm_error_does_not_consume_budget(self, mock_llm):
+        """第 1 次坏输出、第 2 次 LLMError：infrastructure Failure，complete 恰 2 次。"""
+        mock_llm.complete = AsyncMock(side_effect=[
+            self._resp(self.BAD), LLMError("连接耗尽"),
+        ])
+        h = Harness(self._cfg(validate_retries=2), mock_llm, EventBus())
+        result = await h.build_body()(_make_view())
+
+        assert isinstance(result, Failure)
+        assert result.type == "infrastructure"
+        assert mock_llm.complete.await_count == 2  # LLMError 即返，不续问
+
+    @pytest.mark.asyncio
+    async def test_events_and_state_on_retry(self, mock_llm):
+        """事件序列含两次 LlmCallStarted；state 记 _validation_attempts / _validation_retry_errors。"""
+        mock_llm.complete = AsyncMock(side_effect=[
+            self._resp(self.BAD), self._resp('{"ok": 1}'),
+        ])
+        started = []
+        bus = EventBus()
+        bus.subscribe(LlmCallStarted, lambda e: started.append(e))
+        h = Harness(self._cfg(validate_retries=1), mock_llm, bus)
+        view, state = self._state_view()
+        result = await h.build_body()(view)
+
+        assert result == {"ok": 1}
+        assert len(started) == 2
+        assert state["_validation_attempts"] == 2
+        assert len(state["_validation_retry_errors"]) == 1
+        assert "输出格式校验失败" in state["_validation_retry_errors"][0]
