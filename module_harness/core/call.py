@@ -24,6 +24,7 @@ class HarnessCallResult:
     """独立调用结果：校验后输出 + LLM 原始输出 + token 用量。
 
     图像模式不产生文本 raw（无 _llm_raw），raw 为 None。
+    validate_retries > 0 时：usage 为各次尝试之和；raw 为最后一次尝试的原始输出。
     """
 
     value: Any  # 校验后的输出（json_object → 解析值；text → str）
@@ -67,8 +68,11 @@ async def call_harness(
     OutputValidated / ...），不传零开销（EventBus.null()）。
 
     失败（LLM 错误 / 输出校验不通过）抛 HarnessCallError，携带 failure 与
-    渲染 prompt / 原始输出 / usage 诊断链。task 层没有"下游跳过"概念，
-    Failure 一律翻译为异常；promptmode 缺 key → KeyError 原样冒出。
+    渲染 prompt / 原始输出 / usage 诊断链。``validate_retries > 0`` 时校验
+    失败在 body 内带反馈重问：``prompt`` 为最后一次尝试的实际 prompt（含
+    反馈段）、``raw`` 为最后一次原始输出、``usage`` 为各次尝试之和。task
+    层没有"下游跳过"概念，Failure 一律翻译为异常；promptmode 缺 key →
+    KeyError 原样冒出。
     """
     bus = event_bus or EventBus.null()
     body = Harness(config, llm_client, bus).build_body(

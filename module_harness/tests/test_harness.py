@@ -338,11 +338,26 @@ class TestValidationRetry:
     @pytest.mark.asyncio
     async def test_first_fail_second_pass(self, mock_llm):
         """首败次过：2 次 complete、第二次 prompt 含反馈（带首错文本）、参数原样保留、usage 累计。"""
-        mock_llm.complete = AsyncMock(side_effect=[
-            self._resp(self.BAD, usage={"input_tokens": 1, "output_tokens": 2}),
-            self._resp('{"ok": 1}', usage={"input_tokens": 3, "output_tokens": 4}),
-        ])
-        h = Harness(self._cfg(validate_retries=1, temperature=0.3), mock_llm, EventBus())
+        tokens: list = []
+        bus = EventBus()
+        bus.subscribe(LlmToken, lambda e: tokens.append(e.chunk))
+
+        attempt_log = [0]
+
+        async def fake_complete(*args, **kwargs):
+            on_token = kwargs.get("on_token")
+            if attempt_log[0] == 0:
+                if on_token:
+                    on_token("bad ")
+                attempt_log[0] = 1
+                return self._resp(self.BAD, usage={"input_tokens": 1, "output_tokens": 2})
+            if on_token:
+                on_token('{"ok"')
+                on_token(': 1}')
+            return self._resp('{"ok": 1}', usage={"input_tokens": 3, "output_tokens": 4})
+
+        mock_llm.complete = AsyncMock(side_effect=fake_complete)
+        h = Harness(self._cfg(validate_retries=1, temperature=0.3), mock_llm, bus)
         view, state = self._state_view()
         result = await h.build_body()(view)
 
@@ -357,6 +372,8 @@ class TestValidationRetry:
         # usage 累计、raw 取最后一次
         assert state["_usage"] == {"input_tokens": 4, "output_tokens": 6}
         assert state["_llm_raw"] == '{"ok": 1}'
+        # 重试路径同样发流式 token（on_token 每次 attempt 原样传入）
+        assert tokens == ["bad ", '{"ok"', ': 1}']
 
     @pytest.mark.asyncio
     async def test_budget_exhausted_returns_last_failure(self, mock_llm):

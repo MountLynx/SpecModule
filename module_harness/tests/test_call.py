@@ -197,3 +197,51 @@ class TestPublicExports:
         assert "call_harness" in module_harness.__all__
         assert "HarnessCallResult" in module_harness.__all__
         assert "HarnessCallError" in module_harness.__all__
+
+
+class TestCallHarnessRetry:
+    """validate_retries 在 call 层的呈现：耗尽 → HarnessCallError；usage 累计；raw 取最后一次。"""
+
+    @pytest.mark.asyncio
+    async def test_budget_exhausted_error_carries_last_attempt(self, mock_llm):
+        mock_llm.complete = AsyncMock(side_effect=[
+            LLMResponse(content="bad one", usage={"input_tokens": 2, "output_tokens": 1},
+                        finish_reason="end_turn"),
+            LLMResponse(content="bad two", usage={"input_tokens": 3, "output_tokens": 4},
+                        finish_reason="end_turn"),
+        ])
+        with pytest.raises(HarnessCallError) as ei:
+            await call_harness(
+                HarnessConfig(
+                    prompt_core="P",
+                    output_format=OutputFormat(type="json_object"),
+                    validate_retries=1,
+                ),
+                {},
+                llm_client=mock_llm,
+            )
+        err = ei.value
+        assert err.failure.type == "llm"
+        assert err.raw == "bad two"          # 最后一次尝试的原始输出
+        assert err.usage == {"input_tokens": 5, "output_tokens": 5}  # 各次之和
+        assert "上一次输出未通过校验" in err.prompt   # prompt 为最后一次实际发送
+        assert mock_llm.complete.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retry_success_returns_value_with_summed_usage(self, mock_llm):
+        mock_llm.complete = AsyncMock(side_effect=[
+            LLMResponse(content="bad", usage={"input_tokens": 1}, finish_reason="end_turn"),
+            LLMResponse(content='{"ok": 1}', usage={"input_tokens": 2}, finish_reason="end_turn"),
+        ])
+        result = await call_harness(
+            HarnessConfig(
+                prompt_core="P",
+                output_format=OutputFormat(type="json_object"),
+                validate_retries=1,
+            ),
+            {},
+            llm_client=mock_llm,
+        )
+        assert result.value == {"ok": 1}
+        assert result.raw == '{"ok": 1}'
+        assert result.usage == {"input_tokens": 3}
