@@ -1,5 +1,7 @@
 # 运行状态查询 + 对齐检查 harness 实现计划
 
+> ⚠️ **tickflow 0.3.0 FAILED 终态注记（2026-09-30）**：tickflow 0.3.0 起空 tick 且有 pending 槽位（未触发 start 或 True 槽位）→ run 终态 FAILED（原为 IDLE）；Module 层 `_finalize_phase` 映射 phase=aborted，error 文案 "starved: work pending but nothing fireable" 并附未点火节点清单。本文编写时饿死 run 仍误报 done/"all nodes failed"，相关段落以当前契约为准（`module_harness/model/module.py`）。
+
 > ⚠️ **tickflow 0.2.0 bind 迁移注记（2026-09-05）**：本文档编写于旧视图机制时期——`input_aliases` / producer 名访问（`view["X"].value`、`view.A.value`）/ DictView 构造均已被具名 bind 机制取代：body/guard 经 `view.field()`、`view.output`、`v.named` 消费，字段名即 `task.inputs` 键。文中代码示例为当时形态，勿照抄；当前契约见 `docs/references/spec-harness-syntax.md` 与 `docs/references/tickflow-integration.md`。
 
 
