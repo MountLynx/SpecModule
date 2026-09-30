@@ -778,7 +778,7 @@ wheels = [
 
 [[package]]
 name = "specmodule"
-version = "0.4.0"
+version = "0.4.1"
 source = { editable = "." }
 dependencies = [
     { name = "tickflow-py" },
@@ -804,17 +804,17 @@ requires-dist = [
     { name = "jsonschema", marker = "extra == 'validate'" },
     { name = "openai", marker = "extra == 'openai'" },
     { name = "pytest", marker = "extra == 'dev'" },
-    { name = "tickflow-py", specifier = ">=0.2.0,<0.3" },
+    { name = "tickflow-py", specifier = ">=0.3.0,<0.4" },
 ]
 provides-extras = ["anthropic", "openai", "validate", "dev"]
 
 [[package]]
 name = "tickflow-py"
-version = "0.2.0"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/25/9e/01b6e74b776072b996bc498e45015652452dbb3804a7f628b3bab9b3360e/tickflow_py-0.2.0.tar.gz", hash = "sha256:988716702f4cdb8ee2a95d6fc61e74918518c6b7145f41c127ad8e04a0ef4e2f", size = 100128, upload-time = "2026-09-05T10:37:53.095Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6b/44/fa40fd4aea87857ce1f36f4afb150c8b4120a0989f4b7795d36264ec2140/tickflow_py-0.3.0.tar.gz", hash = "sha256:28fae9a3e9de472760ebe4d5a99142ccb1ed2580676dc36903e3047d9d29b021", size = 102452, upload-time = "2026-09-30T15:17:42.247Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/24/5f/5cba05a67aa8eb2bea19c960edcf656a8ea2f789a99d447f5dc57b46170c/tickflow_py-0.2.0-py3-none-any.whl", hash = "sha256:7a1e7892a2d9a1db54c0efc4c56789b7f5dd1bc7f4630e4fea7a24a9b92f20e0", size = 66051, upload-time = "2026-09-05T10:37:51.556Z" },
+    { url = "https://files.pythonhosted.org/packages/12/58/afcb1de0c5a215492fe8c59e8a9006cab90479755468a7c8596ad5c21422/tickflow_py-0.3.0-py3-none-any.whl", hash = "sha256:d4cb25625d23bbbfc7673fbe1132d2d58bc0b6456485153d386f6492d085697c", size = 66341, upload-time = "2026-09-30T15:17:40.657Z" },
 ]
 
 [[package]]
