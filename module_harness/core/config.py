@@ -32,6 +32,15 @@ class HarnessConfig:
     notdo: list[str] = field(default_factory=list)
     """否定性约束列表，拼入 system prompt。"""
 
+    validate_retries: int = 0
+    """输出校验失败时的额外重试次数（带校验错误反馈重问）。
+
+    0（缺省）= 不重试，行为与无此字段时逐字节一致。
+    N > 0 = 校验失败后最多再问 N 次，每次 prompt 追加校验错误反馈段；
+    预算耗尽返回最后一次的 Failure(type="llm")。
+    仅作用于输出校验失败；LLMError（传输层）不重试、不消耗预算。
+    """
+
     # ── LLM 参数（Task 可逐项覆盖）──
     model: str | None = None
     temperature: float | None = None
@@ -66,6 +75,10 @@ class HarnessConfig:
             )
         if self.mode == "image" and self.image_dir is None:
             raise ValueError("mode='image' 不接受显式 null 的 image_dir")
+        if self.validate_retries < 0:
+            raise ValueError(f"validate_retries 须 >= 0，得到 {self.validate_retries!r}")
+        if self.validate_retries > 0 and self.mode == "image":
+            raise ValueError("mode='image' 无文本输出格式可校验，validate_retries 须为 0")
 
     def to_dict(self) -> dict[str, Any]:
         """序列化为 JSON 可写 dict（含 output_format）。"""
@@ -96,6 +109,7 @@ class HarnessConfig:
         - mode          → 调用形态："text"（默认）| "image"
         - image_size    → 图像尺寸（仅 mode="image"）
         - image_dir     → 图像落盘目录（仅 mode="image"）
+        - validate_retries → 校验失败重试预算（int ≥ 0，缺省 0）
 
         mode/image_size/image_dir：显式 null 的 image_dir 会被拒绝。
         """
@@ -120,4 +134,5 @@ class HarnessConfig:
             mode=task.get("mode", "text"),
             image_size=task.get("image_size"),
             image_dir=task.get("image_dir", "images"),
+            validate_retries=task.get("validate_retries", 0),
         )

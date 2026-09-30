@@ -164,3 +164,36 @@ class TestImageModeConfig:
     def test_image_mode_rejects_null_image_dir(self):
         with pytest.raises(ValueError, match="image_dir"):
             HarnessConfig(prompt_core="x", mode="image", image_dir=None)
+
+
+class TestValidateRetriesConfig:
+    """validate_retries：缺省 0、负数拒绝、image 互斥、序列化与 from_task_definition 兼容。"""
+
+    def test_default_zero(self):
+        assert HarnessConfig(prompt_core="x").validate_retries == 0
+
+    def test_negative_rejected(self):
+        with pytest.raises(ValueError, match="validate_retries"):
+            HarnessConfig(prompt_core="x", validate_retries=-1)
+
+    def test_image_mode_rejects_positive(self):
+        with pytest.raises(ValueError, match="image"):
+            HarnessConfig(prompt_core="x", mode="image", validate_retries=1)
+
+    def test_image_mode_zero_ok(self):
+        cfg = HarnessConfig(prompt_core="画:{t}", mode="image", validate_retries=0)
+        assert cfg.validate_retries == 0
+
+    def test_roundtrip(self):
+        cfg = HarnessConfig(prompt_core="x", validate_retries=2)
+        assert HarnessConfig.from_dict(cfg.to_dict()) == cfg
+
+    def test_from_task_definition_reads_field(self):
+        cfg = HarnessConfig.from_task_definition(
+            {"prompt_core": "x", "validate_retries": 3}
+        )
+        assert cfg.validate_retries == 3
+
+    def test_from_task_definition_absent_means_zero(self):
+        cfg = HarnessConfig.from_task_definition({"prompt_core": "x"})
+        assert cfg.validate_retries == 0
