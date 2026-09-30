@@ -395,3 +395,58 @@ class TestModulePhase:
         )
         await mod2.resume()
         assert self._read_status(tmp_path)["phase"] == "done"
+
+    # --- tickflow 0.3 FAILED 终态：饿死 run 不再误报 done -----------------
+
+    def _starved_tasklist(self):
+        # A ok → (C,A)=True；B llm 失败 → (C,B)=False；AND-join C 永不点火。
+        # C 是 view-mode script（单参 view），两 producer 无 inputs 合法。
+        return Tasklist(
+            tasks={
+                "A": TaskDefinition(type="script", script="a_ok"),
+                "B": TaskDefinition(type="script", script="b_fail"),
+                "C": TaskDefinition(type="script", script="noop"),
+            },
+            flow="[A]-->C\n[B]-->C\nC.join: AND",
+        )
+
+    def _starved_reg(self, mock_llm):
+        return self._script_reg(
+            mock_llm,
+            a_ok=lambda view: {"ok": True},
+            b_fail=lambda view: Failure("bad output", type="llm"),
+            noop=lambda view: {"ok": True},
+        )
+
+    @pytest.mark.asyncio
+    async def test_finalize_phase_failed_starved_copy(self, tmp_path, monkeypatch, mock_llm):
+        """构造 FAILED runner 喂入 _finalize_phase → aborted + starved 文案 + 未点火清单。"""
+        from tickflow.runner import RunStatus
+
+        mod = self._make_module(
+            mock_llm, tmp_path, monkeypatch,
+            registry=self._starved_reg(mock_llm),
+            tasklist=self._starved_tasklist(),
+        )
+        runner = await mod._build_runner_async()
+        await runner.run_until_idle(max_ticks=10)
+        assert runner.status == RunStatus.FAILED
+        assert mod._finalize_phase(runner, max_ticks=10) == "aborted"
+        st = self._read_status(tmp_path)
+        assert st["phase"] == "aborted"
+        assert "starved: work pending but nothing fireable" in st["error"]
+        assert st["error"].endswith("unfired: C")   # 未点火清单：仅 C
+
+    @pytest.mark.asyncio
+    async def test_starved_run_maps_to_aborted(self, tmp_path, monkeypatch, mock_llm):
+        """饿死 run 全链路（run() → FAILED → 映射）→ phase=aborted（原误报 done）。"""
+        mod = self._make_module(
+            mock_llm, tmp_path, monkeypatch,
+            registry=self._starved_reg(mock_llm),
+            tasklist=self._starved_tasklist(),
+        )
+        await mod.run()
+        st = self._read_status(tmp_path)
+        assert st["phase"] == "aborted"
+        assert "starved: work pending but nothing fireable" in st["error"]
+        assert st["error"].endswith("unfired: C")   # 未点火清单：仅 C

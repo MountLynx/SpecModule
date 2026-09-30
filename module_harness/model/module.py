@@ -483,7 +483,19 @@ class Module:
             self._write_phase("cancelled", error=runner.cancel_reason or "cancelled")
             return "cancelled"
         elif runner.status == RunStatus.FAILED:
-            self._write_phase("aborted", error="all nodes failed")
+            # tickflow 0.3：FAILED = 饿死（有 pending 槽位/未触发 start 但无
+            # 可激发节点）。未点火清单由点火历史推导（firings_of 非空 = 点过
+            # 火；勿用 last_output——输出为 None 的已点火节点会误判，也勿用
+            # audit_log——keep_records=False 时为空表）。
+            fired = {
+                n for n in runner.graph.nodes if runner.run_state.firings_of(n)
+            }
+            unfired = sorted(set(runner.graph.nodes) - fired)
+            self._write_phase(
+                "aborted",
+                error="starved: work pending but nothing fireable; unfired: "
+                      + (", ".join(unfired) if unfired else "(none)"),
+            )
             return "aborted"
         elif runner.status == RunStatus.RUNNING:
             # max_ticks 耗尽（pause 挂起发生在 run_until_idle 内部不返回，
