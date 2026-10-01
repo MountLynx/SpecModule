@@ -798,6 +798,7 @@ git commit -m "feat(orchestrate): validate_retries 传播链补全——task 级
 **Files:**
 - Modify: `docs/references/spec-harness-syntax.md`
 - Modify: `docs/guides/config-guide.md`
+- Modify: `module_harness/core/call.py`（Task 4 质量审查折入：仅 docstring 补一句 error-path 澄清——LLMError 路径 prompt 仍为出错尝试的实际 prompt，raw/usage 为最后一次有输出的尝试）
 
 （`docs/references/api.md` 不列 HarnessConfig 字段契约，按 spec "如列则同步" 的措辞——不改。）
 
@@ -830,6 +831,13 @@ git commit -m "feat(orchestrate): validate_retries 传播链补全——task 级
 | **harness 覆盖** | `HarnessConfig(model/temperature/think/api_params/validate_retries)` | 单节点覆盖 LLM 默认参数与校验重试预算；`api_params` 按 SDK 官方格式透传，优先级最高 |
 ```
 
+- [ ] **Step 2b: call.py docstring 补 error-path 澄清（Task 4 质量审查折入，仅 docstring）** — `call_harness` docstring 中 "``validate_retries > 0`` 时校验失败在 body 内带反馈重问：……``usage`` 为各次尝试之和。" 之后插一句：
+
+```python
+    LLM 错误路径：``prompt`` 仍为出错尝试的实际 prompt，``raw``/``usage``
+    为最后一次有输出的尝试（出错尝试无输出，错误本身见 failure.error）。
+```
+
 - [ ] **Step 3: 全量回归**
 
 Run: `python -m pytest module_harness/tests/ -q`
@@ -838,8 +846,8 @@ Expected: 全绿（缺省 0 保证既有消费方零行为变化——academic_w
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/references/spec-harness-syntax.md docs/guides/config-guide.md
-git commit -m "docs(spec): validate_retries 字段文档同步——TaskDefinition/HarnessConfig 字段表与校验重试小节"
+git add docs/references/spec-harness-syntax.md docs/guides/config-guide.md module_harness/core/call.py
+git commit -m "docs(spec): validate_retries 字段文档同步——字段表/校验重试小节/call 层 error-path 澄清"
 ```
 
 ---
