@@ -210,3 +210,45 @@ def test_cli_mock_smoke(tmp_path, monkeypatch, capsys):
     assert pptx, "exports/ 应有 pptx"
     from pptx import Presentation
     assert len(Presentation(str(pptx[0])).slides) == 4
+
+
+def test_llm_chain_lands_in_node_state(tmp_path, monkeypatch):
+    """in-node 透传端到端：Plan/页节点 firings 的 mutable_state 携带 LLM 全链。"""
+    monkeypatch.setattr(workspace, "_ENVELOPE_DIR", tmp_path)
+    firings = asyncio.run(run_generate(
+        _spec(tmp_path / "deck_state"), llm_client=ScriptedMock(), persist=False))
+    by_node = {f.node: f for f in firings}
+    plan = by_node["Plan"]
+    assert "_prompt" in plan.mutable_state and "_llm_raw" in plan.mutable_state
+    assert json.loads(plan.mutable_state["_llm_raw"])["status"] == "ok"
+    p01 = by_node["P01"]
+    assert p01.mutable_state["_llm_raw"] == _SVG
+    assert isinstance(p01.mutable_state["_usage"], dict)
+
+
+def test_llm_events_attribute_to_real_nodes(tmp_path, monkeypatch):
+    """in-node 透传端到端：LLM 事件归属真实节点，不再全是 "__call__"。"""
+    from example.ppt_master.module import GENERATE_TEMPLATE, _build_registry
+    from module_harness.infra.events import EventBus, LlmCallStarted
+    from module_harness.model.module import Module
+    from module_harness.model.translator import TemplateLoader
+
+    monkeypatch.setattr(workspace, "_ENVELOPE_DIR", tmp_path)
+    bus = EventBus()
+    nodes: list[str] = []
+    bus.subscribe(LlmCallStarted, lambda e: nodes.append(e.node))
+    loader = TemplateLoader()
+    loader.register("generate", GENERATE_TEMPLATE)
+    mod = Module(
+        spec=_spec(tmp_path / "deck_events"),
+        template_name="generate",
+        template_loader=loader,
+        llm_client=ScriptedMock(),
+        registry=_build_registry(ScriptedMock(), bus),
+        review_harness=None,
+        persist=False, status_file=False, stream_log=False,
+    )
+    asyncio.run(mod.run(max_ticks=400))
+    assert nodes, "无 LLM 事件（接线断了）"
+    assert "__call__" not in nodes
+    assert "Plan" in nodes and "P01" in nodes
