@@ -303,7 +303,7 @@ class Translator:
         if prompt_core is not None:
             existing = self.reg.harness_config(harness_name)
             if existing is not None:
-                # 既有缺口（见 plan 2026-09-30-validation-retry.md）：此处
+                # 既有缺口（见 specs/2026-09-30-validation-retry-design.md 非目标）：此处
                 # 重建 config 不携带 mode/image_*/validate_retries——修时四字段一起补
                 overridden = HarnessConfig(
                     prompt_core=prompt_core,

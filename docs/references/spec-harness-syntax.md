@@ -113,7 +113,7 @@ tasklist = Tasklist(
 | `mode` | `str \| None` | 调用形态覆盖：`"image"` = 图像生成节点（缺省 text）。与 `outputformat` 互斥，同设 → 构建期 `ValueError` |
 | `image_size` | `str \| None` | 图像尺寸覆盖，如 `"1024x1024"`；仅 `mode="image"` 生效 |
 | `image_dir` | `str \| None` | 图像落盘目录覆盖（cwd 相对）；图像节点输出为**文件路径字符串** |
-| `validate_retries` | `int \| None` | 输出校验失败带反馈重试次数覆盖；`None`（缺省；显式 null 等同缺省）= 沿用注册 config。显式值须 ≥ 0（TasklistValidator 校验）；`mode="image"` 的 harness 须为 0（合成 config 构建期 `ValueError`） |
+| `validate_retries` | `int \| None` | 输出校验失败带反馈重试次数覆盖；`None` / 显式 null（缺省）= 沿用注册 config。显式值须 ≥ 0（TasklistValidator 校验）；`mode="image"` 的 harness 须为 0（合成 config 构建期 `ValueError`） |
 | `inputs` | `dict[str, str] \| None` | `{字段名: 来源}`——来源为节点名或常量 token |
 
 图像产物文件名为 `<节点 key>-<monotonic_ns>.png`——节点 key 需为文件名安全字符（避免 `/`、`:` 等）。
@@ -189,7 +189,7 @@ reg.harness("translate", HarnessConfig(
 
 ### 校验重试（validate_retries）
 
-`HarnessConfig.validate_retries`（缺省 0）：输出校验失败时的额外重试次数——每次重试 prompt 追加校验错误反馈段，LLM 参数（model/temperature/think/notdo/api_params）原样保留。预算耗尽返回最后一次的 `Failure(type="llm")`（下游跳过语义不变，不中止 run）。仅作用于输出校验失败；`LLMError`（传输层）不重试（SDK `max_retries` 已管）、不消耗预算。审计：每次尝试发完整事件链，节点 state 记 `_validation_attempts`（实际调用次数）与 `_validation_retry_errors`（触发重试的历次校验错误——预算耗尽的最后一次错误不在列表内，它在返回的 Failure 与 failed `OutputValidated` 事件中），`_usage` 累计、`_llm_raw` 为最后一次输出；`call_harness` 诊断链同语义。
+`HarnessConfig.validate_retries`（缺省 0）：输出校验失败时的额外重试次数——每次重试 prompt 追加校验错误反馈段，LLM 参数（model/temperature/think/notdo/api_params）原样保留。预算耗尽返回最后一次的 `Failure(type="llm")`（下游跳过语义不变，不中止 run）。仅作用于输出校验失败；重试在校验器内置修复提取（围栏剥离 → JSON 提取 → 尾部截断）也失败后才发生，反馈携带的是修复后仍失败的错误。`LLMError`（传输层）不重试（SDK `max_retries` 已管）、不消耗预算。审计：每次尝试发完整事件链，节点 state 记 `_validation_attempts`（实际调用次数）与 `_validation_retry_errors`（触发重试的历次校验错误——预算耗尽的最后一次错误不在列表内，它在返回的 Failure 与 failed `OutputValidated` 事件中）。`_usage` 累计、`_llm_raw` 为最后一次输出；`call_harness` 诊断链同语义。
 
 ### 注册方式
 
@@ -299,7 +299,9 @@ mod = Module(spec=..., template_name="academic_writer_detailed",
 | 场景 | 行为 |
 |------|------|
 | `promptmode` 键在 `prompt_modes` 中不存在 | `KeyError`（无静默回退） |
-| `output_format` type 写错 / 输出不合法 | 校验失败 → `Failure(type="llm")`：节点 failed，下游跳过，运行继续 |
+| `output_format` type 写错 / 输出不合法 | 校验失败 → `Failure(type="llm")`：节点 failed，下游跳过，运行继续（harness 配置 `validate_retries>0` 时先带反馈重试，预算耗尽才进入此状态，见上文「校验重试」） |
+| task 显式 `validate_retries` 非 int / 负数 | `TasklistValidator` 校验报错（翻译/构建期） |
+| `mode="image"` 且 `validate_retries > 0` | 合成 config 构建期 `ValueError` |
 | 任务引用未注册 harness/script/command | `TasklistValidator` 返回错误 → `ValueError` |
 | flow 引用未定义节点 / 任务孤立 / DSL 语法错 | `TasklistValidator` 返回错误 → `ValueError` |
 | 自定义通道一致性审核不通过 | `ConsistencyError`（可传 `review_harness=None` 关闭） |
