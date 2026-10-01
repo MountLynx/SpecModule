@@ -58,6 +58,7 @@ async def call_harness(
     promptmode: str | None = None,
     prompt_extra: str | None = None,
     event_bus: EventBus | None = None,
+    view: NodeView | None = None,
 ) -> HarnessCallResult:
     """独立调用一个 harness：一次函数调用拿到校验后的输出。
 
@@ -66,6 +67,14 @@ async def call_harness(
 
     ``event_bus``：传则收全套 harness 事件（PromptRendered / LlmToken /
     OutputValidated / ...），不传零开销（EventBus.null()）。
+
+    ``view``：节点内形态——传 script 节点自己的视图（图执行 body 拿到的
+    view）。事件 ``node`` 归属 ``view.node``；body 写入 state 的
+    ``_prompt``/``_llm_raw``/``_usage`` 等键在调用完成后合并回
+    ``view.state``（进 NodeState.mutable_state 审计链）。state 本调用
+    隔离：诊断读回（含 HarnessCallError）严格是本调用的值。不传（缺省）：
+    独立调用形态，合成 ``__call__`` 视图 + 一次性局部 state，行为同
+    历史版本。
 
     失败（LLM 错误 / 输出校验不通过）抛 HarnessCallError，携带 failure 与
     渲染 prompt / 原始输出 / usage 诊断链。``validate_retries > 0`` 时校验
@@ -81,21 +90,30 @@ async def call_harness(
         promptmode=promptmode,
         prompt_extra=prompt_extra,
     )
-    state: dict[str, Any] = {}
+    # 节点内形态（view 传入）：事件与审计状态归属真实节点；state 本调用
+    # 隔离（body 只写不读，隔离保证诊断读回严格是本调用的值，多调用节点
+    # 不串上一调用残留），完成后合并回 view.state（NodeState.mutable_state
+    # 审计链）。独立调用形态：合成 __call__ 视图 + 一次性局部 state。
+    node_name = view.node if view is not None else "__call__"
+    sink: dict[str, Any] = {}
     # bind 时代：values 即具名 bind 字段（field → 值），
     # 视图按引擎对具名 bind body 的供数形态构造（v.named 直达占位符）
-    view = NodeView(
-        node="__call__",
+    body_view = NodeView(
+        node=node_name,
         fields=tuple((key, key) for key in values),
         values=tuple(values.values()),
-        state=state,
+        state=sink,
         resolved={key: Resolved(value=val, k=None) for key, val in values.items()},
     )
-    result = await body(view)
+    result = await body(body_view)
 
-    prompt = state.get("_prompt")
-    raw = state.get("_llm_raw")
-    usage = state.get("_usage")
+    if view is not None and view.state is not None:
+        for key, val in sink.items():
+            view.state[key] = val
+
+    prompt = sink.get("_prompt")
+    raw = sink.get("_llm_raw")
+    usage = sink.get("_usage")
 
     if isinstance(result, Failure):
         raise HarnessCallError(result, prompt=prompt, raw=raw, usage=usage)

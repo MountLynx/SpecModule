@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from llm.client import LLMError, LLMResponse
+from tickflow.views import NodeView
 
 from module_harness.core.call import HarnessCallError, HarnessCallResult, call_harness
 from module_harness.core.config import HarnessConfig, OutputFormat
@@ -245,3 +246,69 @@ class TestCallHarnessRetry:
         assert result.value == {"ok": 1}
         assert result.raw == '{"ok": 1}'
         assert result.usage == {"input_tokens": 3}
+
+
+class TestCallHarnessInView:
+    """节点内透传形态：事件与状态归属真实节点；诊断链本调用隔离（不串音）。"""
+
+    @pytest.mark.asyncio
+    async def test_events_and_state_land_on_real_node(self, mock_llm):
+        mock_llm.complete.return_value = LLMResponse(
+            content="你好", usage={"input_tokens": 2}, finish_reason="end_turn",
+        )
+        bus = EventBus()
+        seen = []
+        bus.subscribe(PromptRendered, lambda e: seen.append(e))
+        state: dict = {}
+        view = NodeView(node="P01", state=state)
+        result = await call_harness(
+            HarnessConfig(prompt_core="翻译：{text}", output_format=OutputFormat(type="text")),
+            {"text": "hello"},
+            llm_client=mock_llm,
+            event_bus=bus,
+            view=view,
+        )
+        assert result.value == "你好"
+        assert seen and all(e.node == "P01" for e in seen)   # 事件归属真实节点
+        assert state["_prompt"] == "翻译：hello"             # 合并回真实状态
+        assert state["_llm_raw"] == "你好"
+        assert state["_usage"] == {"input_tokens": 2}
+
+    @pytest.mark.asyncio
+    async def test_view_without_state_falls_back_to_local(self, mock_llm):
+        """view.state None（引擎外合成视图）→ 回落局部 dict，不炸不外泄。"""
+        mock_llm.complete.return_value = LLMResponse(
+            content="hi", usage={}, finish_reason="end_turn",
+        )
+        view = NodeView(node="P01", state=None)
+        result = await call_harness(
+            HarnessConfig(prompt_core="P：{x}"),
+            {"x": "1"},
+            llm_client=mock_llm,
+            view=view,
+        )
+        assert result.value == "hi"
+        assert result.raw == "hi"   # 诊断链仍可从局部 dict 读回
+
+    @pytest.mark.asyncio
+    async def test_error_chain_is_this_call_only(self, mock_llm):
+        """多调用节点共享状态：失败诊断不得读到上一调用残留的 raw/usage；
+        合并只写 body 实际写过的键，上一调用残留原样保留。"""
+        mock_llm.complete = AsyncMock(side_effect=LLMError("API 不可用"))
+        state: dict = {"_llm_raw": "上一调用的输出", "_usage": {"input_tokens": 9}}
+        view = NodeView(node="Repair", state=state)
+        with pytest.raises(HarnessCallError) as ei:
+            await call_harness(
+                HarnessConfig(prompt_core="修 {p}"),
+                {"p": "p02"},
+                llm_client=mock_llm,
+                view=view,
+            )
+        err = ei.value
+        assert err.raw is None                          # 本调用无输出
+        assert err.usage is None                        # 不得串上一调用的用量
+        assert err.prompt == "修 p02"
+        assert state["_llm_raw"] == "上一调用的输出"     # 残留不被清除
+        assert state["_usage"] == {"input_tokens": 9}
+        assert state["_llm_error"] == "API 不可用"       # 本调用的错误进了真实状态
+        assert state["_prompt"] == "修 p02"
