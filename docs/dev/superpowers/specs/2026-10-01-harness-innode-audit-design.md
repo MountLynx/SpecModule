@@ -78,15 +78,20 @@ feed 查询层）。
   - `node` 取 `view.node`（引擎传入的图节点裸 key，如 `"P01"`；防御性
     剥前缀是 llm_nodes 页 id 派生的既有约定，事件归属用原值，与原生
     harness 节点行为一致）；
-  - `state` 取 `view.state`（engine 的 `_NodeStateView`，读写透传、
-    底层即记录捕获的 dict；`view.state is None` 的合成视图场景回落
-    局部 dict，与 harness body 的 `state is not None` 约定一致）；
+  - `state`：**本调用状态隔离 + 完成后合并回**——新局部 dict 承接
+    harness body 的写入，调用完成后合并回 `view.state`（真实
+    NodeState，记录在节点体返回后捕获，合并时点早于捕获；标准键
+    last-call-wins）。理由：harness body 只写不读 state，隔离后
+    `HarnessCallError`/`HarnessCallResult` 的诊断读回严格是**本调用**
+    的值——多调用节点（repair/image）共享节点状态，若直接透写
+    view.state，失败条目会读到上一调用残留的 `_llm_raw`/`_usage`
+    （错归属审计数据）；合并只写 body 实际写入过的键，不动调用方
+    状态里的其他键。
   - 占位符解析仍由 `values` 构造合成 fields/resolved——harness body 的
     prompt 占位符语义不变，真实视图的 bind（如页节点的
     plan/calibration）**不**进占位符解析。
-- `HarnessCallError` 诊断链（prompt/raw/usage）从 state 读回，两种形态
-  统一；`_NodeStateView` 已具备 `get`/`__getitem__`（engine.py:423 实查），
-  读回无需适配。
+- `HarnessCallError` 诊断链（prompt/raw/usage）从**本调用隔离 dict**
+  读回，两种形态统一，多调用不串音。
 - `HarnessCallResult` 结构不变（value/raw/usage）。
 
 ## 4. 六工厂改造 — `example/ppt_master/llm_nodes.py`
