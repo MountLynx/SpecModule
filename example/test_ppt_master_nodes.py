@@ -153,6 +153,7 @@ def test_image_node_writes_ai_row_to_planned_file(env):
     assert calls[0]["usage"] == {"total_tokens": 7}
     assert calls[0]["image_path"] == str(env / "images" / "cover_hero.png")
     assert calls[0]["raw"] is None
+    assert "granule hero" in calls[0]["prompt"]   # 图像模式的渲染 prompt 也入账
 
 
 def test_repair_node_round_limit(env):
@@ -280,3 +281,21 @@ def test_image_node_records_failure_entry(env):
     assert calls[0]["error"] == "image api down"
     assert calls[0]["usage"] is None
     assert "image_path" not in calls[0]
+
+
+def test_repair_rounds_do_not_pollute_previous_record(env):
+    """跨 firing 快照保真：引擎 record 浅拷贝状态下，第 2 轮条目不得
+    追进第 1 轮已捕获记录共享的 list（rebind 不 append）。"""
+    (env / "spec_lock.md").write_text("# lock\npalette: #000000\n", encoding="utf-8")
+    repair = make_repair_node(OkClient("<svg/>"), max_rounds=2)
+    verdict = {"ok": False, "issues": [{"page": "p01", "message": "溢出"}]}
+    view = _View("FinalRepair", {"verdict": verdict, "calibration": "{}"})
+    _run(repair(view))                          # 第 1 轮
+    round1_snapshot = dict(view.state)          # 引擎 record 的浅拷贝语义
+    _run(repair(view))                          # 第 2 轮（同视图续跑）
+    assert len(round1_snapshot["_llm_calls"]) == 1    # 上一轮记录未被追溯污染
+    assert len(view.state["_llm_calls"]) == 2
+    # 顺带钉成功条目形态（质量审 Minor-2）：raw=SVG、无 error 键
+    assert round1_snapshot["_llm_calls"][0]["raw"] == "<svg/>"
+    assert "error" not in round1_snapshot["_llm_calls"][0]
+    assert round1_snapshot["_llm_calls"][0]["prompt"]

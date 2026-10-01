@@ -51,6 +51,7 @@ def _record_llm_call(view: Any, *, raw: str | None = None,
     （in-node 透传下合并回的即本次值）；raw/usage 成功取 HarnessCallResult、
     失败取 HarnessCallError 诊断链；error 记失败原因；extra 补调用形态
     字段（如 image_path）。合成视图无状态（state 缺失/None）→ 跳过。
+    浅拷贝安全：rebind 新 list 而非原地 append（引擎 record 浅拷贝共享可变对象）。
     """
     state = getattr(view, "state", None)
     if state is None:
@@ -64,7 +65,10 @@ def _record_llm_call(view: Any, *, raw: str | None = None,
     if error is not None:
         entry["error"] = error
     entry.update(extra)
-    calls.append(entry)
+    # rebind 不 append：引擎 record 是浅拷贝，原地 append 会把本轮条目
+    # 追进上一轮已捕获记录共享的同一 list——rebind 让每轮记录各自持有
+    # 点内快照（tickflow state.py mutable_state/record 均浅拷贝）
+    state["_llm_calls"] = [*calls, entry]
 
 
 def _node_name(view: Any) -> str:
