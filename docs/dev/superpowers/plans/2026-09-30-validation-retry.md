@@ -838,6 +838,22 @@ git commit -m "feat(orchestrate): validate_retries 传播链补全——task 级
     为最后一次有输出的尝试（出错尝试无输出，错误本身见 failure.error）。
 ```
 
+- [ ] **Step 2c: translator 缺口注释 + spec 非目标补记（Task 5 质量审查折入，均文档类）** — 两处：
+
+(a) `module_harness/model/translator.py` 的 `_call_harness_translator` 中 prompt_core 覆盖分支的 `overridden = HarnessConfig(` 之前加一行注释（防未来读者修一半）：
+
+```python
+                # 既有缺口（见 plan 2026-09-30-validation-retry.md）：此处
+                # 重建 config 不携带 mode/image_*/validate_retries——修时四字段一起补
+```
+
+(b) 设计 spec `docs/dev/superpowers/specs/2026-09-30-validation-retry-design.md` 的"非目标"列表（§0）末尾补一条 bullet（记录排除决定，spec 为长期文档）：
+
+```markdown
+- translator.py prompt_core 覆盖分支的既有字段丢弃维持现状（该分支本就不携带
+  mode/image_*；修时与 validate_retries 四字段一起补）
+```
+
 - [ ] **Step 3: 全量回归**
 
 Run: `python -m pytest module_harness/tests/ -q`
@@ -846,8 +862,8 @@ Expected: 全绿（缺省 0 保证既有消费方零行为变化——academic_w
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/references/spec-harness-syntax.md docs/guides/config-guide.md module_harness/core/call.py
-git commit -m "docs(spec): validate_retries 字段文档同步——字段表/校验重试小节/call 层 error-path 澄清"
+git add docs/references/spec-harness-syntax.md docs/guides/config-guide.md docs/dev/superpowers/specs/2026-09-30-validation-retry-design.md module_harness/core/call.py module_harness/model/translator.py
+git commit -m "docs(spec): validate_retries 文档同步——字段表/校验重试小节/call 层 error-path 澄清/translator 缺口注释与 spec 非目标补记"
 ```
 
 ---
