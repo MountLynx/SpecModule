@@ -1,6 +1,6 @@
 # SpecModule 开发进度与路线
 
-> 最后更新：2026-09-01（嵌入者消费面落地：call_harness task 级地板 + reviewer 瘦身 + 嵌入者契约/指南）
+> 最后更新：2026-10-01（call_harness 节点内形态：LLM 链进审计）
 
 ## 战略定位（当前仓库 = 库）
 
@@ -95,7 +95,7 @@ CLI 双身份：既是使用者最基础入口，也是开发者终端工作台�
   event_bus 可选（收流式 token），缺省 null。~40 行。API 金字塔自此 **task → graph → run**，
   三种形式各取一层。提炼依据（规则 6，三消费者）：ConsistencyReviewer 瘦身（已存在）+
   学术写作实践线应用层（规划中）+ 嵌入式定位（战略）。先例：SubModule 双身份（可独立运行 /
-  可作节点）→ Harness 同样双身份（可作节点 body / 可独立调用）
+  可作节点）→ Harness 同样双身份（可作节点 body / 可独立调用）；**节点内形态 `view=`**（2026-10-01）：事件归属与 LLM 状态链（`_prompt`/`_llm_raw`/`_usage`/`_llm_calls`）进 NodeState 审计，设计见 docs/dev/superpowers/specs/2026-10-01-harness-innode-audit-design.md
 - [x] **API 稳定化冻结面纳入嵌入者契约**：`__all__` 注释标注嵌入者最小面（正式冻结归收口）
 - [x] **宿主事件语义（已有一半，归位）**：`decouple-embed-events-from-records`——宿主传 bus
   选择性订阅、不传零开销；归属嵌入者名义

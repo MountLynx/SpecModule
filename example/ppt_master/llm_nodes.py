@@ -5,6 +5,11 @@ AND join 永不点火（饥饿）。页/规划节点必须"永不 Failure"——
 为失败收据 dict，由质量门/校验节点判定。工厂捕获 llm_client（注册期闭包），
 避免模块级全局（多 Module 同进程 namespace 隔离，架构规则 4）。
 
+LLM 链审计（in-node 透传，spec 2026-10-01）：call_harness(view=view) 把
+事件归属与 state 写入（_prompt/_llm_raw/_usage）接到真实节点——单调用
+节点零额外代码；repair/image 一节点多调用，全量轨迹（含失败尝试）累积在
+_llm_calls（_record_llm_call），标准键 last-call-wins。
+
 页 SVG 落盘命名 = ``svg_output/page_<页id>.svg``（Task 1 四件套实测锁定，
 checker→finalize→export 全链已验证），统一走 :func:`_page_svg_path`。
 """
