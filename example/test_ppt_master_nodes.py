@@ -224,4 +224,59 @@ def test_repair_node_accumulates_llm_calls(env):
     assert all(c["error"] == "network down" for c in calls)
     assert all(c["raw"] is None for c in calls)
     assert all(c["prompt"] for c in calls)
+    assert calls[0]["prompt"] != calls[1]["prompt"]   # 两页 prompt 确实不同
     assert view.state["_prompt"] == calls[1]["prompt"]
+
+
+class JunkRepairClient(OkClient):
+    """规划收据正常、修复输出非 SVG——钉 repair 非 SVG 分支的审计条目。"""
+
+    async def complete(self, **kw):
+        from llm.client import LLMResponse
+
+        if "roster_ids" in kw.get("prompt", ""):
+            return await super().complete(**kw)
+        return LLMResponse(content="这不是 SVG", usage={"input_tokens": 3})
+
+
+def test_repair_node_records_non_svg_rejection(env):
+    """修复输出非 SVG：调用真实发生——条目带 raw 与 error，页进 failed。"""
+    (env / "spec_lock.md").write_text("# lock\npalette: #000000\n", encoding="utf-8")
+    repair = make_repair_node(JunkRepairClient("<svg/>"), max_rounds=2)
+    verdict = {"ok": False, "issues": [{"page": "p01", "message": "溢出"}]}
+    view = _View("FinalRepair", {"verdict": verdict, "calibration": "{}"})
+    out = _run(repair(view))
+    assert out["status"] == "ok" and len(out["failed"]) == 1
+    assert out["failed"][0]["error"] == "修复输出非 SVG"
+    calls = view.state["_llm_calls"]
+    assert len(calls) == 1
+    assert calls[0]["error"] == "修复输出非 SVG"
+    assert calls[0]["raw"] == "这不是 SVG"
+    assert calls[0]["usage"] == {"input_tokens": 3}
+
+
+class BoomImageClient:
+    """generate_image 抛 LLMError——钉 image 失败分支的审计条目。"""
+
+    async def generate_image(self, **kw):
+        from llm.client import LLMError
+
+        raise LLMError("image api down")
+
+
+def test_image_node_records_failure_entry(env):
+    """图像调用失败：条目带 error、usage 为 None（本调用无产出）、行标 Needs-Manual。"""
+    from example.ppt_master.llm_nodes import make_image_node
+
+    node = make_image_node(BoomImageClient())
+    view = _View("ImageAcquire", {"plan": {"image_rows": [
+        {"page": "p01", "name": "hero", "file": "images/cover_hero.png",
+         "acquire": "ai", "prompt": "granule hero", "status": "pending"},
+    ]}})
+    out = _run(node(view))
+    assert out["rows"][0]["status"] == "Needs-Manual"
+    calls = view.state["_llm_calls"]
+    assert len(calls) == 1
+    assert calls[0]["error"] == "image api down"
+    assert calls[0]["usage"] is None
+    assert "image_path" not in calls[0]
