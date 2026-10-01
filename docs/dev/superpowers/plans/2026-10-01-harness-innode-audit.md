@@ -44,7 +44,7 @@ python -m pytest example/ -q                                   # 全量回归
 - Modify: `module_harness/tests/test_call.py`（文件末尾追加测试类）
 - Modify: `module_harness/core/call.py:53-102`（`call_harness` 签名与函数体）
 
-- [ ] **Step 1: 写失败测试** — 在 `module_harness/tests/test_call.py` 末尾追加（文件顶部 import 区补充一行 `NodeView` 导入：`from tickflow.views import NodeView`）：
+- [x] **Step 1: 写失败测试** — 在 `module_harness/tests/test_call.py` 末尾追加（文件顶部 import 区补充一行 `NodeView` 导入：`from tickflow.views import NodeView`）：
 
 ```python
 class TestCallHarnessInView:
@@ -113,7 +113,7 @@ class TestCallHarnessInView:
         assert state["_prompt"] == "修 p02"
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 python -m pytest module_harness/tests/test_call.py::TestCallHarnessInView -q
@@ -121,7 +121,7 @@ python -m pytest module_harness/tests/test_call.py::TestCallHarnessInView -q
 
 预期：3 个测试全部 ERROR/FAIL，`TypeError: call_harness() got an unexpected keyword argument 'view'`。
 
-- [ ] **Step 3: 实现** — `module_harness/core/call.py` 两处修改。
+- [x] **Step 3: 实现** — `module_harness/core/call.py` 两处修改。
 
 （a）签名加参数：
 
@@ -211,7 +211,7 @@ async def call_harness(
 
 （其后 `if isinstance(result, Failure):` 起不变。）`NodeView`/`Resolved` 导入已存在（call.py 头部），无需新增。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 python -m pytest module_harness/tests/test_call.py -q
@@ -219,7 +219,7 @@ python -m pytest module_harness/tests/test_call.py -q
 
 预期：全部 PASS（含既有 `TestCallHarnessEvents.test_events_collected_when_bus_passed` 的 `node == "__call__"` 独立形态回归钉子）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add module_harness/core/call.py module_harness/tests/test_call.py
@@ -235,7 +235,7 @@ git commit -m "feat(call): call_harness 节点内形态 view=——事件归属�
 - Modify: `example/test_ppt_master_nodes.py:67-75`（`_View`）+ 文件末尾追加测试
 - Modify: `example/ppt_master/llm_nodes.py`（`make_plan_node` / `make_research_node` / `make_page_node` / `make_notes_node` 各一处 call_harness 调用）
 
-- [ ] **Step 1: 写失败测试** — `example/test_ppt_master_nodes.py` 两处修改。
+- [x] **Step 1: 写失败测试** — `example/test_ppt_master_nodes.py` 两处修改。
 
 （a）`_View` 加 `state`（graph 视图本就带状态；in-node 透传经它归属事件与审计）：
 
@@ -275,7 +275,7 @@ def test_page_node_llm_chain_lands_in_node_state(env):
     assert "_llm_raw" not in bad_view.state
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 python -m pytest example/test_ppt_master_nodes.py::test_page_node_llm_chain_lands_in_node_state -q
@@ -283,7 +283,7 @@ python -m pytest example/test_ppt_master_nodes.py::test_page_node_llm_chain_land
 
 预期：FAIL，`KeyError: '_llm_raw'`（现状 call_harness 不接 view，写入一次性 dict）。
 
-- [ ] **Step 3: 实现** — `llm_nodes.py` 四个工厂的 `call_harness(...)` 调用各加一行 `view=view,`（按各函数内锚点行定位）：
+- [x] **Step 3: 实现** — `llm_nodes.py` 四个工厂的 `call_harness(...)` 调用各加一行 `view=view,`（按各函数内锚点行定位）：
 
 `make_plan_node`（锚点 `prompt_extra=pc.plan_prompt_pack(),`）：
 
@@ -324,7 +324,7 @@ python -m pytest example/test_ppt_master_nodes.py::test_page_node_llm_chain_land
             )
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 python -m pytest example/test_ppt_master_nodes.py -q
@@ -332,7 +332,7 @@ python -m pytest example/test_ppt_master_nodes.py -q
 
 预期：全部 PASS（既有收据断言零改动回归）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add example/ppt_master/llm_nodes.py example/test_ppt_master_nodes.py
@@ -348,7 +348,7 @@ git commit -m "feat(ppt_master): 单调用 LLM 节点（plan/research/page/notes
 - Modify: `example/test_ppt_master_nodes.py`（repair 累积测试 + image 测试补断言）
 - Modify: `example/ppt_master/llm_nodes.py`（`_record_llm_call` 助手 + `make_repair_node` / `make_image_node` 接线）
 
-- [ ] **Step 1: 写失败测试** — `example/test_ppt_master_nodes.py` 两处修改。
+- [x] **Step 1: 写失败测试** — `example/test_ppt_master_nodes.py` 两处修改。
 
 （a）文件末尾追加：
 
@@ -384,7 +384,7 @@ def test_repair_node_accumulates_llm_calls(env):
     assert calls[0]["raw"] is None
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 python -m pytest example/test_ppt_master_nodes.py -q
@@ -392,7 +392,7 @@ python -m pytest example/test_ppt_master_nodes.py -q
 
 预期：两个测试 FAIL，`KeyError: '_llm_calls'`。
 
-- [ ] **Step 3: 实现** — `llm_nodes.py` 三处修改。
+- [x] **Step 3: 实现** — `llm_nodes.py` 三处修改。
 
 （a）在 `_page_svg_path` 函数之后新增模块级助手：
 
@@ -483,7 +483,7 @@ def _record_llm_call(view: Any, *, raw: str | None = None,
                 row = {**row, "status": "Needs-Manual", "error": str(e)}
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 python -m pytest example/test_ppt_master_nodes.py -q
@@ -491,7 +491,7 @@ python -m pytest example/test_ppt_master_nodes.py -q
 
 预期：全部 PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add example/ppt_master/llm_nodes.py example/test_ppt_master_nodes.py
@@ -506,7 +506,7 @@ git commit -m "feat(ppt_master): repair/image 多调用节点 _llm_calls 累积�
 
 - Modify: `example/test_ppt_master_e2e.py`（文件末尾追加两个测试）
 
-- [ ] **Step 1: 写测试** — 文件末尾追加（这两个测试在 Task 1-3 未实施前必然失败，是跨层集成钉子；实施后应直接通过）：
+- [x] **Step 1: 写测试** — 文件末尾追加（这两个测试在 Task 1-3 未实施前必然失败，是跨层集成钉子；实施后应直接通过）：
 
 ```python
 def test_llm_chain_lands_in_node_state(tmp_path, monkeypatch):
@@ -551,7 +551,7 @@ def test_llm_events_attribute_to_real_nodes(tmp_path, monkeypatch):
     assert "Plan" in nodes and "P01" in nodes
 ```
 
-- [ ] **Step 2: 跑测试确认通过**
+- [x] **Step 2: 跑测试确认通过**
 
 ```bash
 python -m pytest example/test_ppt_master_e2e.py -q
@@ -559,7 +559,7 @@ python -m pytest example/test_ppt_master_e2e.py -q
 
 预期：全部 PASS（含既有 `test_full_pipeline_mock`）。若 FAIL：firings 无 `_prompt` → 查 Task 2 四工厂是否都加了 `view=view`；事件仍 `__call__` → 查 Task 1 的 `node_name` 分支。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add example/test_ppt_master_e2e.py
@@ -575,7 +575,7 @@ git commit -m "test(ppt_master): 全链 e2e 钉 LLM 审计三层贯通——muta
 - Modify: `example/ppt_master/llm_nodes.py:1-10`（模块 docstring）
 - Modify: `docs/dev/progress/module-roadmap.md:93`（call_harness 条目）
 
-- [ ] **Step 1: llm_nodes 模块 docstring 补审计说明** — 在 docstring 第一段（"为什么是 script 不是裸 harness……架构规则 4）。"）之后插入：
+- [x] **Step 1: llm_nodes 模块 docstring 补审计说明** — 在 docstring 第一段（"为什么是 script 不是裸 harness……架构规则 4）。"）之后插入：
 
 ```
 
@@ -585,7 +585,7 @@ LLM 链审计（in-node 透传，spec 2026-10-01）：call_harness(view=view) �
 _llm_calls（_record_llm_call），标准键 last-call-wins。
 ```
 
-- [ ] **Step 2: roadmap 条目补一笔** — `docs/dev/progress/module-roadmap.md` 中 `- [x] **task 级 API 地板 call_harness**` 行（约 93 行）行尾追加：
+- [x] **Step 2: roadmap 条目补一笔** — `docs/dev/progress/module-roadmap.md` 中 `- [x] **task 级 API 地板 call_harness**` 行（约 93 行）行尾追加：
 
 ```markdown
 ；**节点内形态 `view=`**（2026-10-01）：事件归属与 LLM 状态链（`_prompt`/`_llm_raw`/`_usage`/`_llm_calls`）进 NodeState 审计，设计见 docs/dev/superpowers/specs/2026-10-01-harness-innode-audit-design.md
@@ -593,7 +593,7 @@ _llm_calls（_record_llm_call），标准键 last-call-wins。
 
 并把该文件头部 `> 最后更新：2026-09-01（…）` 改为 `> 最后更新：2026-10-01（call_harness 节点内形态：LLM 链进审计）`。
 
-- [ ] **Step 3: 全量回归**
+- [x] **Step 3: 全量回归**
 
 ```bash
 python -m pytest module_harness/tests/ -q
@@ -602,7 +602,7 @@ python -m pytest example/ -q
 
 预期：两个套件全部 PASS、0 failed。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add example/ppt_master/llm_nodes.py docs/dev/progress/module-roadmap.md
