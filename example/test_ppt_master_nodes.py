@@ -65,11 +65,13 @@ def env(tmp_path, monkeypatch):
 
 
 class _View:
-    """假视图：script body 只消费 .node 属性与 .field(k) 方法。"""
+    """假视图：script body 消费 .node 属性、.field(k) 方法与 .state
+    （in-node 透传后 call_harness 经它归属事件与审计状态）。"""
 
     def __init__(self, node, fields):
         self._f = fields
         self.node = node
+        self.state = {}
 
     def field(self, k):
         return self._f[k]
@@ -177,3 +179,22 @@ def test_repair_node_namespaced_name_resolves_early_stage(env):
     assert "early" in out.error and "超过上限" in out.error
     # 计数确实记进 early 桶（而非另开 final 桶）
     assert json.loads(rounds.read_text(encoding="utf-8")) == {"early": 3}
+
+
+def test_page_node_llm_chain_lands_in_node_state(env):
+    """in-node 透传：LLM 全链审计键（_prompt/_llm_raw/_usage）落在节点状态；
+    失败路径 _llm_error 入状态、无残留 raw（不串上一调用）。"""
+    (env / "spec_lock.md").write_text("# lock\npalette: #000000\n", encoding="utf-8")
+    svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'></svg>"
+    view = _View("P01", {"plan": {"status": "ok"}, "calibration": "{}"})
+    out = _run(make_page_node(OkClient(svg))(view))
+    assert out["status"] == "ok"
+    assert view.state["_llm_raw"] == svg
+    assert isinstance(view.state["_usage"], dict)
+    assert view.state["_prompt"]
+
+    bad_view = _View("P01", {"plan": {"status": "ok"}, "calibration": "{}"})
+    out2 = _run(make_page_node(BoomClient(""))(bad_view))
+    assert out2["status"] == "failed"
+    assert bad_view.state["_llm_error"] == "network down"
+    assert "_llm_raw" not in bad_view.state

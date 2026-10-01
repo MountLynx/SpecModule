@@ -63,6 +63,7 @@ def make_plan_node(llm_client: Any, event_bus: Any = None) -> Any:
                 llm_client=llm_client,
                 prompt_extra=pc.plan_prompt_pack(),
                 event_bus=event_bus,
+                view=view,
             )
         except HarnessCallError as e:
             return {"status": "failed", "error": str(e)}
@@ -89,6 +90,7 @@ def make_research_node(llm_client: Any, event_bus: Any = None) -> Any:
                 },
                 llm_client=llm_client,
                 event_bus=event_bus,
+                view=view,
             )
         except HarnessCallError as e:
             return {"status": "failed", "error": str(e)}
@@ -121,6 +123,7 @@ def make_page_node(llm_client: Any, event_bus: Any = None) -> Any:
                 llm_client=llm_client,
                 prompt_extra=pc.page_prompt_pack(),
                 event_bus=event_bus,
+                view=view,
             )
         except HarnessCallError as e:
             return {"status": "failed", "page": page_id, "error": str(e)}
@@ -224,6 +227,7 @@ def make_notes_node(llm_client: Any, event_bus: Any = None) -> Any:
                 llm_client=llm_client,
                 prompt_extra=pc.notes_prompt_pack(),
                 event_bus=event_bus,
+                view=view,
             )
         except HarnessCallError as e:
             return {"status": "failed", "error": str(e)}
