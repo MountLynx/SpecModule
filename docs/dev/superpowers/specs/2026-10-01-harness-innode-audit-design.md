@@ -112,7 +112,22 @@ feed 查询层）。
 | NodeState → records → 持久化 | 只有收据 dict | 收据 + `_prompt` / `_llm_raw` / `_usage` / `_validation_*`；多调用节点另含 `_llm_calls` 全量（含失败尝试） |
 | 查询层（`specmodule review` / feed） | state 查询为空 | `state.<node>._llm_raw` 等现成查询直接可用 |
 
-## 6. 不变式
+## 6. 生态影响（SpecModule_webview）
+
+改造落地的 webview 受益分两档（`SpecModule_webview` 为独立消费仓库，
+本设计只保证数据面正确，展示面归彼处迭代）：
+
+1. **零改动立即可见**：webview 前端 `ws.ts` 按 `r.node` 索引
+   token/thinking 记录、RunView 节点面板已有实时流展示——现状
+   ppt_master 的事件全记 `"__call__"`（图上不存在的节点，点击任何真实
+   节点均无流）；改后记录带真实节点名，逐节点实时 token/思考流即活。
+2. **数据到位、展示待追加**：`GET /api/runs/{id}/status` 载荷已透传
+   `node_states`（= mutable state），`_prompt`/`_llm_raw`/`_usage`/
+   `_llm_calls` 随载荷可达前端；渲染完整 LLM 链（终态后查看 prompt/
+   原始输出全文）需 webview 侧薄层追加（端点或节点面板小节；库侧
+   `query_value` 的 `state.<node>.*` 寻址已现成，1:1 包一层即可）。
+
+## 7. 不变式
 
 - **收据结构不变**：六工厂返回的 receipt dict 逐字段不动（被
   example/test_ppt_master_* 大量断言钉死）。
@@ -122,7 +137,7 @@ feed 查询层）。
 - **图结构不变**：tasklist / 翻译器 / 门 / 守卫 / OR-join 全不动。
 - **tickflow 零依赖**：纯 module_harness + example 改动。
 
-## 7. 测试策略
+## 8. 测试策略
 
 1. **module_harness 层单测**（新增，`module_harness/tests/`）：
    - 传 `view`：事件 `node` == `view.node`；state 写入调用方提供的
