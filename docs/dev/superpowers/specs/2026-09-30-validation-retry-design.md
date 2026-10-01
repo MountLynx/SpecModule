@@ -1,8 +1,8 @@
 # 校验失败带反馈重试设计 — HarnessConfig.validate_retries
 
 > 日期：2026-09-30
-> 状态：设计已确认（brainstorm 两案：宿主=build_body 单配方 / 终态=失败收据不中止），
-> 待实施
+> 状态：已实施（2026-10-01，实施计划：`docs/dev/superpowers/plans/2026-09-30-validation-retry.md`；
+> 设计确认时 brainstorm 两案：宿主=build_body 单配方 / 终态=失败收据不中止）
 > 关联：`module_harness/core/config.py`（HarnessConfig）/ `core/harness.py`
 > （build_body）/ `core/call.py`（call_harness）/ `model/spec.py`
 > （TaskDefinition）/ `orchestrate/graph_builder.py`（task 级覆盖）；
@@ -113,8 +113,9 @@ while True:
 - **事件**：每次尝试发完整事件链（PromptRendered / LlmCallStarted /
   LlmToken / OutputValidated…）——重试在审计里自然表现为多次调用，节点
   state 另记 `_validation_attempts`（实际 LLM 调用次数）与
-  `_validation_retry_errors`（历次校验错误列表），进 `NodeState.
-  mutable_state` 审计链。
+  `_validation_retry_errors`（触发重试的历次校验错误列表；预算耗尽的最后
+  一次错误不在列表内——它在返回的 Failure 与 failed `OutputValidated`
+  事件中），进 `NodeState.mutable_state` 审计链。
 - **HarnessCallResult**（call.py）：`usage` 改为**累计**（各次 attempt 之
   和），`raw` 为**最后一次**尝试的原始输出；docstring 写明。图内节点路径
   的 `_usage` state 键同步累计语义。
