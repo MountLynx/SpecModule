@@ -35,6 +35,33 @@ def _page_svg_path(root: Path, page_id: str) -> Path:
     return root / "svg_output" / f"page_{page_id}.svg"
 
 
+def _record_llm_call(view: Any, *, raw: str | None = None,
+                     usage: dict[str, int] | None = None,
+                     error: str | None = None, **extra: Any) -> None:
+    """多调用节点累积审计：本次 LLM 调用追加进节点状态 ``_llm_calls``。
+
+    单调用节点 harness body 原生写标准键（_prompt/_llm_raw/_usage），无需
+    累积；repair/image 一节点多次 LLM 调用，标准键 last-call-wins，全量
+    轨迹（含失败尝试）在 ``_llm_calls``。prompt 取 view.state 的 _prompt
+    （in-node 透传下合并回的即本次值）；raw/usage 成功取 HarnessCallResult、
+    失败取 HarnessCallError 诊断链；error 记失败原因；extra 补调用形态
+    字段（如 image_path）。合成视图无状态（state 缺失/None）→ 跳过。
+    """
+    state = getattr(view, "state", None)
+    if state is None:
+        return
+    calls = state.get("_llm_calls")
+    if not isinstance(calls, list):
+        calls = []
+        state["_llm_calls"] = calls
+    entry: dict[str, Any] = {"prompt": state.get("_prompt"), "raw": raw,
+                             "usage": usage}
+    if error is not None:
+        entry["error"] = error
+    entry.update(extra)
+    calls.append(entry)
+
+
 def _node_name(view: Any) -> str:
     """视图节点裸名（末段），page id 派生与 repair stage 判定共用此一约定。
 
@@ -187,15 +214,21 @@ def make_repair_node(llm_client: Any, event_bus: Any = None, max_rounds: int = 2
                     llm_client=llm_client,
                     prompt_extra=pc.repair_prompt_pack(),
                     event_bus=event_bus,
+                    view=view,
                 )
             except HarnessCallError as e:
+                _record_llm_call(view, raw=e.raw, usage=e.usage,
+                                 error=str(e.failure.error))
                 failed.append({"page": page_id, "error": str(e)})
                 continue
             svg = result.value
             if not isinstance(svg, str) or "<svg" not in svg:
+                _record_llm_call(view, raw=result.raw, usage=result.usage,
+                                 error="修复输出非 SVG")
                 failed.append({"page": page_id, "error": "修复输出非 SVG"})
                 continue
             _write_text(_page_svg_path(root, page_id), svg)
+            _record_llm_call(view, raw=result.raw, usage=result.usage)
             repaired.append(page_id)
         return {"status": "ok", "stage": stage, "round": rounds[stage],
                 "repaired": repaired, "failed": failed, "skipped": skipped}
@@ -259,6 +292,7 @@ def make_image_node(llm_client: Any, event_bus: Any = None) -> Any:
                     {"image_prompt": row.get("prompt", "")},
                     llm_client=llm_client,
                     event_bus=event_bus,
+                    view=view,
                 )
                 # 生成物对齐 plan 行声明的规范路径：页 SVG 按 lock 引用
                 # images/<file>，harness 落盘却是 __call__-<ns>.png 随机名
@@ -271,7 +305,9 @@ def make_image_node(llm_client: Any, event_bus: Any = None) -> Any:
                     row = {**row, "status": "terminal", "file": str(dest)}
                 else:
                     row = {**row, "status": "terminal", "file": str(generated)}
+                _record_llm_call(view, usage=result.usage, image_path=row["file"])
             except HarnessCallError as e:
+                _record_llm_call(view, usage=e.usage, error=str(e.failure.error))
                 row = {**row, "status": "Needs-Manual", "error": str(e)}
             out_rows.append(row)
         return {"status": "ok", "rows": out_rows}

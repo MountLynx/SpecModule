@@ -147,6 +147,12 @@ def test_image_node_writes_ai_row_to_planned_file(env):
     assert client.calls and client.calls[0]["prompt"] == "granule hero"
     assert rows[1] == {"page": "p04", "name": "fig1", "file": "images/fig1.png",
                        "acquire": "user", "status": "ready"}
+    # in-node 审计：图像调用入 _llm_calls（raw=None、image_path=规范路径）
+    calls = view.state["_llm_calls"]
+    assert len(calls) == 1
+    assert calls[0]["usage"] == {"total_tokens": 7}
+    assert calls[0]["image_path"] == str(env / "images" / "cover_hero.png")
+    assert calls[0]["raw"] is None
 
 
 def test_repair_node_round_limit(env):
@@ -183,7 +189,8 @@ def test_repair_node_namespaced_name_resolves_early_stage(env):
 
 def test_page_node_llm_chain_lands_in_node_state(env):
     """in-node 透传：LLM 全链审计键（_prompt/_llm_raw/_usage）落在节点状态；
-    失败路径 _llm_error 入状态、无残留 raw（不串上一调用）。"""
+    失败路径 _llm_error 入状态、本调用不写 _llm_raw（跨调用不串音由
+    test_repair_node_accumulates_llm_calls 以共享视图钉死）。"""
     (env / "spec_lock.md").write_text("# lock\npalette: #000000\n", encoding="utf-8")
     svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'></svg>"
     view = _View("P01", {"plan": {"status": "ok"}, "calibration": "{}"})
@@ -198,3 +205,23 @@ def test_page_node_llm_chain_lands_in_node_state(env):
     assert out2["status"] == "failed"
     assert bad_view.state["_llm_error"] == "network down"
     assert "_llm_raw" not in bad_view.state
+
+
+def test_repair_node_accumulates_llm_calls(env):
+    """一节点多调用：_llm_calls 全量轨迹（含失败尝试），失败条目不串音；
+    标准键 last-call-wins（最后一次调用的 _prompt 留在节点状态）。"""
+    (env / "spec_lock.md").write_text("# lock\npalette: #000000\n", encoding="utf-8")
+    repair = make_repair_node(BoomClient("<svg/>"), max_rounds=2)
+    verdict = {"ok": False, "issues": [
+        {"page": "p01", "message": "溢出"},
+        {"page": "p02", "message": "渐变"},
+    ]}
+    view = _View("FinalRepair", {"verdict": verdict, "calibration": "{}"})
+    out = _run(repair(view))
+    assert out["status"] == "ok" and len(out["failed"]) == 2
+    calls = view.state["_llm_calls"]
+    assert len(calls) == 2
+    assert all(c["error"] == "network down" for c in calls)
+    assert all(c["raw"] is None for c in calls)
+    assert all(c["prompt"] for c in calls)
+    assert view.state["_prompt"] == calls[1]["prompt"]
