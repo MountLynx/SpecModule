@@ -95,7 +95,7 @@ provider），`models[0]` 为默认 model。**按模型路由**：每次 LLM 调
 |------|---------|------|
 | **CLI**（`run` 等） | 自动：项目根 → store 家目录 | 无需手动构造；`setup` 写 store 级 `.env` + `config.json` |
 | **编程 API** | `LLMConfig.from_env()` / 显式传参 | 嵌入宿主自持配置（见 `guides/embedding.md`） |
-| **harness 覆盖** | `HarnessConfig(model/temperature/think/api_params)` | 单节点覆盖 LLM 默认参数；`api_params` 按 SDK 官方格式透传，优先级最高 |
+| **harness 覆盖** | `HarnessConfig(model/temperature/think/api_params/validate_retries)` | 单节点覆盖 LLM 默认参数与校验重试预算；`api_params` 按 SDK 官方格式透传，优先级最高 |
 
 ## 常见问题
 

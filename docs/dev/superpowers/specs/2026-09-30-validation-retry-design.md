@@ -42,6 +42,8 @@ LLM 输出校验失败是**随机性**失败——同一 prompt 重问常可自�
 - 包装调用的 LLM 层审计归属（`__call__` 事件归属、raw/usage 进节点
   record——已知独立缺口，另案）；
 - 降温/换模型重试（YAGNI）。
+- translator.py prompt_core 覆盖分支的既有字段丢弃维持现状（该分支本就不携带
+  mode/image_*；修时与 validate_retries 四字段一起补）
 
 ## 1. 配置面 — core/config.py
 

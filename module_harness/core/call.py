@@ -70,7 +70,9 @@ async def call_harness(
     失败（LLM 错误 / 输出校验不通过）抛 HarnessCallError，携带 failure 与
     渲染 prompt / 原始输出 / usage 诊断链。``validate_retries > 0`` 时校验
     失败在 body 内带反馈重问：``prompt`` 为最后一次尝试的实际 prompt（含
-    反馈段）、``raw`` 为最后一次原始输出、``usage`` 为各次尝试之和。task
+    反馈段）、``raw`` 为最后一次原始输出、``usage`` 为各次尝试之和。LLM
+    错误路径：``prompt`` 仍为出错尝试的实际 prompt，``raw``/``usage`` 为
+    最后一次有输出的尝试（出错尝试无输出，错误本身见 failure.error）。task
     层没有"下游跳过"概念，Failure 一律翻译为异常；promptmode 缺 key →
     KeyError 原样冒出。
     """

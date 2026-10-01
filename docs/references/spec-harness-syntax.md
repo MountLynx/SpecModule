@@ -113,6 +113,7 @@ tasklist = Tasklist(
 | `mode` | `str \| None` | 调用形态覆盖：`"image"` = 图像生成节点（缺省 text）。与 `outputformat` 互斥，同设 → 构建期 `ValueError` |
 | `image_size` | `str \| None` | 图像尺寸覆盖，如 `"1024x1024"`；仅 `mode="image"` 生效 |
 | `image_dir` | `str \| None` | 图像落盘目录覆盖（cwd 相对）；图像节点输出为**文件路径字符串** |
+| `validate_retries` | `int \| None` | 输出校验失败带反馈重试次数覆盖；`None`（缺省；显式 null 等同缺省）= 沿用注册 config。显式值须 ≥ 0（TasklistValidator 校验）；`mode="image"` 的 harness 须为 0（合成 config 构建期 `ValueError`） |
 | `inputs` | `dict[str, str] \| None` | `{字段名: 来源}`——来源为节点名或常量 token |
 
 图像产物文件名为 `<节点 key>-<monotonic_ns>.png`——节点 key 需为文件名安全字符（避免 `/`、`:` 等）。
@@ -161,6 +162,8 @@ reg.harness("translate", HarnessConfig(
     think=True,
     # SDK 透传（与独立字段合并，api_params 优先级更高）
     api_params={"thinking": {"type": "enabled"}},
+    # 输出校验失败带反馈重试（0 = 不重试；image 模式须为 0）
+    validate_retries=1,
 ))
 ```
 
@@ -183,6 +186,10 @@ reg.harness("translate", HarnessConfig(
 | `"text"` | 不校验 | 直接返回原文本 |
 
 校验失败时自动尝试修复提取：``` ```json ``` 围栏剥离 → 首个完整 JSON 对象 → 尾部垃圾截断；全部失败 → `Failure`。类型写错（如 `"json"`）在**运行时**报错——框架不兜底。
+
+### 校验重试（validate_retries）
+
+`HarnessConfig.validate_retries`（缺省 0）：输出校验失败时的额外重试次数——每次重试 prompt 追加校验错误反馈段，LLM 参数（model/temperature/think/notdo/api_params）原样保留。预算耗尽返回最后一次的 `Failure(type="llm")`（下游跳过语义不变，不中止 run）。仅作用于输出校验失败；`LLMError`（传输层）不重试（SDK `max_retries` 已管）、不消耗预算。审计：每次尝试发完整事件链，节点 state 记 `_validation_attempts`（实际调用次数）与 `_validation_retry_errors`（触发重试的历次校验错误——预算耗尽的最后一次错误不在列表内，它在返回的 Failure 与 failed `OutputValidated` 事件中），`_usage` 累计、`_llm_raw` 为最后一次输出；`call_harness` 诊断链同语义。
 
 ### 注册方式
 
