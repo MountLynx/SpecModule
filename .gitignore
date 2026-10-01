@@ -13,3 +13,7 @@ build/
 
 # ppt_master 缺省导出目录（projects/<project>/）
 /projects/
+
+# 本地个人配置与竞赛材料（不入库、不入包）
+/config.json
+/docs/competition/
