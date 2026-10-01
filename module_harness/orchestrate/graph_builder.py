@@ -211,6 +211,13 @@ class TasklistTranslator:
                 if task.image_dir is not None
                 else existing.image_dir
             ),
+            # 校验重试预算：task 级覆盖，缺省沿用注册 config——漏掉会让
+            # tasklist 想调的预算静默回注册值
+            validate_retries=(
+                task.validate_retries
+                if task.validate_retries is not None
+                else existing.validate_retries
+            ),
         )
 
         # 解析常量引用：promptmode 的 "{spec.xxx}" 与 inputs 的常量 token

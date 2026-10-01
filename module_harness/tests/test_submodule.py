@@ -323,6 +323,13 @@ class TestSubModule:
         assert out.image_dir == "out"
         assert out.model == "img-model"
 
+    def test_harness_overrides_keep_validate_retries(self):
+        """LLM 覆盖重建 config 时不得丢校验重试预算——漏掉会静默归零。"""
+        hc = HarnessConfig(name="jt", prompt_core="P", validate_retries=3)
+        out = SubModule._apply_harness_overrides(hc, {"model": "m2"})
+        assert out.validate_retries == 3
+        assert out.model == "m2"
+
     @pytest.mark.asyncio
     async def test_run_persist_false_zero_residue(self, tmp_path, monkeypatch, mock_llm):
         monkeypatch.chdir(tmp_path)

@@ -152,6 +152,8 @@ class SubModule:
             mode=hc.mode,
             image_size=hc.image_size,
             image_dir=hc.image_dir,
+            # 校验重试预算原样携带——漏掉会在覆盖时静默归零
+            validate_retries=hc.validate_retries,
         )
 
     async def run(

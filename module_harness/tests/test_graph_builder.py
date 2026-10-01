@@ -381,3 +381,35 @@ class TestImageModePropagation:
         )
         with pytest.raises(ValueError, match="互斥"):
             TasklistTranslator(reg, module_id="m1").build(tl)
+
+
+class TestValidateRetriesPropagation:
+    """Task 级 validate_retries 覆盖传播到隔离注册的 HarnessConfig。"""
+
+    def test_task_overrides_budget(self, mock_llm, reg):
+        reg.harness("jt", HarnessConfig(prompt_core="P", validate_retries=1))
+        tl = Tasklist(
+            tasks={"J": TaskDefinition(type="harness", harness="jt", validate_retries=5)},
+            flow="[J]",
+        )
+        _, out_reg = TasklistTranslator(reg, module_id="m1").build(tl)
+        assert out_reg.harness_config("m1:J").validate_retries == 5
+
+    def test_task_without_field_keeps_base(self, mock_llm, reg):
+        reg.harness("jb", HarnessConfig(prompt_core="P", validate_retries=2))
+        tl = Tasklist(
+            tasks={"J": TaskDefinition(type="harness", harness="jb")},
+            flow="[J]",
+        )
+        _, out_reg = TasklistTranslator(reg, module_id="m1").build(tl)
+        assert out_reg.harness_config("m1:J").validate_retries == 2
+
+    def test_inherited_budget_conflicts_with_image_mode_at_build(self, mock_llm, reg):
+        """注册 config 带预算 + task 覆盖 mode="image"：合成 config 构建期 ValueError。"""
+        reg.harness("jc", HarnessConfig(prompt_core="P", validate_retries=3))
+        tl = Tasklist(
+            tasks={"J": TaskDefinition(type="harness", harness="jc", mode="image")},
+            flow="[J]",
+        )
+        with pytest.raises(ValueError, match="image"):
+            TasklistTranslator(reg, module_id="m1").build(tl)
