@@ -283,6 +283,56 @@ def test_image_node_records_failure_entry(env):
     assert "image_path" not in calls[0]
 
 
+def test_page_node_strips_markdown_fence(env):
+    """页输出带 ```svg 围栏：text 格式库里原样返回、不剥围栏，节点侧必须
+    剥出良构 SVG 落盘——围栏原样落盘即产生质量门 Invalid XML 坏文件，
+    烧修复轮直至超限（ppt_master_23de8d 事故根因）。"""
+    (env / "spec_lock.md").write_text("# lock\npalette: #000000\n", encoding="utf-8")
+    inner = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'></svg>"
+    fenced = f"```svg\n{inner}\n```"
+    view = _View("P01", {"plan": {"status": "ok"}, "calibration": "{}"})
+    out = _run(make_page_node(OkClient(fenced))(view))
+    assert out["status"] == "ok"
+    assert (env / "svg_output" / "page_p01.svg").read_text(encoding="utf-8") == inner
+
+
+def test_repair_node_strips_markdown_fence(env):
+    """修复输出带围栏同 page：剥出良构 SVG 落盘，审计仍记原始输出。"""
+    (env / "spec_lock.md").write_text("# lock\npalette: #000000\n", encoding="utf-8")
+    inner = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'></svg>"
+    fenced = f"```svg\n{inner}\n```"
+    repair = make_repair_node(OkClient(fenced), max_rounds=2)
+    verdict = {"ok": False, "issues": [{"page": "p01", "message": "溢出"}]}
+    view = _View("FinalRepair", {"verdict": verdict, "calibration": "{}"})
+    out = _run(repair(view))
+    assert out["status"] == "ok" and out["repaired"] == ["p01"]
+    assert (env / "svg_output" / "page_p01.svg").read_text(encoding="utf-8") == inner
+    assert view.state["_llm_calls"][0]["raw"] == fenced
+
+
+def test_repair_node_rejects_malformed_svg_without_overwrite(env):
+    """含 <svg 但 XML 残缺（围栏或语法错误）：坏输出不落盘、不覆盖既有好
+    文件，页进 failed 并带非良构原因（含 ParseError 细节）——否则质量门
+    对坏文件烧修复轮直至超限。"""
+    (env / "spec_lock.md").write_text("# lock\npalette: #000000\n", encoding="utf-8")
+    good = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'></svg>"
+    page_file = env / "svg_output" / "page_p01.svg"
+    page_file.parent.mkdir(parents=True, exist_ok=True)
+    page_file.write_text(good, encoding="utf-8")
+    broken = "```svg\n<svg>\n  <text>未闭合\n</svg>\n```"
+    repair = make_repair_node(OkClient(broken), max_rounds=2)
+    verdict = {"ok": False, "issues": [{"page": "p01", "message": "溢出"}]}
+    view = _View("FinalRepair", {"verdict": verdict, "calibration": "{}"})
+    out = _run(repair(view))
+    assert out["repaired"] == []
+    assert len(out["failed"]) == 1 and out["failed"][0]["page"] == "p01"
+    assert "非良构" in out["failed"][0]["error"]
+    assert page_file.read_text(encoding="utf-8") == good
+    calls = view.state["_llm_calls"]
+    assert len(calls) == 1 and "非良构" in calls[0]["error"]
+    assert calls[0]["raw"] == broken
+
+
 def test_repair_rounds_do_not_pollute_previous_record(env):
     """跨 firing 快照保真：引擎 record 浅拷贝状态下，第 2 轮条目不得
     追进第 1 轮已捕获记录共享的 list（rebind 不 append）。"""

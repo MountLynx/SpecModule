@@ -12,13 +12,17 @@ _llm_calls（_record_llm_call），标准键 last-call-wins。
 
 页 SVG 落盘命名 = ``svg_output/page_<页id>.svg``（Task 1 四件套实测锁定，
 checker→finalize→export 全链已验证），统一走 :func:`_page_svg_path`。
+页/修复输出的 SVG 落盘前经 :func:`_extract_wellformed_svg` 定界提取并做
+XML 良构校验——text 格式库里原样返回、不剥围栏，坏输出不落盘。
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree as ET
 
 from tickflow import Failure
 
@@ -38,6 +42,37 @@ def _write_text(path: Path | str, text: str) -> None:
 def _page_svg_path(root: Path, page_id: str) -> Path:
     """页 SVG 路径约定（Task 1 四件套实测锁定）：svg_output/page_<页id>.svg。"""
     return root / "svg_output" / f"page_{page_id}.svg"
+
+
+def _extract_wellformed_svg(raw: Any) -> tuple[str | None, str | None]:
+    """从 LLM 文本输出提取良构 SVG：返回 (svg, None) 或 (None, 原因)。
+
+    text 输出格式在库里是原样返回、不剥 markdown 围栏（OutputFormat 的
+    提取器链只服务 JSON 类型），而模型偶发把 SVG 包进 markdown 围栏或输出
+    残缺 XML——原样落盘即产生非良构坏文件（质量门 Invalid XML，修复预算
+    被烧尽）。按 ``<svg…</svg>`` 定界截取（兼容自闭合 ``<svg/>``）后做 XML
+    良构校验：坏输出不落盘、不覆盖既有好文件，画布规格等质量语义仍归门。
+    """
+    if not isinstance(raw, str):
+        return None, "输出非 SVG"
+    candidates: list[str] = []
+    start, end = raw.find("<svg"), raw.rfind("</svg>")
+    if start != -1 and end >= start:
+        candidates.append(raw[start:end + len("</svg>")])
+    self_closing = re.search(r"<svg\b[^>]*/>", raw)
+    if self_closing is not None:
+        candidates.append(self_closing.group(0))
+    if not candidates:
+        return None, "输出非 SVG"
+    last_error = ""
+    for candidate in candidates:
+        try:
+            ET.fromstring(candidate)
+        except ET.ParseError as e:
+            last_error = str(e)
+        else:
+            return candidate, None
+    return None, f"输出含 SVG 但非良构 XML（{last_error}）"
 
 
 def _record_llm_call(view: Any, *, raw: str | None = None,
@@ -163,9 +198,9 @@ def make_page_node(llm_client: Any, event_bus: Any = None) -> Any:
             )
         except HarnessCallError as e:
             return {"status": "failed", "page": page_id, "error": str(e)}
-        svg = result.value
-        if not isinstance(svg, str) or "<svg" not in svg:
-            return {"status": "failed", "page": page_id, "error": "输出非 SVG"}
+        svg, why = _extract_wellformed_svg(result.value)
+        if svg is None:
+            return {"status": "failed", "page": page_id, "error": why}
         out = _page_svg_path(Path(env["output_dir"]), page_id)
         _write_text(out, svg)
         return {"status": "ok", "page": page_id, "file": str(out)}
@@ -230,11 +265,11 @@ def make_repair_node(llm_client: Any, event_bus: Any = None, max_rounds: int = 2
                                  error=str(e.failure.error))
                 failed.append({"page": page_id, "error": str(e)})
                 continue
-            svg = result.value
-            if not isinstance(svg, str) or "<svg" not in svg:
+            svg, why = _extract_wellformed_svg(result.value)
+            if svg is None:
                 _record_llm_call(view, raw=result.raw, usage=result.usage,
-                                 error="修复输出非 SVG")
-                failed.append({"page": page_id, "error": "修复输出非 SVG"})
+                                 error=f"修复{why}")
+                failed.append({"page": page_id, "error": f"修复{why}"})
                 continue
             _write_text(_page_svg_path(root, page_id), svg)
             _record_llm_call(view, raw=result.raw, usage=result.usage)
