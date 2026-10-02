@@ -16,6 +16,7 @@
 | `build_timeline` | `(module_id: str, base_dir: Path \| None = None) -> ReviewTimeline \| None` | 读 `run.sqlite` firings 构建历史时间线；无数据 → `None` |
 | `timeline_to_dict` | `(timeline: ReviewTimeline) -> dict` | `{module_id, latest_tick, entries: [{tick, node, status, output, error}]}`；entry status ∈ `ok \| failed \| aborted` |
 | `node_run_summary` | `(module_id: str, base_dir: Path \| None = None) -> dict[str, dict] \| None` | 按节点累计运行摘要 `{node: {fired_count, last_status, last_tick}}`（firings 表全量累计，去重语义与 `build_timeline` 一致；未执行节点不在表内，消费方按全节点集叠加 0/None）；db 缺失/读失败 → `None`。监控面共用组合（Web 图节点状态叠加 + WS status 推送）——推送携带累计结构，客户端纯覆盖，无需逐 tick 增量记账（轮询跳拍/断线重连不丢状态） |
+| `node_artifacts` | `(module_id: str, base_dir: Path \| None = None) -> dict[str, list[dict]] \| None` | 按节点提取输出中的文件引用（图产物叠加共享层：Web 图端点/WS 推送共用）。提取源 = `build_timeline` 每节点末条 output；递归收集字符串值 → 相对路径锚 base_dir 解析（与 run 子进程 cwd 同一纪律）→ `os.path.isfile` 存在性锚定；条目 `{index, key, name, path, kind, size, modified}`，kind 与 artifacts.json 按 path 全等比对（命中=清单 kind）；节点内/跨节点按解析路径去重（跨节点先到先得）；db 缺失/读失败 → `None` |
 | `filter_tick` | `(timeline: ReviewTimeline, tick: int) -> ReviewTimeline` | 只留指定 tick |
 | `filter_node` | `(timeline: ReviewTimeline, node: str) -> ReviewTimeline` | 只留指定节点 |
 | `filter_failed` | `(timeline: ReviewTimeline) -> ReviewTimeline` | 只留失败条目 |
