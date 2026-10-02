@@ -31,18 +31,18 @@ entry = ModuleEntry(
     default_spec={
         "project": "demo_deck",
         "source": {"kind": "topic", "topic": (
-            "用大模型做代码评审：LLM 分析 diff，生成按 severity 分类的"
-            " comments；在 200 个 PR 上 accuracy 85%，比规则 baseline 高 15 个百分点。"
+            "SpecModule：spec 驱动的 LLM 任务编排框架——自然语言规格翻译成"
+            " tick 流程图逐拍执行；checkpoint 断点恢复与产物归档开箱即用。"
         )},
         # placeholder 图像：试跑零图像 API 依赖（省略则规划者裁量可能选 ai，
         # 只配 LLM key 的环境会中途失败）；实战在 spec 里换 ai/user。
         "images": {"sources": ["placeholder"]},
         "roster": [
-            {"id": "p01", "title": "LLM 代码评审", "role": "cover"},
-            {"id": "p02", "title": "方法：diff → 分类 comments",
-             "points": ["LLM 分析 diff", "按 severity 分类：critical/warning/suggestion"]},
-            {"id": "p03", "title": "实验：200 PR accuracy 85%",
-             "points": ["比规则 baseline 高 15 个百分点"]},
+            {"id": "p01", "title": "SpecModule：spec 驱动的 LLM 任务编排", "role": "cover"},
+            {"id": "p02", "title": "方法：spec → tick 流程图",
+             "points": ["自然语言规格翻译为 tasklist", "tick 引擎逐拍执行，快照落盘"]},
+            {"id": "p03", "title": "实战：断点恢复与产物归档",
+             "points": ["checkpoint 从任意 tick/手工标签恢复", "run.sqlite + artifacts.json 开箱即用"]},
             {"id": "p04", "title": "结语与未来工作", "role": "closing"},
         ],
     },   # 参考预填值（webview spec 参考/CLI 无 spec 回落）；全字段契约见 spec_schema.py

@@ -1,3 +1,3 @@
 {
-  "raw_text": "灵感草稿：关于用大模型做代码评审的一些想法。\n我们 propose 一个基于 LLM 的代码评审系统，自动 review pull request。\n我们的方法：用 LLM 分析 diff，生成按 severity 分类的 comments。\n实验：在 200 个 PR 上 accuracy 达到 85%，比规则 baseline 高 15 个百分点。\n总结：LLM-based code review 可行，能减少人工负担。未来工作：repo-level context。"
+  "raw_text": "灵感草稿：关于 SpecModule 的一些想法。\n我们 propose 一个 spec 驱动的 LLM 任务编排框架。\n我们的方法：把自然语言规格翻译成 tick 流程图，引擎逐拍执行。\n实测：checkpoint 断点恢复与产物归档开箱即用，实践模块全流程跑通。\n总结：spec 驱动编排可行，能减少 LLM 应用的重复脚手架。未来工作：多模块协作编排。"
 }

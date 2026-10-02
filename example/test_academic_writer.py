@@ -28,8 +28,8 @@ def test_discover_academic_writer():
     assert entry.spec_schema == {"raw_text": "str"}
     assert entry.default_spec == {
         "raw_text": (
-            "灵感草稿：用大模型做代码评审——LLM 分析 diff，生成按 severity 分类的"
-            " comments；在 200 个 PR 上 accuracy 85%，比规则 baseline 高 15 个百分点。"
+            "灵感草稿：SpecModule——spec 驱动的 LLM 任务编排框架，把自然语言"
+            "规格翻译成 tick 流程图逐拍执行；checkpoint 断点恢复，run 产物自动归档。"
         )
     }
     assert set(entry.submodules) == {"fact_review_loop"}
