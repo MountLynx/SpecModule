@@ -463,12 +463,17 @@ def node_artifacts(
                 manifest[os.path.abspath(p)] = e
     result: dict[str, list[dict[str, Any]]] = {}
     claimed: set[str] = set()
+    # 每节点严格取末条 output（append 序无条件覆盖——末条无文件引用即无产物，
+    # 不回看历史 firing）；节点按首现顺序，跨节点按解析路径先到先得
+    last: dict[str, Any] = {}
     for entry in tl.entries:
-        if entry.output is None:
+        last[entry.node] = entry.output
+    for node, output in last.items():
+        if output is None:
             continue
         seen: set[str] = set()
         items: list[dict[str, Any]] = []
-        for key, raw in _walk_strings(entry.output):
+        for key, raw in _walk_strings(output):
             if not raw or "\n" in raw or len(raw) > _ARTIFACT_STR_MAX:
                 continue
             if os.path.isabs(raw):
@@ -496,7 +501,7 @@ def node_artifacts(
                     st.st_mtime).isoformat(timespec="seconds"),
             })
         if items:
-            result[entry.node] = items
+            result[node] = items
     return result
 
 

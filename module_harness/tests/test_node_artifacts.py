@@ -117,3 +117,39 @@ class TestNodeArtifacts:
             "tick": 1, "node": "I", "output": {"output_dir": "projects/demo"},
         }])
         assert node_artifacts("mod_x", base_dir=tmp_path) == {}
+
+    def test_refire_without_refs_drops_node(self, tmp_path):
+        _touch(tmp_path, "old.bin")
+        _seed(tmp_path, firings=[
+            {"tick": 1, "node": "P", "output": {"file": "old.bin"}},
+            {"tick": 2, "node": "P", "output": {"status": "ok"}},
+        ])
+        assert node_artifacts("mod_x", base_dir=tmp_path) == {}
+
+    def test_cross_node_dedupe_after_refire(self, tmp_path):
+        _touch(tmp_path, "shared.bin")
+        _touch(tmp_path, "other.bin")
+        _seed(tmp_path, firings=[
+            {"tick": 1, "node": "A", "output": {"file": "shared.bin"}},
+            {"tick": 2, "node": "B", "output": {"file": "shared.bin"}},
+            {"tick": 3, "node": "A", "output": {"file": "other.bin"}},
+        ])
+        result = node_artifacts("mod_x", base_dir=tmp_path)
+        assert set(result) == {"A", "B"}
+        assert [e["name"] for e in result["A"]] == ["other.bin"]
+        assert [e["name"] for e in result["B"]] == ["shared.bin"]
+
+    def test_manifest_kind_passthrough_and_fallback(self, tmp_path):
+        a = _touch(tmp_path, "mid.bin")
+        b = _touch(tmp_path, "odd.bin")
+        _seed(tmp_path, firings=[{
+            "tick": 1, "node": "K",
+            "output": {"a": "mid.bin", "b": "odd.bin"},
+        }], artifacts=[
+            {"name": "m", "kind": "intermediate", "path": str(a),
+             "size": 11, "modified": "2026-10-02T08:00:00"},
+            {"name": "o", "kind": "weird", "path": str(b),
+             "size": 11, "modified": "2026-10-02T08:00:00"},
+        ])
+        result = node_artifacts("mod_x", base_dir=tmp_path)["K"]
+        assert [e["kind"] for e in result] == ["intermediate", "intermediate"]
