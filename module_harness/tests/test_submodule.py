@@ -149,6 +149,18 @@ class TestSubModule:
         assert b_out == {"translation": "你好世界"}
 
     @pytest.mark.asyncio
+    async def test_run_module_id_honored(self, tmp_path, monkeypatch, mock_llm):
+        """module_id 显式透传：工件落进指定目录（CLI --run-id / webview 发起契约）。"""
+        monkeypatch.chdir(tmp_path)
+        mock_llm.complete.return_value = LLMResponse(
+            content='{"translation": "你好世界"}', usage={}, finish_reason="end_turn")
+        sm = Translator(llm_client=mock_llm)
+        await sm.run({"source_text": "Hello", "style": "formal"},
+                     module_id="custom_run_id", max_ticks=10)
+        run_dir = tmp_path / ".specmodule" / "runs" / "custom_run_id"
+        assert (run_dir / "status.json").exists()
+
+    @pytest.mark.asyncio
     async def test_spec_validation_failure(self, mock_llm):
         sm = Translator(llm_client=mock_llm)
         with pytest.raises(SpecValidationError) as ei:

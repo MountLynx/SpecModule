@@ -30,6 +30,7 @@ import asyncio
 import json
 import sys
 import time
+import uuid
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -311,8 +312,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
             template_name = None
         display = RunDisplay(args.verbose)
         if res.submodule is not None:
-            # packed 形态：SubModule.run（tasklist 固定，审核关闭）
+            # packed 形态：SubModule.run（tasklist 固定，审核关闭）。
+            # run-id 必须显式透传——SubModule.run 缺省自生成随机 id，工件
+            # 会落进调用方未知的目录（CLI 汇总/webview 状态查询都找不到）
             sub = res.submodule
+            run_id = args.run_id or f"{sub.name}_{uuid.uuid4().hex[:6]}"
             event_bus = EventBus()
             if args.template:
                 print("--template 不适用于已打包模块（tasklist 固定）", file=sys.stderr)
@@ -320,12 +324,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
             asyncio.run(sub.run(
                 spec,
                 tasklist=_load_tasklist(args.tasklist) if args.tasklist else None,
+                module_id=run_id,
                 llm_client=llm_client,
                 event_bus=event_bus,
                 hooks=display.hooks(),
                 max_ticks=args.max_ticks,
             ))
-            run_id = sub._module_id()
         else:
             # entry 形态：统一接线 build_module（模板校验/registry/loader/Module）
             mod = res.entry.build_module(
