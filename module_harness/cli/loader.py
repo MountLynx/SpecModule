@@ -12,6 +12,7 @@ from llm import LLMConfig, create_llm_client
 from ..core.builtins import BUILTIN_HARNESS_NAMES
 from .command import CommandConfig
 from ..core.config import HarnessConfig
+from ..infra import store
 from ..infra.events import EventBus
 from ..model.spec import SpecSchema, Tasklist
 from ..model.submodule import SubModule
@@ -54,7 +55,9 @@ class ModuleLoader:
         """llm_client 优先；否则由 llm_config（None → from_env）惰性创建。"""
         if self._llm_client is None:
             if self._llm_config is None:
-                self._llm_config = LLMConfig.from_env()
+                self._llm_config = LLMConfig.from_env(
+                    store_root=store.store_home()
+                )
             self._llm_client = create_llm_client(self._llm_config)
         return self._llm_client
 

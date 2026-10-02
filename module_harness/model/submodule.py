@@ -16,6 +16,7 @@ from llm import LLMConfig, create_llm_client
 from ..core.builtins import register_builtin_harnesses
 from ..cli.command import CommandConfig
 from ..core.config import HarnessConfig
+from ..infra import store
 from ..infra.events import EventBus
 from .module import Module
 from ..core.registry import HarnessRegistry
@@ -91,7 +92,9 @@ class SubModule:
     def _ensure_client(self) -> Any:
         """直接类使用（未注入 client）时从 env 懒创建。"""
         if self._llm_client is None:
-            self._llm_client = create_llm_client(LLMConfig.from_env())
+            self._llm_client = create_llm_client(
+                LLMConfig.from_env(store_root=store.store_home())
+            )
         return self._llm_client
 
     def _module_id(self) -> str:
@@ -161,6 +164,7 @@ class SubModule:
         spec: dict[str, Any],
         *,
         tasklist: Tasklist | dict[str, Any] | None = None,
+        module_id: str | None = None,
         audit: bool = False,
         max_ticks: int = 100,
         harness_overrides: dict[str, Any] | None = None,
@@ -185,6 +189,8 @@ class SubModule:
         - persist：False = 快速模式（NullBackend 全内存 + 无 status.json +
           无 stream.log，零落盘零 I/O）；None = 按 mode 决定（"fast" → False，
           否则 True）
+        - module_id：运行 id 显式指定（CLI --run-id 透传；webview 发起契约
+          依赖它把工件落进签发目录）；缺省自生成 {name}_{6hex}
         - llm_client/event_bus：覆盖实例级注入（宿主进程传入）；None 用实例值
         - hooks：runner hooks 透传（观察通道，与 Module hooks 同语义）
         """
@@ -206,7 +212,7 @@ class SubModule:
             tasklist=use_tasklist,
             llm_client=use_client,
             event_bus=use_bus,
-            module_id=self._module_id(),
+            module_id=module_id or self._module_id(),
             module=self.name,  # 溯源：status.json "module" 键（与 entry 路径一致）
             registry=reg,
             review_harness=review,

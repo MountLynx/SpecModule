@@ -33,6 +33,7 @@ from typing import Any, Callable
 from llm import LLMConfig, create_llm_client
 
 from module_harness.core.config import HarnessConfig
+from module_harness.infra import store
 from module_harness.infra.events import EventBus
 from module_harness.model.module import Module
 from module_harness.core.outputfmt import OutputFormat
@@ -464,7 +465,9 @@ def run_writer(
     - review_harness=None：固定流程模板，发布前已验证，跳过一致性审核
     """
     if llm_client is None:
-        llm_client = create_llm_client(LLMConfig.from_env())
+        llm_client = create_llm_client(
+            LLMConfig.from_env(store_root=store.store_home())
+        )
     if mode == "detailed":
         template_name = "academic_writer_detailed"
         template = DETAILED_TEMPLATE

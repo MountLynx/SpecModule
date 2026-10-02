@@ -20,6 +20,7 @@ from llm import LLMConfig, create_llm_client
 
 from module_harness.cli.command import CommandConfig
 from module_harness.core.registry import HarnessRegistry
+from module_harness.infra import store
 from module_harness.infra.events import EventBus
 from module_harness.model.module import Module
 from module_harness.model.spec import TaskDefinition, Tasklist
@@ -150,7 +151,9 @@ def run_generate(
     O(页数)，实测峰值 ~33，400 为 ~12× 余量。
     """
     if llm_client is None:
-        llm_client = create_llm_client(LLMConfig.from_env())
+        llm_client = create_llm_client(
+            LLMConfig.from_env(store_root=store.store_home())
+        )
     loader = TemplateLoader()
     loader.register("generate", GENERATE_TEMPLATE)
     mod = Module(
