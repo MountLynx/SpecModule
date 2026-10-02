@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -415,6 +417,87 @@ def read_artifacts(
         "run_id": run_id,
         "artifacts": [{**e, "index": i} for i, e in enumerate(entries)],
     }
+
+
+_ARTIFACT_STR_MAX = 512
+
+
+def _walk_strings(value: Any, prefix: str = "") -> Iterator[tuple[str, str]]:
+    """递归展开 output（dict/list），产出 (dot-path, 字符串值)；其他类型跳过。"""
+    if isinstance(value, str):
+        yield prefix, value
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            yield from _walk_strings(v, f"{prefix}.{k}" if prefix else str(k))
+    elif isinstance(value, (list, tuple)):
+        for i, v in enumerate(value):
+            yield from _walk_strings(v, f"{prefix}.{i}" if prefix else str(i))
+
+
+def node_artifacts(
+    module_id: str, base_dir: Path | None = None
+) -> dict[str, list[dict[str, Any]]] | None:
+    """按节点提取输出中的文件引用（图产物叠加共享层：Web 图/WS 推送共用）。
+
+    提取源 = build_timeline 每节点末条 output（与 node_run_summary 同源同容错，
+    append 序末条即最新 firing）；递归收集字符串值 → 解析（绝对直通；相对锚
+    ``base_dir or Path.cwd()``——与 run 子进程 cwd 同一纪律）→ ``os.path.isfile``
+    存在性锚定（"ok"/markdown/stdout blob 天然不命中，零启发式关键词）。
+
+    条目：``{index, key, name, path, kind, size, modified}``——key 为值在输出内
+    的 dot-path（``file`` / ``pptx.1``）；kind 与 artifacts.json 声明清单按
+    path 全等比对（命中 = 清单 kind，缺省 intermediate）；节点内/跨节点均按
+    解析路径去重（跨节点 timeline append 序先到先得）。目录值不收（isfile
+    纪律同 collect_artifacts「v1 只收文件」）。db 缺失/读失败 → None。
+    """
+    tl = build_timeline(module_id, base_dir=base_dir)
+    if tl is None:
+        return None
+    anchor = base_dir if base_dir is not None else Path.cwd()
+    manifest: dict[str, dict[str, Any]] = {}
+    data = read_artifacts(module_id, base_dir=base_dir)
+    if data is not None:
+        for e in data["artifacts"]:
+            p = e.get("path")
+            if isinstance(p, str):
+                manifest[os.path.abspath(p)] = e
+    result: dict[str, list[dict[str, Any]]] = {}
+    claimed: set[str] = set()
+    for entry in tl.entries:
+        if entry.output is None:
+            continue
+        seen: set[str] = set()
+        items: list[dict[str, Any]] = []
+        for key, raw in _walk_strings(entry.output):
+            if not raw or "\n" in raw or len(raw) > _ARTIFACT_STR_MAX:
+                continue
+            if os.path.isabs(raw):
+                path = os.path.abspath(raw)
+            else:
+                path = os.path.abspath(anchor / raw)
+            if path in seen or path in claimed or not os.path.isfile(path):
+                continue
+            seen.add(path)
+            claimed.add(path)
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            declared = manifest.get(path)
+            kind = declared.get("kind") if declared else None
+            items.append({
+                "index": len(items),
+                "key": key,
+                "name": os.path.basename(path),
+                "path": path,
+                "kind": kind if kind in ("deliverable", "intermediate") else "intermediate",
+                "size": st.st_size,
+                "modified": datetime.fromtimestamp(
+                    st.st_mtime).isoformat(timespec="seconds"),
+            })
+        if items:
+            result[entry.node] = items
+    return result
 
 
 # ── run 枚举与删除（run 历史管理共享层：CLI/Web 共用）──────────────────
